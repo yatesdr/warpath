@@ -12,43 +12,43 @@
       <div id="ep-list">
         <div class="ep-group">Order Management</div>
         <div class="ep-item" onclick="loadEP(this,'POST','/setOrder','Set Order',EP_SET_ORDER)"><span>POST /setOrder</span><button class="info-btn" onclick="showInfo(event,'/setOrder')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/setJoinOrder','Set Join Order',EP_JOIN_ORDER)"><span>POST /setJoinOrder</span><button class="info-btn" onclick="showInfo(event,'/setJoinOrder')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/setOrder','Set Join Order',EP_JOIN_ORDER)"><span>POST /setOrder (join)</span><button class="info-btn" onclick="showInfo(event,'/setOrder_join')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'POST','/markComplete','Mark Complete',EP_MARK_COMPLETE)"><span>POST /markComplete</span><button class="info-btn" onclick="showInfo(event,'/markComplete')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/terminateOrder','Terminate Order',EP_TERMINATE)"><span>POST /terminateOrder</span><button class="info-btn" onclick="showInfo(event,'/terminateOrder')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'GET','/queryOrder?id=','Query Order by ID',null)"><span>GET /queryOrder</span><button class="info-btn" onclick="showInfo(event,'/queryOrder')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'GET','/queryOrderByExtId?externalId=','Query by External ID',null)"><span>GET /queryOrderByExtId</span><button class="info-btn" onclick="showInfo(event,'/queryOrderByExtId')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'GET','/queryOrderByBlockId?blockId=','Query by Block ID',null)"><span>GET /queryOrderByBlockId</span><button class="info-btn" onclick="showInfo(event,'/queryOrderByBlockId')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'GET','/pagingQueryOrders?page=0&size=20','Paging Query Orders',null)"><span>GET /pagingQueryOrders</span><button class="info-btn" onclick="showInfo(event,'/pagingQueryOrders')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/terminate','Terminate Order',EP_TERMINATE)"><span>POST /terminate</span><button class="info-btn" onclick="showInfo(event,'/terminate')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'GET','/orderDetails/','Query Order by ID',null)"><span>GET /orderDetails/{id}</span><button class="info-btn" onclick="showInfo(event,'/orderDetails')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'GET','/orderDetailsByExternalId/','Query by External ID',null)"><span>GET /orderDetailsByExternalId/{id}</span><button class="info-btn" onclick="showInfo(event,'/orderDetailsByExternalId')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'GET','/orderDetailsByBlockId/','Query by Block ID',null)"><span>GET /orderDetailsByBlockId/{id}</span><button class="info-btn" onclick="showInfo(event,'/orderDetailsByBlockId')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'GET','/orders?page=0&size=20','Paging Query Orders',null)"><span>GET /orders</span><button class="info-btn" onclick="showInfo(event,'/orders')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'POST','/setPriority','Set Priority',EP_SET_PRIORITY)"><span>POST /setPriority</span><button class="info-btn" onclick="showInfo(event,'/setPriority')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'POST','/setLabel','Set Label',EP_SET_LABEL)"><span>POST /setLabel</span><button class="info-btn" onclick="showInfo(event,'/setLabel')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'POST','/addBlocks','Add Blocks',EP_ADD_BLOCKS)"><span>POST /addBlocks</span><button class="info-btn" onclick="showInfo(event,'/addBlocks')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'POST','/redoFailedOrder','Redo Failed Order',EP_VEHICLES)"><span>POST /redoFailedOrder</span><button class="info-btn" onclick="showInfo(event,'/redoFailedOrder')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'POST','/manualFinished','Manual Finished',EP_VEHICLES)"><span>POST /manualFinished</span><button class="info-btn" onclick="showInfo(event,'/manualFinished')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'GET','/queryBlockDetails?blockId=','Query Block Details',null)"><span>GET /queryBlockDetails</span><button class="info-btn" onclick="showInfo(event,'/queryBlockDetails')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'GET','/blockDetailsById/','Query Block Details',null)"><span>GET /blockDetailsById/{id}</span><button class="info-btn" onclick="showInfo(event,'/blockDetailsById')">i</button></div>
 
         <div class="ep-group">Robot Management</div>
         <div class="ep-item" onclick="loadEP(this,'GET','/robotsStatus','Robot Status',null)"><span>GET /robotsStatus</span><button class="info-btn" onclick="showInfo(event,'/robotsStatus')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'GET','/robotSmap?ip=','Fetch Robot Map',null)"><span>GET /robotSmap</span><button class="info-btn" onclick="showInfo(event,'/robotSmap')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/preemptControl','Preempt Control',EP_VEHICLE_SINGLE)"><span>POST /preemptControl</span><button class="info-btn" onclick="showInfo(event,'/preemptControl')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/releaseControl','Release Control',EP_VEHICLE_SINGLE)"><span>POST /releaseControl</span><button class="info-btn" onclick="showInfo(event,'/releaseControl')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/temporaryModifyParams','Temp Modify Params',EP_MODIFY_PARAMS)"><span>POST /temporaryModifyParams</span><button class="info-btn" onclick="showInfo(event,'/temporaryModifyParams')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/permanentModifyParams','Perm Modify Params',EP_MODIFY_PARAMS)"><span>POST /permanentModifyParams</span><button class="info-btn" onclick="showInfo(event,'/permanentModifyParams')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/restoreParamDefaults','Restore Param Defaults',EP_VEHICLE_SINGLE)"><span>POST /restoreParamDefaults</span><button class="info-btn" onclick="showInfo(event,'/restoreParamDefaults')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/toggleRobotMap','Toggle Robot Map',EP_TOGGLE_MAP)"><span>POST /toggleRobotMap</span><button class="info-btn" onclick="showInfo(event,'/toggleRobotMap')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/configureDispatchableStatus','Dispatchable Status',EP_DISPATCHABLE)"><span>POST /configureDispatchableStatus</span><button class="info-btn" onclick="showInfo(event,'/configureDispatchableStatus')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/confirmRelocalization','Confirm Relocalization',EP_VEHICLE_SINGLE)"><span>POST /confirmRelocalization</span><button class="info-btn" onclick="showInfo(event,'/confirmRelocalization')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/pauseNavigation','Pause Navigation',EP_VEHICLE_SINGLE)"><span>POST /pauseNavigation</span><button class="info-btn" onclick="showInfo(event,'/pauseNavigation')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/resumeNavigation','Resume Navigation',EP_VEHICLE_SINGLE)"><span>POST /resumeNavigation</span><button class="info-btn" onclick="showInfo(event,'/resumeNavigation')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'GET','/robotSmap?vehicle=&map=','Fetch Robot Map',null)"><span>GET /robotSmap</span><button class="info-btn" onclick="showInfo(event,'/robotSmap')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/lock','Preempt Control',EP_VEHICLES)"><span>POST /lock</span><button class="info-btn" onclick="showInfo(event,'/lock')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/unlock','Release Control',EP_VEHICLES)"><span>POST /unlock</span><button class="info-btn" onclick="showInfo(event,'/unlock')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/setParams','Temp Modify Params',EP_MODIFY_PARAMS)"><span>POST /setParams</span><button class="info-btn" onclick="showInfo(event,'/setParams')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/saveParams','Perm Modify Params',EP_MODIFY_PARAMS)"><span>POST /saveParams</span><button class="info-btn" onclick="showInfo(event,'/saveParams')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/reloadParams','Restore Param Defaults',EP_RESTORE_PARAMS)"><span>POST /reloadParams</span><button class="info-btn" onclick="showInfo(event,'/reloadParams')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/switchMap','Switch Robot Map',EP_TOGGLE_MAP)"><span>POST /switchMap</span><button class="info-btn" onclick="showInfo(event,'/switchMap')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/dispatchable','Dispatchable Status',EP_DISPATCHABLE)"><span>POST /dispatchable</span><button class="info-btn" onclick="showInfo(event,'/dispatchable')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/reLocConfirm','Confirm Relocalization',EP_VEHICLES)"><span>POST /reLocConfirm</span><button class="info-btn" onclick="showInfo(event,'/reLocConfirm')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/gotoSitePause','Pause Navigation',EP_VEHICLES)"><span>POST /gotoSitePause</span><button class="info-btn" onclick="showInfo(event,'/gotoSitePause')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/gotoSiteResume','Resume Navigation',EP_VEHICLES)"><span>POST /gotoSiteResume</span><button class="info-btn" onclick="showInfo(event,'/gotoSiteResume')">i</button></div>
 
         <div class="ep-group">Simulation</div>
         <div class="ep-item" onclick="loadEP(this,'GET','/getSimRobotStateTemplate','Sim State Template',null)"><span>GET /getSimRobotStateTemplate</span><button class="info-btn" onclick="showInfo(event,'/getSimRobotStateTemplate')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/updateSimRobotState','Update Sim State',null)"><span>POST /updateSimRobotState</span><button class="info-btn" onclick="showInfo(event,'/updateSimRobotState')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/updateSimRobotState','Update Sim State',EP_UPDATE_SIM)"><span>POST /updateSimRobotState</span><button class="info-btn" onclick="showInfo(event,'/updateSimRobotState')">i</button></div>
 
         <div class="ep-group">Container &amp; Goods</div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/bindContainerGoods','Bind Container Goods',EP_BIND_GOODS)"><span>POST /bindContainerGoods</span><button class="info-btn" onclick="showInfo(event,'/bindContainerGoods')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/unbindGoods','Unbind Goods',EP_UNBIND_GOODS)"><span>POST /unbindGoods</span><button class="info-btn" onclick="showInfo(event,'/unbindGoods')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/unbindGoodsFromContainer','Unbind from Container',EP_UNBIND_CONTAINER)"><span>POST /unbindGoodsFromContainer</span><button class="info-btn" onclick="showInfo(event,'/unbindGoodsFromContainer')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/clearAllContainersGoods','Clear All Goods',EP_VEHICLES)"><span>POST /clearAllContainersGoods</span><button class="info-btn" onclick="showInfo(event,'/clearAllContainersGoods')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/setContainerGoods','Bind Container Goods',EP_BIND_GOODS)"><span>POST /setContainerGoods</span><button class="info-btn" onclick="showInfo(event,'/setContainerGoods')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/clearGoods','Unbind Goods',EP_UNBIND_GOODS)"><span>POST /clearGoods</span><button class="info-btn" onclick="showInfo(event,'/clearGoods')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/clearContainer','Unbind from Container',EP_UNBIND_CONTAINER)"><span>POST /clearContainer</span><button class="info-btn" onclick="showInfo(event,'/clearContainer')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/clearAllContainersGoods','Clear All Goods',EP_CLEAR_ALL_GOODS)"><span>POST /clearAllContainersGoods</span><button class="info-btn" onclick="showInfo(event,'/clearAllContainersGoods')">i</button></div>
 
         <div class="ep-group">Mutex Groups</div>
         <div class="ep-item" onclick="loadEP(this,'POST','/getBlockGroup','Occupy Mutex Group',EP_MUTEX)"><span>POST /getBlockGroup</span><button class="info-btn" onclick="showInfo(event,'/getBlockGroup')">i</button></div>
@@ -56,16 +56,16 @@
         <div class="ep-item" onclick="loadEP(this,'GET','/blockGroupStatus','Mutex Group Status',null)"><span>GET /blockGroupStatus</span><button class="info-btn" onclick="showInfo(event,'/blockGroupStatus')">i</button></div>
 
         <div class="ep-group">Terminals &amp; Devices</div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/callTerminal','Call Terminal',null)"><span>POST /callTerminal</span><button class="info-btn" onclick="showInfo(event,'/callTerminal')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/callTerminal','Call Terminal',EP_CALL_TERMINAL)"><span>POST /callTerminal</span><button class="info-btn" onclick="showInfo(event,'/callTerminal')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'GET','/devicesDetails','Device Details',null)"><span>GET /devicesDetails</span><button class="info-btn" onclick="showInfo(event,'/devicesDetails')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'GET','/binDetails','Bin Details',null)"><span>GET /binDetails</span><button class="info-btn" onclick="showInfo(event,'/binDetails')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'POST','/binCheck','Bin Check',EP_BIN_CHECK)"><span>POST /binCheck</span><button class="info-btn" onclick="showInfo(event,'/binCheck')">i</button></div>
 
         <div class="ep-group">Doors &amp; Lifts</div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/callDoor','Call Door',null)"><span>POST /callDoor</span><button class="info-btn" onclick="showInfo(event,'/callDoor')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/disableDoor','Disable Door',null)"><span>POST /disableDoor</span><button class="info-btn" onclick="showInfo(event,'/disableDoor')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/callLift','Call Lift',null)"><span>POST /callLift</span><button class="info-btn" onclick="showInfo(event,'/callLift')">i</button></div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/disableLift','Disable Lift',null)"><span>POST /disableLift</span><button class="info-btn" onclick="showInfo(event,'/disableLift')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/callDoor','Call Door',EP_CALL_DOOR)"><span>POST /callDoor</span><button class="info-btn" onclick="showInfo(event,'/callDoor')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/disableDoor','Disable Door',EP_DISABLE_DEVICE)"><span>POST /disableDoor</span><button class="info-btn" onclick="showInfo(event,'/disableDoor')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/callLift','Call Lift',EP_CALL_LIFT)"><span>POST /callLift</span><button class="info-btn" onclick="showInfo(event,'/callLift')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/disableLift','Disable Lift',EP_DISABLE_DEVICE)"><span>POST /disableLift</span><button class="info-btn" onclick="showInfo(event,'/disableLift')">i</button></div>
 
         <div class="ep-group">Scene Management</div>
         <div class="ep-item" onclick="loadEP(this,'GET','/downloadScene','Download Scene',null)"><span>GET /downloadScene</span><button class="info-btn" onclick="showInfo(event,'/downloadScene')">i</button></div>
@@ -74,7 +74,7 @@
         <div class="ep-item" onclick="loadEP(this,'GET','/scene','Get Scene',null)"><span>GET /scene</span><button class="info-btn" onclick="showInfo(event,'/scene')">i</button></div>
 
         <div class="ep-group">System</div>
-        <div class="ep-item" onclick="loadEP(this,'POST','/getProfiles','Get Config File',null)"><span>POST /getProfiles</span><button class="info-btn" onclick="showInfo(event,'/getProfiles')">i</button></div>
+        <div class="ep-item" onclick="loadEP(this,'POST','/getProfiles','Get Config File',EP_GET_PROFILES)"><span>POST /getProfiles</span><button class="info-btn" onclick="showInfo(event,'/getProfiles')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'GET','/ping','Ping',null)"><span>GET /ping</span><button class="info-btn" onclick="showInfo(event,'/ping')">i</button></div>
         <div class="ep-item" onclick="loadEP(this,'GET','/licInfo','License Info',null)"><span>GET /licInfo</span><button class="info-btn" onclick="showInfo(event,'/licInfo')">i</button></div>
       </div>
@@ -307,21 +307,28 @@ var EP_SET_LABEL = JSON.stringify({id:"",label:""},null,2);
 var EP_MARK_COMPLETE = JSON.stringify({id:""},null,2);
 var EP_ADD_BLOCKS = JSON.stringify({id:"",blocks:[{blockId:"",location:"",operation:"",binTask:""}],complete:false},null,2);
 var EP_VEHICLES = JSON.stringify({vehicles:[""]},null,2);
-var EP_VEHICLE_SINGLE = JSON.stringify({vehicle:""},null,2);
 var EP_DISPATCHABLE = JSON.stringify({vehicles:[""],type:"dispatchable"},null,2);
-var EP_MODIFY_PARAMS = JSON.stringify({vehicle:"",params:{}},null,2);
+var EP_MODIFY_PARAMS = JSON.stringify({vehicle:"",body:{"pluginName":{"paramName":"value"}}},null,2);
+var EP_RESTORE_PARAMS = JSON.stringify({vehicle:"",body:[{plugin:"",params:[""]}]},null,2);
 var EP_TOGGLE_MAP = JSON.stringify({vehicle:"",map:""},null,2);
 var EP_BIND_GOODS = JSON.stringify({vehicle:"",containerName:"",goodsId:""},null,2);
-var EP_UNBIND_GOODS = JSON.stringify({goodsId:""},null,2);
+var EP_UNBIND_GOODS = JSON.stringify({vehicle:"",goodsId:""},null,2);
 var EP_UNBIND_CONTAINER = JSON.stringify({vehicle:"",containerName:""},null,2);
-var EP_MUTEX = JSON.stringify({groupName:"",occupier:""},null,2);
+var EP_CLEAR_ALL_GOODS = JSON.stringify({vehicle:""},null,2);
+var EP_MUTEX = JSON.stringify({id:"",blockGroup:[""]},null,2);
 var EP_BIN_CHECK = JSON.stringify({bins:[""]},null,2);
+var EP_CALL_TERMINAL = JSON.stringify({id:"",type:"read"},null,2);
+var EP_CALL_DOOR = JSON.stringify([{name:"",state:1}],null,2);
+var EP_DISABLE_DEVICE = JSON.stringify({names:[""],disabled:true},null,2);
+var EP_CALL_LIFT = JSON.stringify([{name:"",target_area:""}],null,2);
+var EP_UPDATE_SIM = JSON.stringify({vehicle_id:"",battery_percentage:1.0},null,2);
+var EP_GET_PROFILES = JSON.stringify({file:"properties.json"},null,2);
 
 // Endpoint descriptions
 var EP_INFO = {
   "/setOrder": {
     title: "Set Order (Block-Based)",
-    desc: "Creates a transport order composed of one or more blocks (steps). The robot executes blocks in sequence. Use this for multi-stop routes or custom workflows. For simple A-to-B transport, use <code>setJoinOrder</code> instead." +
+    desc: "Creates a transport order composed of one or more blocks (steps). The robot executes blocks in sequence. Use this for multi-stop routes or custom workflows. For simple A-to-B transport, use the join order variant instead." +
       "<br><br><strong style='font-size:0.95rem'>Block Types</strong><br>" +
       "There are three types of blocks, determined by which fields you set:" +
       "<br><br><em>1. Bin Location Block</em> &ndash; Robot goes to a named storage bin location (e.g. <code>Loc-01</code>) and performs the action configured for that bin. Set <code>location</code> + <code>binTask</code> (typically <code>\"Load\"</code> or <code>\"Unload\"</code>). Optionally set <code>goodsId</code> to track the cargo." +
@@ -331,9 +338,9 @@ var EP_INFO = {
     params: "<strong>id</strong> &ndash; unique order ID (required)<br><strong>blocks[]</strong> &ndash; array of block objects (see block types above)<br><strong>complete</strong> &ndash; true = all blocks provided; false = more will be added via addBlocks<br><strong>vehicle</strong> &ndash; assign a specific robot (optional)<br><strong>group</strong> &ndash; restrict to a robot group (optional)<br><strong>priority</strong> &ndash; higher value = dispatched sooner (optional)<br><strong>externalId</strong> &ndash; your own reference ID (optional, non-unique)<br><strong>keyRoute</strong> &ndash; waypoint hints to assist dispatch (optional)",
     response: "Returns the created order with state, assigned vehicle, and block details. Check <code>code == 0</code> for success."
   },
-  "/setJoinOrder": {
+  "/setOrder_join": {
     title: "Set Join Order (Point-to-Point)",
-    desc: "Creates a simple pickup-and-delivery order. The robot goes to <code>fromLoc</code>, loads, then goes to <code>toLoc</code> and unloads. This is the most common order type for material transport. Internally creates two sub-orders: <code>{id}_load</code> and <code>{id}_unload</code>.",
+    desc: "Creates a simple pickup-and-delivery order via <code>POST /setOrder</code> with <code>fromLoc</code>/<code>toLoc</code> fields. The robot goes to <code>fromLoc</code>, loads, then goes to <code>toLoc</code> and unloads. This is the most common order type for material transport. Internally creates two sub-orders: <code>{id}_load</code> and <code>{id}_unload</code>.",
     params: "<strong>id</strong> &ndash; unique order ID<br><strong>fromLoc</strong> &ndash; pickup location name<br><strong>toLoc</strong> &ndash; delivery location name<br><strong>priority</strong> &ndash; higher value = dispatched sooner<br><strong>vehicle</strong> &ndash; assign a specific robot (optional)",
     response: "Returns the created order. Check <code>code == 0</code> for success."
   },
@@ -343,31 +350,31 @@ var EP_INFO = {
     params: "<strong>id</strong> &ndash; the order ID to mark complete",
     response: "Success/failure status. <code>code == 0</code> means confirmed."
   },
-  "/terminateOrder": {
+  "/terminate": {
     title: "Terminate Order",
     desc: "Cancels one or more active orders. Can target orders by ID, by order list, or by robot. Use <code>disableVehicle: true</code> to also take the robot offline after cancellation. Use <code>clearAll: true</code> to cancel every active order in the system.",
     params: "<strong>id</strong> &ndash; single order ID<br><strong>idList</strong> &ndash; array of order IDs<br><strong>vehicles</strong> &ndash; cancel all orders on these robots<br><strong>disableVehicle</strong> &ndash; mark robots as non-dispatchable after cancel<br><strong>clearAll</strong> &ndash; cancel everything",
     response: "Success/failure status."
   },
-  "/queryOrder": {
+  "/orderDetails": {
     title: "Query Order by ID",
-    desc: "Retrieves the full details of an order by its RDS order ID. Shows current state, assigned robot, block execution progress, and timing.",
-    params: "<strong>id</strong> &ndash; the order ID (query parameter)",
+    desc: "Retrieves the full details of an order by its RDS order ID. Append the order ID to the path: <code>/orderDetails/{id}</code>. Shows current state, assigned robot, block execution progress, and timing.",
+    params: "<strong>id</strong> &ndash; the order ID (path parameter)",
     response: "Full order object with state, blocks, assigned vehicle, timestamps. States: CREATED, TOBEDISPATCHED, RUNNING, FINISHED, FAILED, STOPPED."
   },
-  "/queryOrderByExtId": {
+  "/orderDetailsByExternalId": {
     title: "Query Order by External ID",
-    desc: "Looks up an order using the external ID you provided when creating it. Useful when your system tracks its own IDs separate from RDS.",
-    params: "<strong>externalId</strong> &ndash; your external ID (query parameter)",
-    response: "Same as queryOrder &ndash; full order details."
+    desc: "Looks up an order using the external ID you provided when creating it. Append the external ID to the path: <code>/orderDetailsByExternalId/{id}</code>. Useful when your system tracks its own IDs separate from RDS.",
+    params: "<strong>id</strong> &ndash; your external ID (path parameter)",
+    response: "Full order details including state, blocks, and assigned vehicle."
   },
-  "/queryOrderByBlockId": {
+  "/orderDetailsByBlockId": {
     title: "Query Order by Block ID",
-    desc: "Finds the parent order that contains a specific block. Useful for tracing which order a particular sub-task belongs to.",
-    params: "<strong>blockId</strong> &ndash; the block ID to search for (query parameter)",
+    desc: "Finds the parent order that contains a specific block. Append the block ID to the path: <code>/orderDetailsByBlockId/{id}</code>. Useful for tracing which order a particular sub-task belongs to.",
+    params: "<strong>id</strong> &ndash; the block ID to search for (path parameter)",
     response: "Full order object containing the matching block."
   },
-  "/pagingQueryOrders": {
+  "/orders": {
     title: "Paging Query Orders",
     desc: "Lists orders with pagination. Returns a page of orders sorted by creation time. Use for browsing order history or building dashboards.",
     params: "<strong>page</strong> &ndash; page number, starting at 0<br><strong>size</strong> &ndash; results per page (default 20)<br>Optional filters: <strong>state</strong>, <strong>vehicle</strong>, <strong>group</strong>",
@@ -381,8 +388,8 @@ var EP_INFO = {
   },
   "/setLabel": {
     title: "Set Order Label",
-    desc: "Attaches or updates a text label on an order. Labels are metadata for your own tracking and have no effect on dispatch behavior.",
-    params: "<strong>id</strong> &ndash; order ID<br><strong>label</strong> &ndash; text label",
+    desc: "Sets a robot-selection label on an order for dispatch filtering. Only robots whose label matches the order label will be considered for dispatch. This controls which robot group can fulfill the order, not just metadata.",
+    params: "<strong>id</strong> &ndash; order ID<br><strong>label</strong> &ndash; dispatch label to match against robot labels",
     response: "Success/failure status."
   },
   "/addBlocks": {
@@ -403,10 +410,10 @@ var EP_INFO = {
     params: "<strong>vehicles</strong> &ndash; array of robot names",
     response: "Success/failure status for each robot."
   },
-  "/queryBlockDetails": {
+  "/blockDetailsById": {
     title: "Query Block Details",
-    desc: "Gets detailed information about a specific block (step) within an order, including its execution state, timing, and assigned robot.",
-    params: "<strong>blockId</strong> &ndash; block ID (query parameter)",
+    desc: "Gets detailed information about a specific block (step) within an order. Append the block ID to the path: <code>/blockDetailsById/{id}</code>. Shows execution state, timing, and assigned robot.",
+    params: "<strong>id</strong> &ndash; block ID (path parameter)",
     response: "Block object with state, location, operation, start/end times."
   },
   "/robotsStatus": {
@@ -418,67 +425,67 @@ var EP_INFO = {
   "/robotSmap": {
     title: "Fetch Robot Map",
     desc: "Downloads the map file currently loaded on a specific robot. Returns the raw map data (SMAP format). Useful for verifying which map version a robot is running.",
-    params: "<strong>ip</strong> &ndash; robot IP address (query parameter)",
+    params: "<strong>vehicle</strong> &ndash; robot/vehicle name (query parameter)<br><strong>map</strong> &ndash; map name (query parameter)",
     response: "Raw map data (binary/text SMAP format)."
   },
-  "/preemptControl": {
-    title: "Preempt Control",
-    desc: "Takes exclusive manual control of a robot, pausing its current automated tasks. The robot will stop accepting dispatch orders until released. Use for maintenance or manual driving.",
-    params: "<strong>vehicle</strong> &ndash; robot name",
+  "/lock": {
+    title: "Preempt Control (Lock)",
+    desc: "Takes exclusive manual control of one or more robots, pausing their current automated tasks. The robots will stop accepting dispatch orders until released via <code>/unlock</code>. Use for maintenance or manual driving.",
+    params: "<strong>vehicles</strong> &ndash; array of robot names to lock",
     response: "Success/failure status."
   },
-  "/releaseControl": {
-    title: "Release Control",
-    desc: "Releases a robot from manual control, returning it to the automated dispatch pool. The robot will resume accepting orders.",
-    params: "<strong>vehicle</strong> &ndash; robot name",
+  "/unlock": {
+    title: "Release Control (Unlock)",
+    desc: "Releases one or more robots from manual control, returning them to the automated dispatch pool. Pass an empty array to release all locked robots.",
+    params: "<strong>vehicles</strong> &ndash; array of robot names to unlock (empty = release all)",
     response: "Success/failure status."
   },
-  "/temporaryModifyParams": {
+  "/setParams": {
     title: "Temporary Modify Parameters",
-    desc: "Changes robot parameters (e.g. speed, acceleration) temporarily. Changes are lost when the robot restarts. Use for testing or temporary adjustments during specific operations.",
-    params: "<strong>vehicle</strong> &ndash; robot name<br><strong>params</strong> &ndash; key-value object of parameter names and values",
+    desc: "Changes robot parameters (e.g. speed, acceleration) temporarily. Changes are lost when the robot restarts. The body is nested by plugin name, then parameter name/value.",
+    params: "<strong>vehicle</strong> &ndash; robot name<br><strong>body</strong> &ndash; nested object: <code>{\"pluginName\": {\"paramName\": \"value\"}}</code>",
     response: "Success/failure status."
   },
-  "/permanentModifyParams": {
+  "/saveParams": {
     title: "Permanent Modify Parameters",
-    desc: "Changes robot parameters permanently. Survives robot restart. Use with caution as incorrect values can affect robot safety and performance.",
-    params: "<strong>vehicle</strong> &ndash; robot name<br><strong>params</strong> &ndash; key-value object of parameter names and values",
+    desc: "Changes robot parameters permanently. Survives robot restart. Use with caution as incorrect values can affect robot safety and performance. Same body format as <code>/setParams</code>.",
+    params: "<strong>vehicle</strong> &ndash; robot name<br><strong>body</strong> &ndash; nested object: <code>{\"pluginName\": {\"paramName\": \"value\"}}</code>",
     response: "Success/failure status."
   },
-  "/restoreParamDefaults": {
+  "/reloadParams": {
     title: "Restore Parameter Defaults",
-    desc: "Resets all parameters on a robot back to factory defaults. Undoes any temporary or permanent parameter modifications.",
-    params: "<strong>vehicle</strong> &ndash; robot name",
+    desc: "Resets specific plugin parameters on a robot back to factory defaults. Takes a list of plugins and their parameter names to restore, not a blanket reset.",
+    params: "<strong>vehicle</strong> &ndash; robot name<br><strong>body</strong> &ndash; array of <code>{\"plugin\": \"name\", \"params\": [\"param1\", \"param2\"]}</code>",
     response: "Success/failure status."
   },
-  "/toggleRobotMap": {
-    title: "Toggle Robot Map",
+  "/switchMap": {
+    title: "Switch Robot Map",
     desc: "Switches a robot to a different map. The robot must be on the new map's floor/area for this to work. Used in multi-floor or multi-zone deployments.",
     params: "<strong>vehicle</strong> &ndash; robot name<br><strong>map</strong> &ndash; target map name",
     response: "Success/failure status."
   },
-  "/configureDispatchableStatus": {
+  "/dispatchable": {
     title: "Configure Dispatchable Status",
-    desc: "Controls whether robots are available for order dispatch. Set to <code>dispatchable</code> to allow a robot to receive orders, or <code>notDispatchable</code> to take it offline without pausing navigation.",
-    params: "<strong>vehicles</strong> &ndash; array of robot names<br><strong>type</strong> &ndash; \"dispatchable\" or \"notDispatchable\"",
+    desc: "Controls whether robots are available for order dispatch. Set to <code>dispatchable</code> to allow a robot to receive orders, <code>undispatchable_unignore</code> to take offline (robot finishes current order), or <code>undispatchable_ignore</code> to take offline immediately.",
+    params: "<strong>vehicles</strong> &ndash; array of robot names<br><strong>type</strong> &ndash; \"dispatchable\", \"undispatchable_unignore\", or \"undispatchable_ignore\"",
     response: "Success/failure status."
   },
-  "/confirmRelocalization": {
+  "/reLocConfirm": {
     title: "Confirm Relocalization",
-    desc: "Confirms that a robot has been correctly repositioned on the map after a manual move or localization drift. Call this after physically placing a robot at a known location.",
-    params: "<strong>vehicle</strong> &ndash; robot name",
+    desc: "Confirms that one or more robots have been correctly repositioned on the map after a manual move or localization drift. Call this after physically placing robots at known locations.",
+    params: "<strong>vehicles</strong> &ndash; array of robot names",
     response: "Success/failure status."
   },
-  "/pauseNavigation": {
+  "/gotoSitePause": {
     title: "Pause Navigation",
-    desc: "Pauses a robot in place. The robot stops moving but retains its current order. Call resumeNavigation to continue. Useful for temporary holds (e.g. while a human crosses the path).",
-    params: "<strong>vehicle</strong> &ndash; robot name",
+    desc: "Pauses one or more robots in place. The robots stop moving but retain their current orders. Call <code>/gotoSiteResume</code> to continue. Useful for temporary holds.",
+    params: "<strong>vehicles</strong> &ndash; array of robot names",
     response: "Success/failure status."
   },
-  "/resumeNavigation": {
+  "/gotoSiteResume": {
     title: "Resume Navigation",
-    desc: "Resumes a paused robot. The robot continues executing its current order from where it stopped.",
-    params: "<strong>vehicle</strong> &ndash; robot name",
+    desc: "Resumes one or more paused robots. The robots continue executing their current orders from where they stopped.",
+    params: "<strong>vehicles</strong> &ndash; array of robot names",
     response: "Success/failure status."
   },
   "/getSimRobotStateTemplate": {
@@ -490,22 +497,22 @@ var EP_INFO = {
   "/updateSimRobotState": {
     title: "Update Simulated Robot State",
     desc: "Sets the state of a simulated robot (position, battery, status, etc.). Only works when RDS is running in simulation mode. Use for testing order dispatch without real hardware.",
-    params: "Robot state object (use getSimRobotStateTemplate for field reference)",
+    params: "<strong>vehicle_id</strong> &ndash; simulated robot name<br><strong>battery_percentage</strong> &ndash; battery level (0.0-1.0)<br>Additional fields per getSimRobotStateTemplate",
     response: "Success/failure status."
   },
-  "/bindContainerGoods": {
+  "/setContainerGoods": {
     title: "Bind Container Goods",
     desc: "Associates a goods ID with a container on a robot. Used to track what cargo a robot is carrying. The binding persists until explicitly unbound or the goods are delivered.",
     params: "<strong>vehicle</strong> &ndash; robot name<br><strong>containerName</strong> &ndash; container slot on the robot<br><strong>goodsId</strong> &ndash; identifier for the goods being carried",
     response: "Success/failure status."
   },
-  "/unbindGoods": {
+  "/clearGoods": {
     title: "Unbind Goods",
-    desc: "Removes a goods binding by goods ID, regardless of which robot or container holds it. Use when goods have been delivered or removed from the system.",
-    params: "<strong>goodsId</strong> &ndash; the goods ID to unbind",
+    desc: "Removes a goods binding by vehicle and goods ID. Use when goods have been delivered or removed from the system.",
+    params: "<strong>vehicle</strong> &ndash; robot name<br><strong>goodsId</strong> &ndash; the goods ID to unbind",
     response: "Success/failure status."
   },
-  "/unbindGoodsFromContainer": {
+  "/clearContainer": {
     title: "Unbind Goods from Container",
     desc: "Removes all goods bindings from a specific container on a specific robot. Use when a container has been emptied.",
     params: "<strong>vehicle</strong> &ndash; robot name<br><strong>containerName</strong> &ndash; container slot name",
@@ -513,44 +520,44 @@ var EP_INFO = {
   },
   "/clearAllContainersGoods": {
     title: "Clear All Container Goods",
-    desc: "Removes all goods bindings from all containers on the specified robots. Use as a reset when container tracking has gotten out of sync.",
-    params: "<strong>vehicles</strong> &ndash; array of robot names",
+    desc: "Removes all goods bindings from all containers on a single robot. Takes <code>vehicle</code> (singular string), not an array. Use as a reset when container tracking has gotten out of sync.",
+    params: "<strong>vehicle</strong> &ndash; robot name (singular, not array)",
     response: "Success/failure status."
   },
   "/getBlockGroup": {
     title: "Occupy Mutex Group",
-    desc: "Claims exclusive access to a named mutex group. Mutex groups prevent multiple robots from entering the same restricted area simultaneously (e.g. narrow aisles, elevators). The occupier string identifies who holds the lock.",
-    params: "<strong>groupName</strong> &ndash; mutex group name<br><strong>occupier</strong> &ndash; identifier for the occupier (usually robot name)",
-    response: "Success if acquired, failure if already occupied."
+    desc: "Claims exclusive access to one or more mutex groups. Mutex groups prevent multiple robots from entering the same restricted area simultaneously (e.g. narrow aisles, elevators). Returns a bare JSON array (not wrapped in Response envelope).",
+    params: "<strong>id</strong> &ndash; identifier for the occupier (usually robot name)<br><strong>blockGroup</strong> &ndash; array of mutex group names to claim",
+    response: "Array of results with name, isOccupied, and occupier fields."
   },
   "/releaseBlockGroup": {
     title: "Release Mutex Group",
-    desc: "Releases a previously claimed mutex group, allowing other robots to enter the area.",
-    params: "<strong>groupName</strong> &ndash; mutex group name<br><strong>occupier</strong> &ndash; must match the original occupier",
-    response: "Success/failure status."
+    desc: "Releases previously claimed mutex groups, allowing other robots to enter the areas. Returns a bare JSON array.",
+    params: "<strong>id</strong> &ndash; must match the original occupier<br><strong>blockGroup</strong> &ndash; array of mutex group names to release",
+    response: "Array of results with name, isOccupied, and occupier fields."
   },
   "/blockGroupStatus": {
     title: "Mutex Group Status",
-    desc: "Shows the current state of all mutex groups: which are occupied, by whom, and which are free. Use for monitoring traffic flow and debugging deadlocks.",
+    desc: "Shows the current state of all mutex groups: which are occupied, by whom, and which are free. Returns a bare JSON array. Use for monitoring traffic flow and debugging deadlocks.",
     params: "None",
-    response: "Array of mutex groups with name, occupied flag, and occupier."
+    response: "Array of mutex groups with name, isOccupied, and occupier."
   },
   "/callTerminal": {
     title: "Call Terminal",
     desc: "Sends a command to an external terminal device (e.g. a conveyor, turntable, or automated door) that is integrated with RDS. The terminal must be pre-configured in the RDS scene.",
-    params: "Terminal-specific (check RDS scene config for available terminals)",
-    response: "Success/failure status."
+    params: "<strong>id</strong> &ndash; terminal ID from scene config<br><strong>type</strong> &ndash; command type (e.g. \"read\", \"write\")",
+    response: "Terminal-specific response data."
   },
   "/devicesDetails": {
     title: "Device Details",
-    desc: "Lists all external devices configured in the RDS system and their current status. Includes conveyors, doors, lifts, and other integrated equipment.",
-    params: "None",
-    response: "Array of devices with name, type, status, and connection info."
+    desc: "Lists all external devices configured in the RDS system and their current status. Includes doors, lifts, terminals, and other integrated equipment. Optionally filter by device names.",
+    params: "Optional: <strong>devices</strong> query param &ndash; comma-separated device names",
+    response: "Object with <code>doors</code>, <code>lifts</code>, and <code>terminals</code> arrays showing name, state, and disabled status."
   },
   "/binDetails": {
     title: "Bin Details",
     desc: "Returns the status of all bin locations (storage positions). Shows which bins are occupied, reserved, or available. Bins are the pickup/dropoff points that robots visit.",
-    params: "None &ndash; or pass <strong>groups</strong> query param to filter by location group",
+    params: "None &ndash; or pass <strong>binGroups</strong> query param to filter by location group",
     response: "Array of bins with name, group, occupied state, and reservation info."
   },
   "/binCheck": {
@@ -561,38 +568,38 @@ var EP_INFO = {
   },
   "/callDoor": {
     title: "Call Door",
-    desc: "Opens an automated door that is integrated with RDS. Doors are configured as part of the scene and are normally controlled automatically during robot navigation.",
-    params: "Door-specific (check RDS scene config)",
+    desc: "Opens or closes one or more automated doors integrated with RDS. The request body is a JSON array of door commands. Doors are configured as part of the scene.",
+    params: "Array of objects: <strong>name</strong> &ndash; door name, <strong>state</strong> &ndash; 1 = open, 0 = close",
     response: "Success/failure status."
   },
   "/disableDoor": {
     title: "Disable Door",
-    desc: "Disables automatic door control. When disabled, RDS will not attempt to open the door during robot navigation. Use during maintenance or when manual door control is needed.",
-    params: "Door-specific (check RDS scene config)",
+    desc: "Disables or enables automatic door control. When disabled, RDS will not attempt to open the door during robot navigation. Use during maintenance or when manual door control is needed.",
+    params: "<strong>names</strong> &ndash; array of door names<br><strong>disabled</strong> &ndash; true to disable, false to re-enable",
     response: "Success/failure status."
   },
   "/callLift": {
     title: "Call Lift",
-    desc: "Calls an elevator/lift to a specific floor. Used in multi-floor deployments where robots need to move between levels.",
-    params: "Lift-specific (check RDS scene config)",
+    desc: "Calls one or more elevators/lifts to specific floors. The request body is a JSON array of lift commands. Used in multi-floor deployments where robots need to move between levels.",
+    params: "Array of objects: <strong>name</strong> &ndash; lift name, <strong>target_area</strong> &ndash; destination floor/area",
     response: "Success/failure status."
   },
   "/disableLift": {
     title: "Disable Lift",
-    desc: "Disables automatic lift control. When disabled, RDS will not use the lift for robot routing. Use during lift maintenance.",
-    params: "Lift-specific (check RDS scene config)",
+    desc: "Disables or enables automatic lift control. When disabled, RDS will not use the lift for robot routing. Use during lift maintenance.",
+    params: "<strong>names</strong> &ndash; array of lift names<br><strong>disabled</strong> &ndash; true to disable, false to re-enable",
     response: "Success/failure status."
   },
   "/downloadScene": {
     title: "Download Scene",
-    desc: "Downloads the complete scene configuration from RDS. The scene defines all locations, paths, zones, devices, and their relationships. Use to back up the configuration or inspect the layout.",
+    desc: "Downloads the complete scene configuration from RDS as raw binary. The scene defines all locations, paths, zones, devices, and their relationships. Use to back up the configuration.",
     params: "None",
-    response: "Full scene JSON with locations, paths, zones, bin groups, device configs."
+    response: "Raw binary scene data."
   },
   "/uploadScene": {
     title: "Upload Scene",
-    desc: "Uploads a new scene configuration to RDS. <strong>Warning:</strong> this replaces the entire scene. Typically used for initial setup or major layout changes. Requires a syncScene call afterward.",
-    params: "Full scene JSON object",
+    desc: "Uploads a new scene configuration to RDS as raw binary. <strong>Warning:</strong> this replaces the entire scene. Typically used for initial setup or major layout changes. Requires a <code>/syncScene</code> call afterward.",
+    params: "Raw binary scene data",
     response: "Success/failure status."
   },
   "/syncScene": {
@@ -603,27 +610,27 @@ var EP_INFO = {
   },
   "/scene": {
     title: "Get Scene",
-    desc: "Returns the current scene configuration. Lighter-weight than downloadScene &ndash; returns the live in-memory scene rather than the persisted version.",
+    desc: "Returns the current scene configuration. Lighter-weight than downloadScene &ndash; returns the live in-memory scene as structured JSON rather than raw binary.",
     params: "None",
-    response: "Scene object with locations, paths, zones, and bin groups."
+    response: "Scene object with areas, locations, paths, zones, and bin groups."
   },
   "/getProfiles": {
     title: "Get Configuration Profiles",
-    desc: "Retrieves the RDS system configuration file(s). Shows internal settings like dispatch strategy, traffic rules, and device integration parameters.",
-    params: "None",
-    response: "Configuration object with system-level settings."
+    desc: "Retrieves an RDS system configuration file by name. Returns arbitrary config JSON specific to the requested file.",
+    params: "<strong>file</strong> &ndash; config file name (e.g. \"properties.json\")",
+    response: "Raw JSON configuration content."
   },
   "/ping": {
     title: "Ping",
-    desc: "Health check endpoint. Returns a simple response confirming the RDS service is running and responsive. Use to verify connectivity before sending orders.",
+    desc: "Health check endpoint. Returns product name and version, confirming the RDS service is running and responsive. Use to verify connectivity before sending orders.",
     params: "None",
-    response: "Simple response with <code>code: 0</code> if healthy."
+    response: "Object with <code>product</code> and <code>version</code> fields."
   },
   "/licInfo": {
     title: "License Info",
     desc: "Returns the current RDS license information, including the licensed robot count, expiration date, and feature flags.",
     params: "None",
-    response: "License object with max robots, expiry, and enabled features."
+    response: "License object with maxRobots, expiry, and enabled features array."
   }
 };
 

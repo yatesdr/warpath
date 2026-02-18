@@ -1,5 +1,7 @@
 package rds
 
+import "encoding/json"
+
 // Response is the common RDS API response envelope.
 type Response struct {
 	Code     int    `json:"code"`
@@ -264,4 +266,179 @@ type RobotEntry struct {
 type PingResponse struct {
 	Product string `json:"product"`
 	Version string `json:"version"`
+}
+
+// --- Additional order types ---
+
+type MarkCompleteRequest struct {
+	ID string `json:"id"`
+}
+
+type SetLabelRequest struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type AddBlocksRequest struct {
+	ID       string  `json:"id"`
+	Blocks   []Block `json:"blocks"`
+	Complete bool    `json:"complete"`
+}
+
+// --- Additional robot types ---
+
+type VehiclesRequest struct {
+	Vehicles []string `json:"vehicles"`
+}
+
+type SwitchMapRequest struct {
+	Vehicle string `json:"vehicle"`
+	Map     string `json:"map"`
+}
+
+type ModifyParamsRequest struct {
+	Vehicle string                       `json:"vehicle"`
+	Body    map[string]map[string]any    `json:"body"`
+}
+
+type RestoreParamsEntry struct {
+	Plugin string   `json:"plugin"`
+	Params []string `json:"params"`
+}
+
+type RestoreParamsRequest struct {
+	Vehicle string               `json:"vehicle"`
+	Body    []RestoreParamsEntry `json:"body"`
+}
+
+// --- Simulation types ---
+
+type SimStateTemplateResponse struct {
+	Response
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+type UpdateSimStateResponse struct {
+	Response
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+// --- Container types ---
+
+type BindGoodsRequest struct {
+	Vehicle       string `json:"vehicle"`
+	ContainerName string `json:"containerName"`
+	GoodsID       string `json:"goodsId"`
+}
+
+type UnbindGoodsRequest struct {
+	Vehicle string `json:"vehicle"`
+	GoodsID string `json:"goodsId"`
+}
+
+type UnbindContainerRequest struct {
+	Vehicle       string `json:"vehicle"`
+	ContainerName string `json:"containerName"`
+}
+
+type ClearAllGoodsRequest struct {
+	Vehicle string `json:"vehicle"`
+}
+
+// --- Mutex types ---
+
+type MutexGroupRequest struct {
+	ID         string   `json:"id"`
+	BlockGroup []string `json:"blockGroup"`
+}
+
+type MutexGroupResult struct {
+	Name       string `json:"name"`
+	IsOccupied bool   `json:"isOccupied"`
+	Occupier   string `json:"occupier"`
+}
+
+type MutexGroupStatus struct {
+	Name       string `json:"name"`
+	IsOccupied bool   `json:"isOccupied"`
+	Occupier   string `json:"occupier"`
+}
+
+// --- Device types ---
+
+type CallTerminalRequest struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+type CallTerminalResponse struct {
+	Response
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+type DevicesResponse struct {
+	Response
+	Doors     []DoorStatus     `json:"doors,omitempty"`
+	Lifts     []LiftStatus     `json:"lifts,omitempty"`
+	Terminals []TerminalStatus `json:"terminals,omitempty"`
+}
+
+type DoorStatus struct {
+	Name     string              `json:"name"`
+	State    int                 `json:"state"`
+	Disabled bool                `json:"disabled"`
+	Reasons  []UnavailableReason `json:"reasons,omitempty"`
+}
+
+type LiftStatus struct {
+	Name     string              `json:"name"`
+	State    int                 `json:"state"`
+	Disabled bool                `json:"disabled"`
+	Reasons  []UnavailableReason `json:"reasons,omitempty"`
+}
+
+type UnavailableReason struct {
+	Reason string `json:"reason"`
+}
+
+type TerminalStatus struct {
+	ID    string `json:"id"`
+	State int    `json:"state"`
+}
+
+type CallDoorRequest struct {
+	Name  string `json:"name"`
+	State int    `json:"state"`
+}
+
+type DisableDeviceRequest struct {
+	Names    []string `json:"names"`
+	Disabled bool     `json:"disabled"`
+}
+
+type CallLiftRequest struct {
+	Name       string `json:"name"`
+	TargetArea string `json:"target_area"`
+}
+
+// --- System types ---
+
+type GetProfilesRequest struct {
+	File string `json:"file"`
+}
+
+type LicenseResponse struct {
+	Response
+	Data *LicenseInfo `json:"data,omitempty"`
+}
+
+type LicenseInfo struct {
+	MaxRobots int              `json:"maxRobots"`
+	Expiry    string           `json:"expiry"`
+	Features  []LicenseFeature `json:"features,omitempty"`
+}
+
+type LicenseFeature struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
 }

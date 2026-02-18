@@ -65,6 +65,31 @@ func (c *Client) decode(resp *http.Response, result any) error {
 	return nil
 }
 
+func (c *Client) getRaw(path string) ([]byte, error) {
+	resp, err := c.httpClient.Get(c.baseURL + path)
+	if err != nil {
+		return nil, fmt.Errorf("rds GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("rds read body: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("rds HTTP %d: %s", resp.StatusCode, string(data))
+	}
+	return data, nil
+}
+
+func (c *Client) postRaw(path string, contentType string, body io.Reader, result any) error {
+	resp, err := c.httpClient.Post(c.baseURL+path, contentType, body)
+	if err != nil {
+		return fmt.Errorf("rds POST %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	return c.decode(resp, result)
+}
+
 // Reconfigure updates the client's base URL and timeout for hot-reload.
 func (c *Client) Reconfigure(baseURL string, timeout time.Duration) {
 	c.baseURL = baseURL

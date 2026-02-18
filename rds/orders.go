@@ -62,3 +62,69 @@ func (c *Client) SetPriority(id string, priority int) error {
 	}
 	return checkResponse(&resp)
 }
+
+// MarkComplete marks an incremental order as complete (no more blocks will be added).
+func (c *Client) MarkComplete(req *MarkCompleteRequest) error {
+	var resp Response
+	if err := c.post("/markComplete", req, &resp); err != nil {
+		return err
+	}
+	return checkResponse(&resp)
+}
+
+// GetOrderByExternalID retrieves order details by external ID.
+func (c *Client) GetOrderByExternalID(externalID string) (*OrderDetail, error) {
+	var resp OrderDetailsResponse
+	if err := c.get(fmt.Sprintf("/orderDetailsByExternalId/%s", externalID), &resp); err != nil {
+		return nil, err
+	}
+	if err := checkResponse(&resp.Response); err != nil {
+		return nil, err
+	}
+	return resp.Data, nil
+}
+
+// GetOrderByBlockID retrieves the parent order containing a specific block.
+func (c *Client) GetOrderByBlockID(blockID string) (*OrderDetail, error) {
+	var resp OrderDetailsResponse
+	if err := c.get(fmt.Sprintf("/orderDetailsByBlockId/%s", blockID), &resp); err != nil {
+		return nil, err
+	}
+	if err := checkResponse(&resp.Response); err != nil {
+		return nil, err
+	}
+	return resp.Data, nil
+}
+
+// SetLabel sets a dispatch-filtering label on an order.
+func (c *Client) SetLabel(id, label string) error {
+	var resp Response
+	if err := c.post("/setLabel", &SetLabelRequest{ID: id, Label: label}, &resp); err != nil {
+		return err
+	}
+	return checkResponse(&resp)
+}
+
+// AddBlocks appends blocks to an existing incremental order.
+func (c *Client) AddBlocks(id string, blocks []Block, complete bool) error {
+	var resp Response
+	if err := c.post("/addBlocks", &AddBlocksRequest{ID: id, Blocks: blocks, Complete: complete}, &resp); err != nil {
+		return err
+	}
+	return checkResponse(&resp)
+}
+
+// GetBlockDetails retrieves details for a specific block by its ID.
+func (c *Client) GetBlockDetails(blockID string) (*BlockDetail, error) {
+	var resp struct {
+		Response
+		Data *BlockDetail `json:"data,omitempty"`
+	}
+	if err := c.get(fmt.Sprintf("/blockDetailsById/%s", blockID), &resp); err != nil {
+		return nil, err
+	}
+	if err := checkResponse(&resp.Response); err != nil {
+		return nil, err
+	}
+	return resp.Data, nil
+}

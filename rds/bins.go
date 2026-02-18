@@ -45,11 +45,3 @@ func (c *Client) GetScene() (*Scene, error) {
 	return resp.Data, nil
 }
 
-// Ping checks RDS Core connectivity and returns product/version info.
-func (c *Client) Ping() (*PingResponse, error) {
-	var resp PingResponse
-	if err := c.get("/ping", &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
