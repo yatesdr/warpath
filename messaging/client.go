@@ -76,7 +76,9 @@ func (c *Client) connectMQTT() error {
 
 	c.mqtt = mqtt.NewClient(opts)
 	token := c.mqtt.Connect()
-	token.Wait()
+	if ok := token.WaitTimeout(5 * time.Second); !ok {
+		return fmt.Errorf("mqtt connect timeout (will retry in background)")
+	}
 	return token.Error()
 }
 
