@@ -50,6 +50,9 @@ func (d *OutboxDrainer) run() {
 }
 
 func (d *OutboxDrainer) drain() {
+	if !d.client.IsConnected() {
+		return
+	}
 	msgs, err := d.db.ListPendingOutbox(50)
 	if err != nil {
 		log.Printf("outbox: list pending: %v", err)

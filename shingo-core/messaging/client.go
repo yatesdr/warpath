@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/segmentio/kafka-go"
 
 	"shingocore/config"
@@ -18,9 +19,7 @@ type MessageHandler func(topic string, payload []byte)
 type Client struct {
 	mu       sync.RWMutex
 	cfg      *config.MessagingConfig
-	mqtt     mqtt.Client
 	kafka    *kafkaState
-	backend  string
 	handlers map[string]MessageHandler
 }
 
@@ -32,7 +31,6 @@ type kafkaState struct {
 func NewClient(cfg *config.MessagingConfig) *Client {
 	return &Client{
 		cfg:      cfg,
-		backend:  cfg.Backend,
 		handlers: make(map[string]MessageHandler),
 	}
 }
@@ -41,48 +39,6 @@ func (c *Client) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	switch c.backend {
-	case "mqtt":
-		return c.connectMQTT()
-	case "kafka":
-		return c.connectKafka()
-	default:
-		return fmt.Errorf("unsupported messaging backend: %s", c.backend)
-	}
-}
-
-func (c *Client) connectMQTT() error {
-	broker := fmt.Sprintf("tcp://%s:%d", c.cfg.MQTT.Broker, c.cfg.MQTT.Port)
-	opts := mqtt.NewClientOptions().
-		AddBroker(broker).
-		SetClientID(c.cfg.MQTT.ClientID).
-		SetAutoReconnect(true).
-		SetConnectRetry(true).
-		SetConnectRetryInterval(5 * time.Second).
-		SetConnectionLostHandler(func(_ mqtt.Client, err error) {
-			log.Printf("messaging: mqtt connection lost: %v", err)
-		}).
-		SetOnConnectHandler(func(client mqtt.Client) {
-			log.Printf("messaging: mqtt connected to %s", broker)
-			c.mu.RLock()
-			defer c.mu.RUnlock()
-			for topic, handler := range c.handlers {
-				h := handler
-				client.Subscribe(topic, 1, func(_ mqtt.Client, msg mqtt.Message) {
-					h(msg.Topic(), msg.Payload())
-				})
-			}
-		})
-
-	c.mqtt = mqtt.NewClient(opts)
-	token := c.mqtt.Connect()
-	if ok := token.WaitTimeout(5 * time.Second); !ok {
-		return fmt.Errorf("mqtt connect timeout (will retry in background)")
-	}
-	return token.Error()
-}
-
-func (c *Client) connectKafka() error {
 	if len(c.cfg.Kafka.Brokers) == 0 {
 		return fmt.Errorf("no kafka brokers configured")
 	}
@@ -95,7 +51,6 @@ func (c *Client) connectKafka() error {
 		conn, connErr = kafka.DialContext(ctx, "tcp", broker)
 		cancel()
 		if connErr == nil {
-			conn.Close()
 			log.Printf("messaging: kafka connected to %s", broker)
 			break
 		}
@@ -103,6 +58,10 @@ func (c *Client) connectKafka() error {
 	if connErr != nil {
 		return fmt.Errorf("kafka connect: %w", connErr)
 	}
+
+	// Ensure configured topics exist before setting up readers/writer
+	c.ensureTopics(conn, c.cfg.OrdersTopic, c.cfg.DispatchTopic)
+	conn.Close()
 
 	c.kafka = &kafkaState{
 		readers: make(map[string]*kafka.Reader),
@@ -118,24 +77,51 @@ func (c *Client) Publish(topic string, payload []byte) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	switch c.backend {
-	case "mqtt":
-		if c.mqtt == nil {
-			return fmt.Errorf("mqtt not connected")
+	if c.kafka == nil || c.kafka.writer == nil {
+		return fmt.Errorf("kafka not connected")
+	}
+	return c.kafka.writer.WriteMessages(context.Background(), kafka.Message{
+		Topic: topic,
+		Value: payload,
+	})
+}
+
+// ensureTopics creates Kafka topics if they don't already exist.
+// Requires a live connection to any broker; uses it to discover the
+// controller and issue CreateTopics. Errors are logged but not fatal
+// since the broker may have auto.create.topics.enable=true anyway.
+func (c *Client) ensureTopics(conn *kafka.Conn, topics ...string) {
+	if len(topics) == 0 {
+		return
+	}
+
+	controller, err := conn.Controller()
+	if err != nil {
+		log.Printf("messaging: cannot find controller for topic creation: %v", err)
+		return
+	}
+
+	controllerAddr := net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port))
+	controllerConn, err := kafka.Dial("tcp", controllerAddr)
+	if err != nil {
+		log.Printf("messaging: cannot connect to controller: %v", err)
+		return
+	}
+	defer controllerConn.Close()
+
+	configs := make([]kafka.TopicConfig, len(topics))
+	for i, t := range topics {
+		configs[i] = kafka.TopicConfig{
+			Topic:             t,
+			NumPartitions:     1,
+			ReplicationFactor: 1,
 		}
-		token := c.mqtt.Publish(topic, 1, false, payload)
-		token.Wait()
-		return token.Error()
-	case "kafka":
-		if c.kafka == nil || c.kafka.writer == nil {
-			return fmt.Errorf("kafka not connected")
-		}
-		return c.kafka.writer.WriteMessages(context.Background(), kafka.Message{
-			Topic: topic,
-			Value: payload,
-		})
-	default:
-		return fmt.Errorf("unsupported backend: %s", c.backend)
+	}
+
+	if err := controllerConn.CreateTopics(configs...); err != nil {
+		log.Printf("messaging: topic auto-create: %v", err)
+	} else {
+		log.Printf("messaging: ensured topics exist: %v", topics)
 	}
 }
 
@@ -145,39 +131,25 @@ func (c *Client) Subscribe(topic string, handler MessageHandler) error {
 
 	c.handlers[topic] = handler
 
-	switch c.backend {
-	case "mqtt":
-		if c.mqtt == nil || !c.mqtt.IsConnected() {
-			return nil // will subscribe on connect
-		}
-		token := c.mqtt.Subscribe(topic, 1, func(_ mqtt.Client, msg mqtt.Message) {
-			handler(msg.Topic(), msg.Payload())
-		})
-		token.Wait()
-		return token.Error()
-	case "kafka":
-		if c.kafka == nil {
-			return fmt.Errorf("kafka not connected")
-		}
-		reader := kafka.NewReader(kafka.ReaderConfig{
-			Brokers: c.cfg.Kafka.Brokers,
-			Topic:   topic,
-			GroupID: c.cfg.MQTT.ClientID,
-		})
-		c.kafka.readers[topic] = reader
-		go func() {
-			for {
-				msg, err := reader.ReadMessage(context.Background())
-				if err != nil {
-					return
-				}
-				handler(msg.Topic, msg.Value)
-			}
-		}()
-		return nil
-	default:
-		return fmt.Errorf("unsupported backend: %s", c.backend)
+	if c.kafka == nil {
+		return fmt.Errorf("kafka not connected")
 	}
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers: c.cfg.Kafka.Brokers,
+		Topic:   topic,
+		GroupID: c.cfg.Kafka.GroupID,
+	})
+	c.kafka.readers[topic] = reader
+	go func() {
+		for {
+			msg, err := reader.ReadMessage(context.Background())
+			if err != nil {
+				return
+			}
+			handler(msg.Topic, msg.Value)
+		}
+	}()
+	return nil
 }
 
 // PublishEnvelope encodes and publishes a protocol envelope to the given topic.
@@ -192,44 +164,46 @@ func (c *Client) PublishEnvelope(topic string, env interface{ Encode() ([]byte, 
 func (c *Client) IsConnected() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
-	switch c.backend {
-	case "mqtt":
-		return c.mqtt != nil && c.mqtt.IsConnected()
-	case "kafka":
-		return c.kafka != nil
-	default:
-		return false
-	}
+	return c.kafka != nil
 }
 
 // Reconfigure closes the existing connection and reconnects with new config.
+// All previously registered subscriptions are automatically restored.
 func (c *Client) Reconfigure(cfg *config.MessagingConfig) error {
 	c.Close()
 	c.mu.Lock()
 	c.cfg = cfg
-	c.backend = cfg.Backend
+	// Snapshot handlers before releasing lock
+	handlers := make(map[string]MessageHandler, len(c.handlers))
+	for k, v := range c.handlers {
+		handlers[k] = v
+	}
 	c.mu.Unlock()
-	return c.Connect()
+
+	if err := c.Connect(); err != nil {
+		return err
+	}
+
+	// Re-subscribe all previously registered handlers
+	for topic, handler := range handlers {
+		if err := c.Subscribe(topic, handler); err != nil {
+			log.Printf("messaging: re-subscribe %s after reconfigure: %v", topic, err)
+		}
+	}
+	return nil
 }
 
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	switch c.backend {
-	case "mqtt":
-		if c.mqtt != nil {
-			c.mqtt.Disconnect(1000)
+	if c.kafka != nil {
+		for _, r := range c.kafka.readers {
+			r.Close()
 		}
-	case "kafka":
-		if c.kafka != nil {
-			for _, r := range c.kafka.readers {
-				r.Close()
-			}
-			if c.kafka.writer != nil {
-				c.kafka.writer.Close()
-			}
+		if c.kafka.writer != nil {
+			c.kafka.writer.Close()
 		}
+		c.kafka = nil
 	}
 }

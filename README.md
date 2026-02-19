@@ -32,10 +32,10 @@ cd protocol    && go test ./...
 
 ## Messaging
 
-Core and edge communicate over MQTT or Kafka (configurable) using a unified JSON envelope protocol with dual topics:
+Core and edge communicate over Kafka using a unified JSON envelope protocol with dual topics:
 
-- `shingo/orders` -- edge to core (order requests, heartbeats)
-- `shingo/dispatch` -- core to edge (acknowledgements, status updates)
+- `shingo.orders` -- edge to core (order requests, heartbeats)
+- `shingo.dispatch` -- core to edge (acknowledgements, status updates)
 
 See [docs/wire-protocol.md](docs/wire-protocol.md) for the full specification.
 

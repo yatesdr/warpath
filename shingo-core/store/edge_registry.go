@@ -5,11 +5,10 @@ import (
 	"time"
 )
 
-// EdgeRegistration represents a registered edge node.
+// EdgeRegistration represents a registered edge station.
 type EdgeRegistration struct {
 	ID             int64     `json:"id"`
-	NodeID         string    `json:"node_id"`
-	FactoryID      string    `json:"factory_id"`
+	StationID      string    `json:"station_id"`
 	Hostname       string    `json:"hostname"`
 	Version        string    `json:"version"`
 	LineIDs        []string  `json:"line_ids"`
@@ -18,40 +17,39 @@ type EdgeRegistration struct {
 	Status         string    `json:"status"`
 }
 
-// RegisterEdge upserts an edge registration. If the node_id already exists,
+// RegisterEdge upserts an edge registration. If the station_id already exists,
 // it updates the record and resets status to active.
-func (db *DB) RegisterEdge(nodeID, factoryID, hostname, version string, lineIDs []string) error {
+func (db *DB) RegisterEdge(stationID, hostname, version string, lineIDs []string) error {
 	lineJSON, _ := json.Marshal(lineIDs)
 
 	_, err := db.Exec(db.Q(`
-		INSERT INTO edge_registry (node_id, factory_id, hostname, version, line_ids, registered_at, status)
-		VALUES (?, ?, ?, ?, ?, datetime('now','localtime'), 'active')
-		ON CONFLICT(node_id) DO UPDATE SET
-			factory_id = excluded.factory_id,
+		INSERT INTO edge_registry (station_id, hostname, version, line_ids, registered_at, status)
+		VALUES (?, ?, ?, ?, datetime('now','localtime'), 'active')
+		ON CONFLICT(station_id) DO UPDATE SET
 			hostname = excluded.hostname,
 			version = excluded.version,
 			line_ids = excluded.line_ids,
 			registered_at = excluded.registered_at,
 			status = 'active'
-	`), nodeID, factoryID, hostname, version, string(lineJSON))
+	`), stationID, hostname, version, string(lineJSON))
 	return err
 }
 
 // UpdateHeartbeat updates the last_heartbeat timestamp and sets status to active.
-func (db *DB) UpdateHeartbeat(nodeID string) error {
+func (db *DB) UpdateHeartbeat(stationID string) error {
 	_, err := db.Exec(db.Q(`
 		UPDATE edge_registry
 		SET last_heartbeat = datetime('now','localtime'), status = 'active'
-		WHERE node_id = ?
-	`), nodeID)
+		WHERE station_id = ?
+	`), stationID)
 	return err
 }
 
 // ListEdges returns all registered edges.
 func (db *DB) ListEdges() ([]EdgeRegistration, error) {
 	rows, err := db.Query(db.Q(`
-		SELECT id, node_id, factory_id, hostname, version, line_ids, registered_at, last_heartbeat, status
-		FROM edge_registry ORDER BY node_id
+		SELECT id, station_id, hostname, version, line_ids, registered_at, last_heartbeat, status
+		FROM edge_registry ORDER BY station_id
 	`))
 	if err != nil {
 		return nil, err
@@ -62,21 +60,13 @@ func (db *DB) ListEdges() ([]EdgeRegistration, error) {
 	for rows.Next() {
 		var e EdgeRegistration
 		var lineJSON string
-		var regAt, hbAt *string
-		if err := rows.Scan(&e.ID, &e.NodeID, &e.FactoryID, &e.Hostname, &e.Version, &lineJSON, &regAt, &hbAt, &e.Status); err != nil {
+		var regAt, hbAt any
+		if err := rows.Scan(&e.ID, &e.StationID, &e.Hostname, &e.Version, &lineJSON, &regAt, &hbAt, &e.Status); err != nil {
 			return nil, err
 		}
 		json.Unmarshal([]byte(lineJSON), &e.LineIDs)
-		if regAt != nil {
-			if t, err := time.Parse("2006-01-02 15:04:05", *regAt); err == nil {
-				e.RegisteredAt = t
-			}
-		}
-		if hbAt != nil {
-			if t, err := time.Parse("2006-01-02 15:04:05", *hbAt); err == nil {
-				e.LastHeartbeat = &t
-			}
-		}
+		e.RegisteredAt = parseTime(regAt)
+		e.LastHeartbeat = parseTimePtr(hbAt)
 		edges = append(edges, e)
 	}
 	return edges, rows.Err()

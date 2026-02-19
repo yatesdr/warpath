@@ -10,8 +10,7 @@ import (
 // Address identifies a message source or destination.
 type Address struct {
 	Role    string `json:"role"`
-	Node    string `json:"node"`
-	Factory string `json:"factory"`
+	Station string `json:"station"`
 }
 
 // Envelope is the universal message wrapper for all ShinGo communication.

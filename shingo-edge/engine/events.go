@@ -20,11 +20,6 @@ const (
 	EventOrderStatusChanged
 	EventOrderCompleted
 
-	// Messaging events
-	EventOutboxEnqueued
-	EventOutboxDrained
-	EventDispatchReply
-
 	// Changeover events
 	EventChangeoverStarted
 	EventChangeoverStateChanged
@@ -33,6 +28,8 @@ const (
 	// PLC events
 	EventPLCConnected
 	EventPLCDisconnected
+	EventPLCHealthAlert
+	EventPLCHealthRecover
 
 	// WarLink events
 	EventWarLinkConnected
@@ -123,28 +120,6 @@ type OrderCompletedEvent struct {
 	OrderType string
 }
 
-// OutboxEnqueuedEvent is emitted when a message is added to the outbox.
-type OutboxEnqueuedEvent struct {
-	MessageID int64
-	Topic     string
-	MsgType   string
-}
-
-// OutboxDrainedEvent is emitted when a message is successfully sent.
-type OutboxDrainedEvent struct {
-	MessageID int64
-	Topic     string
-}
-
-// DispatchReplyEvent is emitted when a reply arrives from central dispatch.
-type DispatchReplyEvent struct {
-	OrderUUID    string
-	ReplyType    string
-	WaybillID    string
-	ETA          string
-	StatusDetail string
-}
-
 // ChangeoverStartedEvent is emitted when a changeover begins.
 type ChangeoverStartedEvent struct {
 	LineID       int64  `json:"line_id"`
@@ -172,6 +147,17 @@ type ChangeoverCompletedEvent struct {
 type PLCEvent struct {
 	PLCName string
 	Error   string
+}
+
+// PLCHealthAlertEvent is emitted when a PLC goes offline.
+type PLCHealthAlertEvent struct {
+	PLCName string `json:"plc_name"`
+	Error   string `json:"error,omitempty"`
+}
+
+// PLCHealthRecoverEvent is emitted when a PLC comes back online.
+type PLCHealthRecoverEvent struct {
+	PLCName string `json:"plc_name"`
 }
 
 // WarLinkEvent is emitted when the WarLink connection state changes.

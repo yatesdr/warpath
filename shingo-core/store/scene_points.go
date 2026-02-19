@@ -7,26 +7,26 @@ import (
 )
 
 type ScenePoint struct {
-	ID             int64
-	AreaName       string
-	InstanceName   string
-	ClassName      string
-	PointName      string
-	GroupName      string
-	Label          string
-	PosX           float64
-	PosY           float64
-	PosZ           float64
-	Dir            float64
-	PropertiesJSON string
-	SyncedAt       time.Time
+	ID             int64     `json:"id"`
+	AreaName       string    `json:"area_name"`
+	InstanceName   string    `json:"instance_name"`
+	ClassName      string    `json:"class_name"`
+	PointName      string    `json:"point_name"`
+	GroupName      string    `json:"group_name"`
+	Label          string    `json:"label"`
+	PosX           float64   `json:"pos_x"`
+	PosY           float64   `json:"pos_y"`
+	PosZ           float64   `json:"pos_z"`
+	Dir            float64   `json:"dir"`
+	PropertiesJSON string    `json:"properties_json"`
+	SyncedAt       time.Time `json:"synced_at"`
 }
 
 const scenePointSelectCols = `id, area_name, instance_name, class_name, point_name, group_name, label, pos_x, pos_y, pos_z, dir, properties_json, synced_at`
 
 func scanScenePoint(row interface{ Scan(...any) error }) (*ScenePoint, error) {
 	var sp ScenePoint
-	var syncedAt string
+	var syncedAt any
 	err := row.Scan(&sp.ID, &sp.AreaName, &sp.InstanceName, &sp.ClassName,
 		&sp.PointName, &sp.GroupName, &sp.Label,
 		&sp.PosX, &sp.PosY, &sp.PosZ, &sp.Dir,
@@ -34,7 +34,7 @@ func scanScenePoint(row interface{ Scan(...any) error }) (*ScenePoint, error) {
 	if err != nil {
 		return nil, err
 	}
-	sp.SyncedAt, _ = time.Parse("2006-01-02 15:04:05", syncedAt)
+	sp.SyncedAt = parseTime(syncedAt)
 	return &sp, nil
 }
 

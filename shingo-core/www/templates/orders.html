@@ -12,7 +12,7 @@
       <h3>Details</h3>
       <table>
         <tr><td><strong>UUID</strong></td><td>{{.Order.EdgeUUID}}</td></tr>
-        <tr><td><strong>Client</strong></td><td>{{.Order.ClientID}}</td></tr>
+        <tr><td><strong>Station</strong></td><td>{{.Order.StationID}}</td></tr>
         <tr><td><strong>Type</strong></td><td>{{.Order.OrderType}}</td></tr>
         <tr><td><strong>Payload Type</strong></td><td>{{if .Order.PayloadTypeID}}PT#{{deref .Order.PayloadTypeID}}{{else}}{{.Order.MaterialCode}}{{end}}</td></tr>
         <tr><td><strong>Quantity</strong></td><td>{{.Order.Quantity}}</td></tr>
@@ -80,7 +80,7 @@
         <tr>
           <th>ID</th>
           <th>UUID</th>
-          <th>Client</th>
+          <th>Station</th>
           <th>Type</th>
           <th>Payload Type</th>
           <th>Status</th>
@@ -93,7 +93,7 @@
         <tr>
           <td><a href="/orders/detail?id={{.ID}}">{{.ID}}</a></td>
           <td style="font-family:monospace;font-size:0.8rem">{{.EdgeUUID}}</td>
-          <td>{{.ClientID}}</td>
+          <td>{{.StationID}}</td>
           <td>{{.OrderType}}</td>
           <td>{{if .PayloadTypeID}}PT#{{deref .PayloadTypeID}}{{else}}{{.MaterialCode}}{{end}}</td>
           <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>

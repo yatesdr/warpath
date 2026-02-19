@@ -5,10 +5,10 @@ import (
 )
 
 type AdminUser struct {
-	ID           int64
-	Username     string
-	PasswordHash string
-	CreatedAt    time.Time
+	ID           int64     `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (db *DB) CreateAdminUser(username, passwordHash string) error {
@@ -18,13 +18,13 @@ func (db *DB) CreateAdminUser(username, passwordHash string) error {
 
 func (db *DB) GetAdminUser(username string) (*AdminUser, error) {
 	var u AdminUser
-	var createdAt string
+	var createdAt any
 	err := db.QueryRow(db.Q(`SELECT id, username, password_hash, created_at FROM admin_users WHERE username=?`), username).
 		Scan(&u.ID, &u.Username, &u.PasswordHash, &createdAt)
 	if err != nil {
 		return nil, err
 	}
-	u.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	u.CreatedAt = parseTime(createdAt)
 	return &u, nil
 }
 

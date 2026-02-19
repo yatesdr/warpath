@@ -6,19 +6,19 @@ import (
 )
 
 type Correction struct {
-	ID              int64
-	CorrectionType  string
-	NodeID          int64
-	MaterialID      *int64
-	InventoryID     *int64
-	PayloadID       *int64
-	ManifestItemID  *int64
-	CatID           string
-	Description     string
-	Quantity        float64
-	Reason          string
-	Actor           string
-	CreatedAt       time.Time
+	ID             int64     `json:"id"`
+	CorrectionType string    `json:"correction_type"`
+	NodeID         int64     `json:"node_id"`
+	MaterialID     *int64    `json:"material_id,omitempty"`
+	InventoryID    *int64    `json:"inventory_id,omitempty"`
+	PayloadID      *int64    `json:"payload_id,omitempty"`
+	ManifestItemID *int64    `json:"manifest_item_id,omitempty"`
+	CatID          string    `json:"cat_id"`
+	Description    string    `json:"description"`
+	Quantity       float64   `json:"quantity"`
+	Reason         string    `json:"reason"`
+	Actor          string    `json:"actor"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 func (db *DB) CreateCorrection(c *Correction) error {
@@ -54,7 +54,7 @@ func (db *DB) ListCorrections(limit int) ([]*Correction, error) {
 	var corrections []*Correction
 	for rows.Next() {
 		var c Correction
-		var createdAt string
+		var createdAt any
 		var materialID, inventoryID, payloadID, manifestItemID sql.NullInt64
 		if err := rows.Scan(&c.ID, &c.CorrectionType, &c.NodeID, &materialID, &inventoryID, &payloadID, &manifestItemID, &c.CatID, &c.Description, &c.Quantity, &c.Reason, &c.Actor, &createdAt); err != nil {
 			return nil, err
@@ -71,7 +71,7 @@ func (db *DB) ListCorrections(limit int) ([]*Correction, error) {
 		if manifestItemID.Valid {
 			c.ManifestItemID = &manifestItemID.Int64
 		}
-		c.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		c.CreatedAt = parseTime(createdAt)
 		corrections = append(corrections, &c)
 	}
 	return corrections, rows.Err()
@@ -86,7 +86,7 @@ func (db *DB) ListCorrectionsByNode(nodeID int64, limit int) ([]*Correction, err
 	var corrections []*Correction
 	for rows.Next() {
 		var c Correction
-		var createdAt string
+		var createdAt any
 		var materialID, inventoryID, payloadID, manifestItemID sql.NullInt64
 		if err := rows.Scan(&c.ID, &c.CorrectionType, &c.NodeID, &materialID, &inventoryID, &payloadID, &manifestItemID, &c.CatID, &c.Description, &c.Quantity, &c.Reason, &c.Actor, &createdAt); err != nil {
 			return nil, err
@@ -103,7 +103,7 @@ func (db *DB) ListCorrectionsByNode(nodeID int64, limit int) ([]*Correction, err
 		if manifestItemID.Valid {
 			c.ManifestItemID = &manifestItemID.Int64
 		}
-		c.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		c.CreatedAt = parseTime(createdAt)
 		corrections = append(corrections, &c)
 	}
 	return corrections, rows.Err()

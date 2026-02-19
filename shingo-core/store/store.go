@@ -85,6 +85,9 @@ func (db *DB) migrateRenames() error {
 		{"nodes", "rds_location", "vendor_location"},
 		{"orders", "rds_order_id", "vendor_order_id"},
 		{"orders", "rds_state", "vendor_state"},
+		{"orders", "client_id", "station_id"},
+		{"outbox", "event_type", "msg_type"},
+		{"outbox", "client_id", "station_id"},
 	}
 	for _, r := range renames {
 		if db.columnExists(r.table, r.oldCol) {
@@ -98,6 +101,10 @@ func (db *DB) migrateRenames() error {
 	if db.driver == "postgres" {
 		db.Exec(`DROP INDEX IF EXISTS idx_orders_rds`)
 	}
+
+	// Migrate completed -> confirmed status
+	db.Exec("UPDATE orders SET status='confirmed' WHERE status='completed'")
+
 	return nil
 }
 

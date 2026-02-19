@@ -8,13 +8,13 @@ func (h *Handlers) handleManualOrder(w http.ResponseWriter, r *http.Request) {
 	db := h.engine.DB()
 
 	payloads, _ := db.ListPayloads()
-	templates, _ := db.ListKanbanTemplates()
+	nodes, _ := db.ListLocationNodes()
 	anomalies, rpMap := loadAnomalyData(h)
 
 	data := map[string]interface{}{
 		"Page":              "manual-order",
 		"Payloads":          payloads,
-		"Templates":         templates,
+		"Nodes":             nodes,
 		"Anomalies":         anomalies,
 		"ReportingPointMap": rpMap,
 	}

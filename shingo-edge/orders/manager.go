@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
+	"shingo/protocol"
 	"shingoedge/store"
 
 	"github.com/google/uuid"
@@ -15,27 +15,45 @@ import (
 type Manager struct {
 	db        *store.DB
 	emitter   EventEmitter
-	namespace string
-	lineID    string
+	stationID string
 }
 
 // NewManager creates an order manager.
-func NewManager(db *store.DB, emitter EventEmitter, namespace, lineID string) *Manager {
+func NewManager(db *store.DB, emitter EventEmitter, stationID string) *Manager {
 	return &Manager{
 		db:        db,
 		emitter:   emitter,
-		namespace: namespace,
-		lineID:    lineID,
+		stationID: stationID,
 	}
 }
 
+// enqueueEnvelope marshals a protocol envelope and enqueues it to the outbox.
+func (m *Manager) enqueueEnvelope(env *protocol.Envelope) error {
+	data, err := json.Marshal(env)
+	if err != nil {
+		return fmt.Errorf("marshal envelope: %w", err)
+	}
+	if _, err := m.db.EnqueueOutbox(data, env.Type); err != nil {
+		return fmt.Errorf("enqueue %s: %w", env.Type, err)
+	}
+	return nil
+}
+
+func (m *Manager) src() protocol.Address {
+	return protocol.Address{Role: protocol.RoleEdge, Station: m.stationID}
+}
+
+func (m *Manager) dst() protocol.Address {
+	return protocol.Address{Role: protocol.RoleCore}
+}
+
 // CreateRetrieveOrder creates a new retrieve order and enqueues it to the outbox.
-func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quantity float64, deliveryNode, stagingNode, loadType string, templateID *int64, autoConfirm bool) (*store.Order, error) {
+func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quantity float64, deliveryNode, stagingNode, loadType string, autoConfirm bool) (*store.Order, error) {
 	orderUUID := uuid.New().String()
 
 	orderID, err := m.db.CreateOrder(orderUUID, TypeRetrieve,
 		payloadID, retrieveEmpty,
-		quantity, deliveryNode, stagingNode, "", loadType, templateID, autoConfirm)
+		quantity, deliveryNode, stagingNode, "", loadType, autoConfirm)
 	if err != nil {
 		return nil, fmt.Errorf("create order: %w", err)
 	}
@@ -48,10 +66,8 @@ func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quan
 		}
 	}
 
-	// Build outbound message
-	msg := OrderMessage{
-		Namespace:     m.namespace,
-		LineID:        m.lineID,
+	// Build and enqueue protocol envelope
+	env, err := protocol.NewEnvelope(protocol.TypeOrderRequest, m.src(), m.dst(), &protocol.OrderRequest{
 		OrderUUID:     orderUUID,
 		OrderType:     TypeRetrieve,
 		PayloadDesc:   payloadDesc,
@@ -60,11 +76,10 @@ func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quan
 		DeliveryNode:  deliveryNode,
 		StagingNode:   stagingNode,
 		LoadType:      loadType,
-		Timestamp:     time.Now().UTC().Format(time.RFC3339),
-	}
-	payload, _ := json.Marshal(msg)
-
-	if _, err := m.db.EnqueueOutbox("orders", payload, "order_request"); err != nil {
+	})
+	if err != nil {
+		log.Printf("build envelope for order %s: %v", orderUUID, err)
+	} else if err := m.enqueueEnvelope(env); err != nil {
 		log.Printf("enqueue order %s: %v", orderUUID, err)
 	}
 
@@ -74,12 +89,12 @@ func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quan
 }
 
 // CreateStoreOrder creates a new store order (for returning payloads to warehouse).
-func (m *Manager) CreateStoreOrder(payloadID *int64, quantity float64, pickupNode string, templateID *int64) (*store.Order, error) {
+func (m *Manager) CreateStoreOrder(payloadID *int64, quantity float64, pickupNode string) (*store.Order, error) {
 	orderUUID := uuid.New().String()
 
 	orderID, err := m.db.CreateOrder(orderUUID, TypeStore,
 		payloadID, false,
-		quantity, "", "", pickupNode, "", templateID, false)
+		quantity, "", "", pickupNode, "", false)
 	if err != nil {
 		return nil, fmt.Errorf("create store order: %w", err)
 	}
@@ -89,12 +104,12 @@ func (m *Manager) CreateStoreOrder(payloadID *int64, quantity float64, pickupNod
 }
 
 // CreateMoveOrder creates a new move order (e.g., quality hold).
-func (m *Manager) CreateMoveOrder(payloadID *int64, quantity float64, pickupNode, deliveryNode string, templateID *int64) (*store.Order, error) {
+func (m *Manager) CreateMoveOrder(payloadID *int64, quantity float64, pickupNode, deliveryNode string) (*store.Order, error) {
 	orderUUID := uuid.New().String()
 
 	orderID, err := m.db.CreateOrder(orderUUID, TypeMove,
 		payloadID, false,
-		quantity, deliveryNode, "", pickupNode, "", templateID, false)
+		quantity, deliveryNode, "", pickupNode, "", false)
 	if err != nil {
 		return nil, fmt.Errorf("create move order: %w", err)
 	}
@@ -107,20 +122,18 @@ func (m *Manager) CreateMoveOrder(payloadID *int64, quantity float64, pickupNode
 		}
 	}
 
-	// Enqueue outbound message
-	msg := OrderMessage{
-		Namespace:    m.namespace,
-		LineID:       m.lineID,
+	// Build and enqueue protocol envelope
+	env, err := protocol.NewEnvelope(protocol.TypeOrderRequest, m.src(), m.dst(), &protocol.OrderRequest{
 		OrderUUID:    orderUUID,
 		OrderType:    TypeMove,
 		PayloadDesc:  payloadDesc,
 		Quantity:     quantity,
 		DeliveryNode: deliveryNode,
 		PickupNode:   pickupNode,
-		Timestamp:    time.Now().UTC().Format(time.RFC3339),
-	}
-	msgPayload, _ := json.Marshal(msg)
-	if _, err := m.db.EnqueueOutbox("orders", msgPayload, "order_request"); err != nil {
+	})
+	if err != nil {
+		log.Printf("build envelope for move order %s: %v", orderUUID, err)
+	} else if err := m.enqueueEnvelope(env); err != nil {
 		log.Printf("enqueue move order %s: %v", orderUUID, err)
 	}
 
@@ -152,7 +165,13 @@ func (m *Manager) TransitionOrder(orderID int64, newStatus, detail string) error
 		log.Printf("insert order history: %v", err)
 	}
 
-	m.emitter.EmitOrderStatusChanged(orderID, order.UUID, order.OrderType, oldStatus, newStatus)
+	// Re-read to pick up any ETA set before transition (e.g. waybill)
+	updated, _ := m.db.GetOrder(orderID)
+	eta := ""
+	if updated != nil && updated.ETA != nil {
+		eta = *updated.ETA
+	}
+	m.emitter.EmitOrderStatusChanged(orderID, order.UUID, order.OrderType, oldStatus, newStatus, eta)
 
 	if IsTerminal(newStatus) {
 		m.emitter.EmitOrderCompleted(orderID, order.UUID, order.OrderType)
@@ -175,15 +194,13 @@ func (m *Manager) AbortOrder(orderID int64) error {
 		return err
 	}
 
-	msg := OrderMessage{
-		Namespace: m.namespace,
-		LineID:    m.lineID,
+	env, err := protocol.NewEnvelope(protocol.TypeOrderCancel, m.src(), m.dst(), &protocol.OrderCancel{
 		OrderUUID: order.UUID,
-		OrderType: order.OrderType,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}
-	payload, _ := json.Marshal(msg)
-	if _, err := m.db.EnqueueOutbox("orders", payload, "order_cancel"); err != nil {
+		Reason:    "aborted by operator",
+	})
+	if err != nil {
+		log.Printf("build cancel envelope for order %s: %v", order.UUID, err)
+	} else if err := m.enqueueEnvelope(env); err != nil {
 		log.Printf("enqueue order cancel %s: %v", order.UUID, err)
 	}
 
@@ -204,23 +221,20 @@ func (m *Manager) RedirectOrder(orderID int64, newDeliveryNode string) (*store.O
 		return nil, fmt.Errorf("update delivery node: %w", err)
 	}
 
-	msg := OrderMessage{
-		Namespace:    m.namespace,
-		LineID:       m.lineID,
-		OrderUUID:    order.UUID,
-		OrderType:    order.OrderType,
-		DeliveryNode: newDeliveryNode,
-		Timestamp:    time.Now().UTC().Format(time.RFC3339),
-	}
-	payload, _ := json.Marshal(msg)
-	if _, err := m.db.EnqueueOutbox("orders", payload, "redirect_request"); err != nil {
+	env, err := protocol.NewEnvelope(protocol.TypeOrderRedirect, m.src(), m.dst(), &protocol.OrderRedirect{
+		OrderUUID:       order.UUID,
+		NewDeliveryNode: newDeliveryNode,
+	})
+	if err != nil {
+		log.Printf("build redirect envelope for order %s: %v", order.UUID, err)
+	} else if err := m.enqueueEnvelope(env); err != nil {
 		log.Printf("enqueue redirect %s: %v", order.UUID, err)
 	}
 
 	return m.db.GetOrder(orderID)
 }
 
-// SubmitOrder transitions a queued order to submitted and enqueues it.
+// SubmitOrder transitions a pending order to submitted and enqueues it.
 func (m *Manager) SubmitOrder(orderID int64) error {
 	order, err := m.db.GetOrder(orderID)
 	if err != nil {
@@ -233,18 +247,20 @@ func (m *Manager) SubmitOrder(orderID int64) error {
 
 	// For store orders, build and enqueue the storage waybill
 	if order.OrderType == TypeStore {
-		msg := StorageWaybillMessage{
-			Namespace:   m.namespace,
-			LineID:      m.lineID,
+		var finalCount float64
+		if order.FinalCount != nil {
+			finalCount = *order.FinalCount
+		}
+		env, err := protocol.NewEnvelope(protocol.TypeOrderStorageWaybill, m.src(), m.dst(), &protocol.OrderStorageWaybill{
 			OrderUUID:   order.UUID,
 			OrderType:   TypeStore,
 			PayloadDesc: order.PayloadDesc,
 			PickupNode:  order.PickupNode,
-			FinalCount:  ptrFloat64(order.FinalCount),
-			Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		}
-		payload, _ := json.Marshal(msg)
-		if _, err := m.db.EnqueueOutbox("orders", payload, "storage_waybill"); err != nil {
+			FinalCount:  finalCount,
+		})
+		if err != nil {
+			log.Printf("build storage waybill envelope %s: %v", order.UUID, err)
+		} else if err := m.enqueueEnvelope(env); err != nil {
 			log.Printf("enqueue storage waybill %s: %v", order.UUID, err)
 		}
 	}
@@ -269,16 +285,14 @@ func (m *Manager) ConfirmDelivery(orderID int64, finalCount float64) error {
 	}
 
 	// Enqueue delivery receipt
-	receipt := DeliveryReceiptMessage{
-		Namespace:   m.namespace,
-		LineID:      m.lineID,
+	env, err := protocol.NewEnvelope(protocol.TypeOrderReceipt, m.src(), m.dst(), &protocol.OrderReceipt{
 		OrderUUID:   order.UUID,
 		ReceiptType: "confirmed",
 		FinalCount:  finalCount,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-	}
-	payload, _ := json.Marshal(receipt)
-	if _, err := m.db.EnqueueOutbox("orders", payload, "delivery_receipt"); err != nil {
+	})
+	if err != nil {
+		log.Printf("build receipt envelope for order %s: %v", order.UUID, err)
+	} else if err := m.enqueueEnvelope(env); err != nil {
 		log.Printf("enqueue delivery receipt %s: %v", order.UUID, err)
 	}
 
@@ -317,53 +331,12 @@ func (m *Manager) HandleDispatchReply(orderUUID, replyType, waybillID, eta, stat
 			return m.ConfirmDelivery(order.ID, order.Quantity)
 		}
 		return nil
+	case "error":
+		return m.TransitionOrder(order.ID, StatusFailed, statusDetail)
+	case "cancelled":
+		return m.TransitionOrder(order.ID, StatusCancelled, statusDetail)
 	default:
 		return fmt.Errorf("unknown reply type: %s", replyType)
 	}
 }
 
-// OrderMessage is the outbound order request JSON.
-type OrderMessage struct {
-	Namespace     string      `json:"namespace"`
-	LineID        string      `json:"line_id"`
-	OrderUUID     string      `json:"order_uuid"`
-	OrderType     string      `json:"order_type"`
-	PayloadDesc   string      `json:"payload_desc,omitempty"`
-	RetrieveEmpty bool        `json:"retrieve_empty,omitempty"`
-	Quantity      float64     `json:"quantity"`
-	DeliveryNode  string      `json:"delivery_node,omitempty"`
-	StagingNode   string      `json:"staging_node,omitempty"`
-	PickupNode    string      `json:"pickup_node,omitempty"`
-	LoadType      string      `json:"load_type,omitempty"`
-	TemplateData  interface{} `json:"template_data,omitempty"`
-	Timestamp     string      `json:"timestamp"`
-}
-
-// StorageWaybillMessage is the outbound storage waybill JSON.
-type StorageWaybillMessage struct {
-	Namespace   string  `json:"namespace"`
-	LineID      string  `json:"line_id"`
-	OrderUUID   string  `json:"order_uuid"`
-	OrderType   string  `json:"order_type"`
-	PayloadDesc string  `json:"payload_desc,omitempty"`
-	PickupNode  string  `json:"pickup_node"`
-	FinalCount  float64 `json:"final_count"`
-	Timestamp   string  `json:"timestamp"`
-}
-
-// DeliveryReceiptMessage is the outbound delivery receipt JSON.
-type DeliveryReceiptMessage struct {
-	Namespace   string  `json:"namespace"`
-	LineID      string  `json:"line_id"`
-	OrderUUID   string  `json:"order_uuid"`
-	ReceiptType string  `json:"receipt_type"`
-	FinalCount  float64 `json:"final_count"`
-	Timestamp   string  `json:"timestamp"`
-}
-
-func ptrFloat64(p *float64) float64 {
-	if p != nil {
-		return *p
-	}
-	return 0
-}

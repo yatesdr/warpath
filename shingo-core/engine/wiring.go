@@ -2,10 +2,11 @@ package engine
 
 import (
 	"fmt"
+	"log"
 	"time"
 
+	"shingo/protocol"
 	"shingocore/dispatch"
-	"shingocore/messaging"
 	"shingocore/store"
 )
 
@@ -57,8 +58,8 @@ func (e *Engine) wireEventHandlers() {
 	// When an order is received, audit it
 	e.Events.SubscribeTypes(func(evt Event) {
 		ev := evt.Payload.(OrderReceivedEvent)
-		e.logFn("engine: order %d received from %s: %s %s -> %s", ev.OrderID, ev.ClientID, ev.OrderType, ev.PayloadTypeCode, ev.DeliveryNode)
-		e.db.AppendAudit("order", ev.OrderID, "received", "", fmt.Sprintf("%s %s from %s", ev.OrderType, ev.PayloadTypeCode, ev.ClientID), "system")
+		e.logFn("engine: order %d received from %s: %s %s -> %s", ev.OrderID, ev.StationID, ev.OrderType, ev.PayloadTypeCode, ev.DeliveryNode)
+		e.db.AppendAudit("order", ev.OrderID, "received", "", fmt.Sprintf("%s %s from %s", ev.OrderType, ev.PayloadTypeCode, ev.StationID), "system")
 	}, EventOrderReceived)
 
 	// Payload changes: audit
@@ -87,19 +88,29 @@ func (e *Engine) handleVendorStatusChange(ev OrderStatusChangedEvent) {
 		return
 	}
 
+	coreAddr := protocol.Address{Role: protocol.RoleCore, Station: e.cfg.Messaging.StationID}
+	edgeAddr := protocol.Address{Role: protocol.RoleEdge, Station: order.StationID}
+
 	// Update robot ID if we got one
 	if ev.RobotID != "" && order.RobotID == "" {
 		e.db.UpdateOrderVendor(order.ID, order.VendorOrderID, ev.NewStatus, ev.RobotID)
 
 		// Send waybill to ShinGo Edge
-		reply := messaging.NewEnvelope("waybill", order.ClientID, e.cfg.FactoryID, messaging.WaybillReply{
+		reply, err := protocol.NewEnvelope(protocol.TypeOrderWaybill, coreAddr, edgeAddr, &protocol.OrderWaybill{
 			OrderUUID: order.EdgeUUID,
 			WaybillID: order.VendorOrderID,
 			RobotID:   ev.RobotID,
 		})
-		data, _ := reply.Encode()
-		topic := messaging.DispatchTopic(e.cfg.Messaging.DispatchTopicPrefix, order.ClientID)
-		e.db.EnqueueOutbox(topic, data, "waybill", order.ClientID)
+		if err != nil {
+			log.Printf("engine: build waybill reply: %v", err)
+		} else {
+			data, err := reply.Encode()
+			if err != nil {
+				log.Printf("engine: encode waybill reply: %v", err)
+			} else {
+				e.db.EnqueueOutbox(e.cfg.Messaging.DispatchTopic, data, "order.waybill", order.StationID)
+			}
+		}
 	}
 
 	newStatus := e.fleet.MapState(ev.NewStatus)
@@ -111,14 +122,21 @@ func (e *Engine) handleVendorStatusChange(ev OrderStatusChangedEvent) {
 	e.db.UpdateOrderVendor(order.ID, order.VendorOrderID, ev.NewStatus, ev.RobotID)
 
 	// Send status update to ShinGo Edge
-	reply := messaging.NewEnvelope("update", order.ClientID, e.cfg.FactoryID, messaging.UpdateReply{
+	reply, err := protocol.NewEnvelope(protocol.TypeOrderUpdate, coreAddr, edgeAddr, &protocol.OrderUpdate{
 		OrderUUID: order.EdgeUUID,
 		Status:    newStatus,
 		Detail:    fmt.Sprintf("fleet state: %s", ev.NewStatus),
 	})
-	data, _ := reply.Encode()
-	topic := messaging.DispatchTopic(e.cfg.Messaging.DispatchTopicPrefix, order.ClientID)
-	e.db.EnqueueOutbox(topic, data, "update", order.ClientID)
+	if err != nil {
+		log.Printf("engine: build update reply: %v", err)
+	} else {
+		data, err := reply.Encode()
+		if err != nil {
+			log.Printf("engine: encode update reply: %v", err)
+		} else {
+			e.db.EnqueueOutbox(e.cfg.Messaging.DispatchTopic, data, "order.update", order.StationID)
+		}
+	}
 
 	// Handle terminal states
 	if e.fleet.IsTerminalState(ev.NewStatus) {
@@ -130,7 +148,7 @@ func (e *Engine) handleVendorStatusChange(ev OrderStatusChangedEvent) {
 			e.Events.Emit(Event{Type: EventOrderFailed, Payload: OrderFailedEvent{
 				OrderID:   order.ID,
 				EdgeUUID:  order.EdgeUUID,
-				ClientID:  order.ClientID,
+				StationID: order.StationID,
 				ErrorCode: "fleet_failed",
 				Detail:    "fleet order failed",
 			}})
@@ -144,13 +162,22 @@ func (e *Engine) handleOrderDelivered(order *store.Order) {
 	e.db.UpdateOrderStatus(order.ID, dispatch.StatusDelivered, "payload delivered")
 
 	// Send delivered notification to ShinGo Edge
-	reply := messaging.NewEnvelope("delivered", order.ClientID, e.cfg.FactoryID, messaging.DeliveredReply{
+	coreAddr := protocol.Address{Role: protocol.RoleCore, Station: e.cfg.Messaging.StationID}
+	edgeAddr := protocol.Address{Role: protocol.RoleEdge, Station: order.StationID}
+	reply, err := protocol.NewEnvelope(protocol.TypeOrderDelivered, coreAddr, edgeAddr, &protocol.OrderDelivered{
 		OrderUUID:   order.EdgeUUID,
-		DeliveredAt: time.Now().Format(time.RFC3339),
+		DeliveredAt: time.Now().UTC(),
 	})
-	data, _ := reply.Encode()
-	topic := messaging.DispatchTopic(e.cfg.Messaging.DispatchTopicPrefix, order.ClientID)
-	e.db.EnqueueOutbox(topic, data, "delivered", order.ClientID)
+	if err != nil {
+		log.Printf("engine: build delivered reply: %v", err)
+		return
+	}
+	data, err := reply.Encode()
+	if err != nil {
+		log.Printf("engine: encode delivered reply: %v", err)
+		return
+	}
+	e.db.EnqueueOutbox(e.cfg.Messaging.DispatchTopic, data, "order.delivered", order.StationID)
 }
 
 // handleOrderCompleted moves payloads from source to dest after ShinGo Edge confirms physical receipt.
@@ -161,20 +188,32 @@ func (e *Engine) handleOrderCompleted(ev OrderCompletedEvent) {
 		return
 	}
 
-	if order.SourceNodeID == nil || order.DestNodeID == nil {
+	if order.PickupNode == "" || order.DeliveryNode == "" {
 		return
+	}
+
+	destNode, err := e.db.GetNodeByName(order.DeliveryNode)
+	if err != nil {
+		e.logFn("engine: dest node %s not found for completion: %v", order.DeliveryNode, err)
+		return
+	}
+
+	sourceNode, _ := e.db.GetNodeByName(order.PickupNode)
+	sourceNodeID := int64(0)
+	if sourceNode != nil {
+		sourceNodeID = sourceNode.ID
 	}
 
 	payloads, _ := e.db.ListPayloadsByClaimedOrder(order.ID)
 	for _, p := range payloads {
-		e.nodeState.MovePayload(p.ID, *order.DestNodeID)
+		e.nodeState.MovePayload(p.ID, destNode.ID)
 		e.Events.Emit(Event{Type: EventPayloadChanged, Payload: PayloadChangedEvent{
 			Action:          "moved",
 			PayloadID:       p.ID,
 			PayloadTypeCode: p.PayloadTypeName,
-			FromNodeID:      *order.SourceNodeID,
-			ToNodeID:        *order.DestNodeID,
-			NodeID:          *order.DestNodeID,
+			FromNodeID:      sourceNodeID,
+			ToNodeID:        destNode.ID,
+			NodeID:          destNode.ID,
 		}})
 	}
 }

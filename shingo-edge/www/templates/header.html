@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
-    <title>ShinGo Edge</title>
+    <title>Shingo Edge</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{cacheBust}}">
     <script>
     (function(){var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'}document.documentElement.dataset.theme=t})();
@@ -15,8 +15,9 @@
 </head>
 <body>
     <nav class="navbar">
+      <div class="nav-inner">
         <div class="nav-brand">
-            <a href="/">ShinGo Edge</a>
+            <a href="/">Shingo Edge</a>
         </div>
         <div class="nav-links">
             <a href="/material" class="{{if eq .Page "material"}}active{{end}}">Status</a>
@@ -59,8 +60,9 @@
                 </button>
             </div>
             {{end}}
-            <button class="theme-toggle" onclick="ShinGoEdge.toggleTheme()" title="Toggle theme"></button>
+            <button class="theme-toggle" onclick="ShingoEdge.toggleTheme()" title="Toggle theme"></button>
         </div>
+      </div>
     </nav>
     <main class="container">
 
@@ -81,22 +83,22 @@ document.addEventListener('click', function(e) {
 
 async function confirmAnomaly(id) {
     try {
-        await ShinGoEdge.api.post('/api/confirm-anomaly/' + id, {});
+        await ShingoEdge.api.post('/api/confirm-anomaly/' + id, {});
         var el = document.getElementById('anomaly-' + id);
         if (el) el.remove();
         updateAnomalyBadge();
-        ShinGoEdge.toast('Anomaly confirmed', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        ShingoEdge.toast('Anomaly confirmed', 'success');
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function dismissAnomaly(id) {
     try {
-        await ShinGoEdge.api.post('/api/dismiss-anomaly/' + id, {});
+        await ShingoEdge.api.post('/api/dismiss-anomaly/' + id, {});
         var el = document.getElementById('anomaly-' + id);
         if (el) el.remove();
         updateAnomalyBadge();
-        ShinGoEdge.toast('Anomaly dismissed', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        ShingoEdge.toast('Anomaly dismissed', 'success');
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 function updateAnomalyBadge() {

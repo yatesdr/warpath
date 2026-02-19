@@ -73,7 +73,7 @@ func (e *Engine) Start() {
 
 	// Create managers
 	e.plcMgr = plc.NewManager(e.db, e.cfg, plcEmit)
-	e.orderMgr = orders.NewManager(e.db, orderEmit, e.cfg.Namespace, e.cfg.LineID)
+	e.orderMgr = orders.NewManager(e.db, orderEmit, e.cfg.StationID())
 
 	// Initialize changeover machines for all production lines
 	lines, err := e.db.ListProductionLines()
@@ -111,12 +111,12 @@ func (e *Engine) Stop() {
 	e.logFn("Engine stopped")
 }
 
-// ApplyWarLinkConfig stops or starts the WarLink poller to match the current config.
+// ApplyWarLinkConfig stops and restarts the WarLink poller/SSE to match the current config.
+// Always stops first to handle mode switches (poll→sse or sse→poll) cleanly.
 func (e *Engine) ApplyWarLinkConfig() {
+	e.plcMgr.StopWarLinkPoller()
 	if e.cfg.WarLink.Enabled {
 		e.plcMgr.StartWarLinkPoller()
-	} else {
-		e.plcMgr.StopWarLinkPoller()
 	}
 }
 

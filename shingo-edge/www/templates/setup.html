@@ -4,82 +4,140 @@
     <h1>Setup</h1>
 </div>
 
-<!-- 1. WarLink Connection -->
-<div class="setup-section" id="section-warlink">
-    <div class="section-header" onclick="toggleSection('section-warlink')">
-        <h2><span class="section-chevron">&#9662;</span> WarLink Connection</h2>
+<!-- 0. Station Configuration -->
+<div class="setup-section" id="section-config">
+    <div class="section-header" onclick="toggleSection('section-config')">
+        <h2><span class="section-chevron">&#9662;</span> Station Configuration</h2>
     </div>
-    <div class="card">
+
+    <!-- Station ID -->
+    <div class="card" style="margin-bottom:0.75rem">
+        <div class="card-body" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem">
+            <label style="white-space:nowrap;font-weight:500;color:var(--text-muted);margin:0">Station ID</label>
+            <input type="text" id="station-id-input" class="form-input" style="flex:1;max-width:320px;margin:0" value="{{.Config.Messaging.StationID}}" placeholder="{{.StationIDDefault}}">
+            <span style="font-size:0.8rem;color:var(--text-muted)">If empty, derived as <code>{{.StationIDDefault}}</code></span>
+        </div>
+    </div>
+
+    <!-- WarLink -->
+    <div class="card" style="margin-bottom:0.75rem">
         <div class="card-body" id="warlink-form" style="padding:0.75rem 1rem">
+            <label style="display:block;margin-bottom:0.35rem;font-weight:500;color:var(--text-muted)">WarLink Connection</label>
             <div style="display:flex;align-items:flex-end;gap:0.75rem;flex-wrap:wrap">
-                <div class="form-group" style="flex:2;min-width:200px;margin-bottom:0"><label>URL</label><input type="text" name="url" class="form-input" value="{{.Config.WarLink.URL}}"></div>
+                <div class="form-group" style="flex:2;min-width:160px;margin-bottom:0"><label>Host</label><input type="text" name="host" class="form-input" value="{{.Config.WarLink.Host}}"></div>
+                <div class="form-group" style="width:80px;margin-bottom:0"><label>Port</label><input type="number" name="port" class="form-input" value="{{.Config.WarLink.Port}}"></div>
                 <div class="form-group" style="width:80px;margin-bottom:0"><label>Poll</label><input type="text" name="poll_rate" class="form-input" value="{{.Config.WarLink.PollRate}}" placeholder="2s"></div>
+                <div class="form-group" style="width:80px;margin-bottom:0"><label>Mode</label>
+                    <select name="mode" class="form-input" style="width:80px" onchange="onWarlinkModeChange(this.value)">
+                        <option value="poll" {{if eq .Config.WarLink.Mode "poll"}}selected{{end}}>Poll</option>
+                        <option value="sse" {{if ne .Config.WarLink.Mode "poll"}}selected{{end}}>SSE</option>
+                    </select>
+                </div>
                 <div class="form-group" style="margin-bottom:0"><label>Status</label><span class="status-badge {{if .WarLinkConnected}}status-connected{{else}}status-disconnected{{end}}" id="warlink-status" style="display:block;text-align:center;margin-top:0.45rem">{{if .WarLinkConnected}}Connected{{else}}Disconnected{{end}}</span></div>
                 <label style="margin-bottom:0.4rem;white-space:nowrap"><input type="checkbox" name="enabled" {{if .Config.WarLink.Enabled}}checked{{end}}> Enabled</label>
-                <button class="btn btn-sm btn-primary" style="margin-bottom:0.35rem" onclick="saveWarLink()">Save</button>
             </div>
             <div id="plc-chips-wrapper" style="margin-top:0.75rem">
                 {{if .PLCNames}}
-                <label style="display:block;margin-bottom:0.25rem;font-weight:500;color:var(--color-text-muted)">Available PLCs</label>
+                <label style="display:block;margin-bottom:0.25rem;font-weight:500;color:var(--text-muted)">Available PLCs</label>
                 <div id="plc-chips" style="display:flex;gap:0.5rem;flex-wrap:wrap">
                 {{range .PLCNames}}
-                <span class="plc-chip {{if index $.PLCStatus .}}plc-chip-connected{{else}}plc-chip-disconnected{{end}}" id="plc-status-{{.}}">{{.}}</span>
+                <span class="plc-chip {{if index $.PLCStatus .}}plc-chip-connected{{else}}plc-chip-disconnected{{end}}" id="plc-status-{{.}}"><span class="plc-health-dot {{if index $.PLCStatus .}}plc-health-online{{else}}plc-health-unknown{{end}}" id="plc-health-{{.}}"></span>{{.}}</span>
                 {{end}}
                 </div>
                 {{end}}
             </div>
         </div>
     </div>
+
+    <!-- Kafka Brokers -->
+    <div class="card" style="margin-bottom:0.75rem">
+        <div class="card-body" id="msg-form" style="padding:0.75rem 1rem">
+            <label style="display:block;margin-bottom:0.35rem;font-weight:500;color:var(--text-muted)">Kafka Brokers</label>
+            <div id="broker-rows">
+                {{range .Config.Messaging.Kafka.Brokers}}
+                <div class="broker-row">
+                    <input type="text" class="form-input broker-host" style="flex:1" value="{{brokerHost .}}" placeholder="localhost">
+                    <input type="number" class="form-input broker-port" style="width:80px" value="{{brokerPort .}}" placeholder="9092">
+                    <button class="btn btn-sm" onclick="testBroker(this)">Test</button>
+                    <span class="broker-status"></span>
+                    <button class="btn-icon btn-icon-danger" onclick="removeBrokerRow(this)" title="Remove">&#10005;</button>
+                </div>
+                {{else}}
+                <div class="broker-row">
+                    <input type="text" class="form-input broker-host" style="flex:1" placeholder="localhost">
+                    <input type="number" class="form-input broker-port" style="width:80px" placeholder="9092">
+                    <button class="btn btn-sm" onclick="testBroker(this)">Test</button>
+                    <span class="broker-status"></span>
+                    <button class="btn-icon btn-icon-danger" onclick="removeBrokerRow(this)" title="Remove">&#10005;</button>
+                </div>
+                {{end}}
+            </div>
+            <div style="margin-top:0.5rem">
+                <button class="btn btn-sm" onclick="addBrokerRow()">+ Add Broker</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto-Confirm -->
+    <div class="card">
+        <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem">
+            <div style="display:flex;align-items:center;gap:0.75rem">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="auto-confirm" {{if .Config.Web.AutoConfirm}}checked{{end}}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span>Auto-confirm deliveries when AMR reports arrival</span>
+            </div>
+        </div>
+    </div>
+
+    <div style="text-align:right;margin-top:0.75rem">
+        <button class="btn btn-primary" onclick="saveStationConfig()">Save</button>
+    </div>
 </div>
 
-<!-- 2. Production Lines -->
+<!-- 1. Processes -->
 <div class="setup-section" id="section-lines">
     <div class="section-header" onclick="toggleSection('section-lines')">
-        <h2><span class="section-chevron">&#9662;</span> Production Lines</h2>
-        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); ShinGoEdge.showModal('line-add')">+ Add Line</button>
+        <h2><span class="section-chevron">&#9662;</span> Processes</h2>
     </div>
     {{range .Lines}}
-    <div class="card" style="margin-bottom:0.75rem">
-        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleLineDetail({{.ID}})">
-            <strong>{{.Name}}</strong>
+    <div class="card" style="margin-bottom:0.75rem" data-line-id="{{.ID}}">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
             <div style="display:flex;align-items:center;gap:0.75rem">
-                <span style="font-size:0.85rem;color:var(--color-text-muted)">{{.Description}}</span>
-                <select class="form-input" style="width:180px;margin:0" onchange="setActiveStyle({{.ID}}, this.value)" onclick="event.stopPropagation()">
-                    <option value="">-- No Active Style --</option>
-                </select>
-                <button class="btn-icon" onclick="event.stopPropagation(); openEditLine({{.ID}}, '{{.Name}}', '{{.Description}}')" title="Edit">&#9998;</button>
-                <button class="btn-icon btn-icon-danger" onclick="event.stopPropagation(); deleteLine({{.ID}})" title="Delete">&#128465;</button>
+                <strong>{{.Name}}</strong>
+                <span style="font-size:0.85rem;color:var(--text-muted)">{{.Description}}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:0.5rem">
+                <button class="btn btn-sm btn-primary" onclick="openAddJS({{.ID}})">+ Style</button>
+                <button class="btn btn-sm" onclick="openAddNode({{.ID}})">+ Node</button>
+                <button class="btn-icon" onclick="openEditLine({{.ID}}, '{{.Name}}', '{{.Description}}')" title="Edit">&#9998;</button>
+                <button class="btn-icon btn-icon-danger" onclick="deleteLine({{.ID}})" title="Delete">&#10005;</button>
             </div>
         </div>
-        <div class="card-body line-detail" id="line-detail-{{.ID}}" style="display:none;padding:0.5rem 1rem">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
-                <strong style="font-size:0.9rem">Job Styles</strong>
-                <button class="btn btn-sm btn-primary" onclick="openAddJS({{.ID}})">+ Add Style</button>
-            </div>
-            <table class="table">
-                <thead><tr><th>Name</th><th>Description</th><th>Actions</th></tr></thead>
-                <tbody id="js-body-{{.ID}}">
-                    <tr><td colspan="3" class="empty-cell">Loading...</td></tr>
-                </tbody>
-            </table>
+        <div id="style-chips-{{.ID}}" style="display:flex;gap:0.5rem;flex-wrap:wrap;padding:0.5rem 1rem;min-height:2rem">
         </div>
+        <div id="node-list-{{.ID}}" style="padding:0 1rem 0.5rem"></div>
     </div>
     {{else}}
-    <div class="card"><div class="card-body"><p class="empty-cell">No production lines configured</p></div></div>
+    <div class="card"><div class="card-body"><p class="empty-cell">No processes configured</p></div></div>
     {{end}}
+    <div style="text-align:right;margin-top:0.75rem">
+        <button class="btn btn-sm btn-primary" onclick="ShingoEdge.showModal('line-add')">+ Add Process</button>
+    </div>
 </div>
 
 <!-- Line Add Modal -->
 <div class="modal" id="line-add" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Add Production Line <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('line-add')">&times;</button></div>
+            <div class="modal-header">Add Process <button class="btn btn-sm" onclick="ShingoEdge.hideModal('line-add')">&times;</button></div>
             <div class="card-body" id="line-add-form">
                 <div class="form-group"><label>Name</label><input type="text" name="name" class="form-input"></div>
                 <div class="form-group"><label>Description</label><input type="text" name="description" class="form-input"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('line-add')">Cancel</button>
+                <button class="btn" onclick="ShingoEdge.hideModal('line-add')">Cancel</button>
                 <button class="btn btn-primary" onclick="addLine()">Add</button>
             </div>
         </div>
@@ -90,14 +148,14 @@
 <div class="modal" id="line-edit" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Edit Production Line <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('line-edit')">&times;</button></div>
+            <div class="modal-header">Edit Process <button class="btn btn-sm" onclick="ShingoEdge.hideModal('line-edit')">&times;</button></div>
             <div class="card-body" id="line-edit-form">
                 <input type="hidden" name="id">
                 <div class="form-group"><label>Name</label><input type="text" name="name" class="form-input"></div>
                 <div class="form-group"><label>Description</label><input type="text" name="description" class="form-input"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('line-edit')">Cancel</button>
+                <button class="btn" onclick="ShingoEdge.hideModal('line-edit')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveLine()">Save</button>
             </div>
         </div>
@@ -108,14 +166,45 @@
 <div class="modal" id="js-add" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Add Job Style <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('js-add')">&times;</button></div>
+            <div class="modal-header">Add Style <button class="btn btn-sm" onclick="ShingoEdge.hideModal('js-add')">&times;</button></div>
             <div class="card-body" id="js-add-form">
                 <input type="hidden" name="line_id">
                 <div class="form-group"><label>Name</label><input type="text" name="name" class="form-input"></div>
                 <div class="form-group"><label>Description</label><input type="text" name="description" class="form-input"></div>
+                <div class="form-group">
+                    <label>Cat-IDs</label>
+                    <div class="cat-id-chips" id="js-add-catids"></div>
+                    <div style="display:flex;gap:0.35rem;margin-top:0.35rem">
+                        <input type="text" id="js-add-catid-input" class="form-input" placeholder="Add catalog ID" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addCatIDChip('js-add')}">
+                        <button class="btn btn-sm" type="button" onclick="addCatIDChip('js-add')">Add</button>
+                    </div>
+                </div>
+                <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0">
+                <strong style="font-size:0.9rem;color:var(--text-muted)">Reporting Point</strong>
+                <div class="form-group" style="margin-top:0.5rem"><label>PLC Name</label>
+                    <select name="plc_name" class="form-input" onchange="onPLCSelectChange(this)">
+                        <option value="">-- No PLC --</option>
+                        {{range .PLCNames}}<option value="{{.}}">{{.}}</option>{{end}}
+                    </select>
+                </div>
+                <div class="form-group"><label>Tag Name</label>
+                    <div class="tag-picker">
+                        <input type="text" name="tag_name" class="form-input tag-picker-input" autocomplete="off" placeholder="Type to filter tags..." onfocus="openTagPicker(this)" oninput="filterTagPicker(this)">
+                        <div class="tag-picker-dropdown" style="display:none"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:0.5rem">
+                        <span class="toggle-switch">
+                            <input type="checkbox" name="rp_enabled" checked>
+                            <span class="toggle-slider"></span>
+                        </span>
+                        Reporting Point Enabled
+                    </label>
+                </div>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('js-add')">Cancel</button>
+                <button class="btn" onclick="ShingoEdge.hideModal('js-add')">Cancel</button>
                 <button class="btn btn-primary" onclick="addJobStyle()">Add</button>
             </div>
         </div>
@@ -126,180 +215,66 @@
 <div class="modal" id="js-edit" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Edit Job Style <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('js-edit')">&times;</button></div>
+            <div class="modal-header">Edit Style <button class="btn btn-sm" onclick="ShingoEdge.hideModal('js-edit')">&times;</button></div>
             <div class="card-body" id="js-edit-form">
                 <input type="hidden" name="id">
                 <input type="hidden" name="line_id">
                 <div class="form-group"><label>Name</label><input type="text" name="name" class="form-input"></div>
                 <div class="form-group"><label>Description</label><input type="text" name="description" class="form-input"></div>
+                <div class="form-group">
+                    <label>Cat-IDs</label>
+                    <div class="cat-id-chips" id="js-edit-catids"></div>
+                    <div style="display:flex;gap:0.35rem;margin-top:0.35rem">
+                        <input type="text" id="js-edit-catid-input" class="form-input" placeholder="Add catalog ID" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addCatIDChip('js-edit')}">
+                        <button class="btn btn-sm" type="button" onclick="addCatIDChip('js-edit')">Add</button>
+                    </div>
+                </div>
+                <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0">
+                <strong style="font-size:0.9rem;color:var(--text-muted)">Reporting Point</strong>
+                <div class="form-group" style="margin-top:0.5rem"><label>PLC Name</label>
+                    <select name="plc_name" class="form-input" onchange="onPLCSelectChange(this)">
+                        <option value="">-- No PLC --</option>
+                        {{range .PLCNames}}<option value="{{.}}">{{.}}</option>{{end}}
+                    </select>
+                </div>
+                <div class="form-group"><label>Tag Name</label>
+                    <div class="tag-picker">
+                        <input type="text" name="tag_name" class="form-input tag-picker-input" autocomplete="off" placeholder="Type to filter tags..." onfocus="openTagPicker(this)" oninput="filterTagPicker(this)">
+                        <div class="tag-picker-dropdown" style="display:none"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:0.5rem">
+                        <span class="toggle-switch">
+                            <input type="checkbox" name="rp_enabled" checked>
+                            <span class="toggle-slider"></span>
+                        </span>
+                        Reporting Point Enabled
+                    </label>
+                </div>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('js-edit')">Cancel</button>
+                <button class="btn" id="js-edit-set-active" onclick="setActiveStyleFromModal()" style="display:none">Set as Active</button>
+                <span style="flex:1"></span>
+                <button class="btn" onclick="ShingoEdge.hideModal('js-edit')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveJobStyle()">Save</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 3. Reporting Points -->
-<div class="setup-section" id="section-rp">
-    <div class="section-header" onclick="toggleSection('section-rp')">
-        <h2><span class="section-chevron">&#9662;</span> Reporting Points</h2>
-        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); ShinGoEdge.showModal('rp-add')">+ Add</button>
-    </div>
-    <table class="table">
-        <thead>
-            <tr><th>PLC Name</th><th>Tag Name</th><th>Line</th><th>Job Style</th><th>Last Count</th><th>Last Changed</th><th>Enabled</th><th>Actions</th></tr>
-        </thead>
-        <tbody id="rp-body">
-            {{range .ReportingPoints}}
-            <tr id="rp-{{.ID}}">
-                <td>{{.PLCName}}</td>
-                <td class="mono">{{.TagName}}</td>
-                <td>{{if .LineID}}{{index $.LineMap (deref .LineID)}}{{else}}--{{end}}</td>
-                <td>{{index $.JobStyleMap .JobStyleID}}</td>
-                <td class="rp-last-count">{{.LastCount}}</td>
-                <td>{{if .LastPollAt}}{{.LastPollAt}}{{else}}--{{end}}</td>
-                <td>
-                    <label class="toggle-switch">
-                        <input type="checkbox" {{if .Enabled}}checked{{end}} onchange="toggleRPEnabled({{.ID}}, this.checked)">
-                        <span class="toggle-slider"></span>
-                    </label>
-                </td>
-                <td class="actions">
-                    <button class="btn-icon" onclick="readTag({{.ID}}, '{{.PLCName}}', '{{.TagName}}')" title="Read tag">&#8623;</button>
-                    <button class="btn-icon" onclick="openEditRP({{.ID}}, '{{.PLCName}}', '{{.TagName}}', {{.JobStyleID}}, {{.Enabled}}, {{if .LineID}}{{deref .LineID}}{{else}}0{{end}})" title="Edit">&#9998;</button>
-                    <button class="btn-icon btn-icon-danger" onclick="deleteReportingPoint({{.ID}})" title="Delete">&#128465;</button>
-                </td>
-            </tr>
-            {{else}}
-            <tr><td colspan="8" class="empty-cell">No reporting points</td></tr>
-            {{end}}
-        </tbody>
-    </table>
-</div>
-
-<!-- RP Add Modal -->
-<div class="modal" id="rp-add" style="display:none">
-    <div class="modal-content">
-        <div class="card">
-            <div class="modal-header">Add Reporting Point <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('rp-add')">&times;</button></div>
-            <div class="card-body" id="rp-add-form">
-                <div class="form-group"><label>Production Line</label>
-                    <select name="line_id" class="form-input">
-                        <option value="">-- Select Line --</option>
-                        {{range .Lines}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-                    </select>
-                </div>
-                <div class="form-group"><label>PLC Name</label>
-                    <select name="plc_name" class="form-input" onchange="onPLCSelectChange(this)">
-                        <option value="">-- Select PLC --</option>
-                        {{range .PLCNames}}<option value="{{.}}">{{.}}</option>{{end}}
-                    </select>
-                </div>
-                <div class="form-group"><label>Tag Name</label>
-                    <div class="tag-picker">
-                        <input type="text" name="tag_name" class="form-input tag-picker-input" autocomplete="off" placeholder="Type to filter tags..." onfocus="openTagPicker(this)" oninput="filterTagPicker(this)">
-                        <div class="tag-picker-dropdown" style="display:none"></div>
-                    </div>
-                </div>
-                <div class="form-group"><label>Job Style (pin to specific style, or leave blank for line's active style)</label>
-                    <select name="job_style_id" class="form-input">
-                        <option value="0">-- Use Line's Active Style --</option>
-                        {{range .JobStyles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-                    </select>
-                </div>
-                <div class="form-group"><label><input type="checkbox" name="enabled" checked> Enabled</label></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('rp-add')">Cancel</button>
-                <button class="btn btn-primary" onclick="addReportingPoint()">Add</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- RP Edit Modal -->
-<div class="modal" id="rp-edit" style="display:none">
-    <div class="modal-content">
-        <div class="card">
-            <div class="modal-header">Edit Reporting Point <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('rp-edit')">&times;</button></div>
-            <div class="card-body" id="rp-edit-form">
-                <input type="hidden" name="id">
-                <div class="form-group"><label>Production Line</label>
-                    <select name="line_id" class="form-input">
-                        <option value="">-- Select Line --</option>
-                        {{range .Lines}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-                    </select>
-                </div>
-                <div class="form-group"><label>PLC Name</label>
-                    <select name="plc_name" class="form-input" onchange="onPLCSelectChange(this)">
-                        <option value="">-- Select PLC --</option>
-                        {{range .PLCNames}}<option value="{{.}}">{{.}}</option>{{end}}
-                    </select>
-                </div>
-                <div class="form-group"><label>Tag Name</label>
-                    <div class="tag-picker">
-                        <input type="text" name="tag_name" class="form-input tag-picker-input" autocomplete="off" placeholder="Type to filter tags..." onfocus="openTagPicker(this)" oninput="filterTagPicker(this)">
-                        <div class="tag-picker-dropdown" style="display:none"></div>
-                    </div>
-                </div>
-                <div class="form-group"><label>Job Style (pin to specific style, or leave blank for line's active style)</label>
-                    <select name="job_style_id" class="form-input">
-                        <option value="0">-- Use Line's Active Style --</option>
-                        {{range .JobStyles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-                    </select>
-                </div>
-                <div class="form-group"><label><input type="checkbox" name="enabled"> Enabled</label></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('rp-edit')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveReportingPoint()">Save</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 3b. Location Nodes -->
-<div class="setup-section" id="section-nodes">
-    <div class="section-header" onclick="toggleSection('section-nodes')">
-        <h2><span class="section-chevron">&#9662;</span> Location Nodes</h2>
-        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); ShinGoEdge.showModal('node-add')">+ Add</button>
-    </div>
-    <table class="table">
-        <thead>
-            <tr><th>Node ID</th><th>Process</th><th>Description</th><th>Actions</th></tr>
-        </thead>
-        <tbody id="node-body">
-            {{range .LocationNodes}}
-            <tr id="node-{{.ID}}">
-                <td class="mono">{{.NodeID}}</td>
-                <td>{{.Process}}</td>
-                <td>{{.Description}}</td>
-                <td class="actions">
-                    <button class="btn-icon" onclick='openEditNode({{.ID}}, {{.NodeID | printf "%q"}}, {{.Process | printf "%q"}}, {{.Description | printf "%q"}})' title="Edit">&#9998;</button>
-                    <button class="btn-icon btn-icon-danger" onclick="deleteNode({{.ID}})" title="Delete">&#128465;</button>
-                </td>
-            </tr>
-            {{else}}
-            <tr><td colspan="4" class="empty-cell">No location nodes</td></tr>
-            {{end}}
-        </tbody>
-    </table>
-</div>
-
 <!-- Node Add Modal -->
 <div class="modal" id="node-add" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Add Location Node <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('node-add')">&times;</button></div>
+            <div class="modal-header">Add Location Node <button class="btn btn-sm" onclick="ShingoEdge.hideModal('node-add')">&times;</button></div>
             <div class="card-body" id="node-add-form">
+                <input type="hidden" name="line_id">
                 <div class="form-group"><label>Node ID</label><input type="text" name="node_id" class="form-input" placeholder="e.g. LSL-3A"></div>
-                <div class="form-group"><label>Process</label><input type="text" name="process" class="form-input" placeholder="e.g. Kitting, Assembly"></div>
                 <div class="form-group"><label>Description</label><input type="text" name="description" class="form-input"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('node-add')">Cancel</button>
+                <button class="btn" onclick="ShingoEdge.hideModal('node-add')">Cancel</button>
                 <button class="btn btn-primary" onclick="addNode()">Add</button>
             </div>
         </div>
@@ -310,38 +285,40 @@
 <div class="modal" id="node-edit" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Edit Location Node <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('node-edit')">&times;</button></div>
+            <div class="modal-header">Edit Location Node <button class="btn btn-sm" onclick="ShingoEdge.hideModal('node-edit')">&times;</button></div>
             <div class="card-body" id="node-edit-form">
                 <input type="hidden" name="id">
+                <input type="hidden" name="line_id">
                 <div class="form-group"><label>Node ID</label><input type="text" name="node_id" class="form-input"></div>
-                <div class="form-group"><label>Process</label><input type="text" name="process" class="form-input"></div>
                 <div class="form-group"><label>Description</label><input type="text" name="description" class="form-input"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('node-edit')">Cancel</button>
+                <button class="btn btn-danger" onclick="deleteNodeFromModal()">Delete</button>
+                <span style="flex:1"></span>
+                <button class="btn" onclick="ShingoEdge.hideModal('node-edit')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveNode()">Save</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 4. Payloads -->
+<!-- 2. Payloads -->
 <div class="setup-section" id="section-payload">
     <div class="section-header" onclick="toggleSection('section-payload')">
-        <h2><span class="section-chevron">&#9662;</span> Payloads</h2>
+        <h2><span class="section-chevron">&#9662;</span> Define Payloads</h2>
     </div>
     <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end">
         <div class="form-group" style="margin-bottom:0">
-            <label>Line</label>
+            <label>Process</label>
             <select id="payload-line" class="form-input" style="width:200px" onchange="onPayloadLineChange()">
-                <option value="">-- Select Line --</option>
+                <option value="">-- Select Process --</option>
                 {{range .Lines}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
             </select>
         </div>
         <div class="form-group" style="margin-bottom:0">
-            <label>Job Style</label>
+            <label>Style</label>
             <select id="payload-job-style" class="form-input" style="width:200px" onchange="loadPayloads()">
-                <option value="">-- Select Job Style --</option>
+                <option value="">-- Select Style --</option>
             </select>
         </div>
     </div>
@@ -350,11 +327,11 @@
             <tr><th>LSL Node</th><th>Staging</th><th>Description</th><th>Mult</th><th>UOP</th><th>Remaining</th><th>Reorder Pt</th><th>Reorder Qty</th><th>Retrieve Empty</th><th>Status</th><th>Actions</th></tr>
         </thead>
         <tbody id="payload-body">
-            <tr><td colspan="11" class="empty-cell">Select a job style to view payloads</td></tr>
+            <tr><td colspan="11" class="empty-cell">Select a style to view payloads</td></tr>
         </tbody>
     </table>
-    <div id="payload-add-bar" style="display:none;margin-top:0.5rem">
-        <button class="btn btn-sm btn-primary" onclick="ShinGoEdge.showModal('payload-add')">+ Add Payload</button>
+    <div id="payload-add-bar" style="display:none;text-align:right;margin-top:0.75rem">
+        <button class="btn btn-sm btn-primary" onclick="ShingoEdge.showModal('payload-add')">+ Add Payload</button>
     </div>
 </div>
 
@@ -362,7 +339,7 @@
 <div class="modal" id="payload-add" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Add Payload <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('payload-add')">&times;</button></div>
+            <div class="modal-header">Add Payload <button class="btn btn-sm" onclick="ShingoEdge.hideModal('payload-add')">&times;</button></div>
             <div class="card-body" id="payload-add-form">
                 <div class="form-row">
                     <div class="form-group"><label>Location (LSL Node)</label><input type="text" name="location" class="form-input" placeholder="e.g. LSL-3A"></div>
@@ -381,7 +358,7 @@
                 <div class="form-group"><label><input type="checkbox" name="retrieve_empty" checked> Retrieve Empty</label></div>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('payload-add')">Cancel</button>
+                <button class="btn" onclick="ShingoEdge.hideModal('payload-add')">Cancel</button>
                 <button class="btn btn-primary" onclick="addPayload()">Add</button>
             </div>
         </div>
@@ -392,7 +369,7 @@
 <div class="modal" id="payload-edit" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Edit Payload <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('payload-edit')">&times;</button></div>
+            <div class="modal-header">Edit Payload <button class="btn btn-sm" onclick="ShingoEdge.hideModal('payload-edit')">&times;</button></div>
             <div class="card-body" id="payload-edit-form">
                 <input type="hidden" name="id">
                 <div class="form-row">
@@ -423,145 +400,14 @@
                 <div class="form-group"><label><input type="checkbox" name="retrieve_empty"> Retrieve Empty</label></div>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('payload-edit')">Cancel</button>
+                <button class="btn" onclick="ShingoEdge.hideModal('payload-edit')">Cancel</button>
                 <button class="btn btn-primary" onclick="savePayload()">Save</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 7. E-Kanban Templates -->
-<div class="setup-section" id="section-tmpl">
-    <div class="section-header" onclick="toggleSection('section-tmpl')">
-        <h2><span class="section-chevron">&#9662;</span> E-Kanban Templates</h2>
-        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); ShinGoEdge.showModal('tmpl-add')">+ Add</button>
-    </div>
-    <table class="table">
-        <thead><tr><th>Name</th><th>Type</th><th>Description</th><th>Payload</th><th>Actions</th></tr></thead>
-        <tbody id="tmpl-body">
-            {{range .Templates}}
-            <tr id="tmpl-{{.ID}}">
-                <td>{{.Name}}</td>
-                <td>{{.OrderType}}</td>
-                <td>{{.Description}}</td>
-                <td class="mono">{{truncate .Payload 50}}</td>
-                <td class="actions">
-                    <button class="btn-icon" onclick='openEditTemplate({{.ID}}, {{.Name | printf "%q"}}, {{.OrderType | printf "%q"}}, {{.Description | printf "%q"}}, {{.Payload | printf "%q"}})' title="Edit">&#9998;</button>
-                    <button class="btn-icon btn-icon-danger" onclick="deleteTemplate({{.ID}})" title="Delete">&#128465;</button>
-                </td>
-            </tr>
-            {{else}}
-            <tr><td colspan="5" class="empty-cell">No templates</td></tr>
-            {{end}}
-        </tbody>
-    </table>
-</div>
-
-<!-- Template Add Modal -->
-<div class="modal" id="tmpl-add" style="display:none">
-    <div class="modal-content">
-        <div class="card">
-            <div class="modal-header">Add E-Kanban Template <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('tmpl-add')">&times;</button></div>
-            <div class="card-body" id="tmpl-add-form">
-                <div class="form-row">
-                    <div class="form-group"><label>Name</label><input type="text" name="name" class="form-input"></div>
-                    <div class="form-group"><label>Type</label>
-                        <select name="order_type" class="form-input">
-                            <option value="retrieve">Retrieve</option>
-                            <option value="store">Store</option>
-                            <option value="move">Move</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-group"><label>Description</label><input type="text" name="description" class="form-input"></div>
-                <div class="form-group"><label>Payload (JSON)</label><textarea name="payload" class="form-input" rows="6">{}</textarea></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('tmpl-add')">Cancel</button>
-                <button class="btn btn-primary" onclick="addTemplate()">Add</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Template Edit Modal -->
-<div class="modal" id="tmpl-edit" style="display:none">
-    <div class="modal-content">
-        <div class="card">
-            <div class="modal-header">Edit E-Kanban Template <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('tmpl-edit')">&times;</button></div>
-            <div class="card-body" id="tmpl-edit-form">
-                <input type="hidden" name="id">
-                <div class="form-row">
-                    <div class="form-group"><label>Name</label><input type="text" name="name" class="form-input"></div>
-                    <div class="form-group"><label>Type</label>
-                        <select name="order_type" class="form-input">
-                            <option value="retrieve">Retrieve</option>
-                            <option value="store">Store</option>
-                            <option value="move">Move</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-group"><label>Description</label><input type="text" name="description" class="form-input"></div>
-                <div class="form-group"><label>Payload (JSON)</label><textarea name="payload" class="form-input" rows="6"></textarea></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('tmpl-edit')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveTemplate()">Save</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 8. Messaging Configuration -->
-<div class="setup-section" id="section-msg">
-    <div class="section-header" onclick="toggleSection('section-msg')">
-        <h2><span class="section-chevron">&#9662;</span> Messaging</h2>
-    </div>
-    <div class="card">
-        <div class="card-body" id="msg-form">
-            <div class="form-group">
-                <label>Backend</label>
-                <select name="backend" class="form-input" style="width:200px" onchange="toggleMessagingFields()">
-                    <option value="mqtt" {{if eq .Config.Messaging.Backend "mqtt"}}selected{{end}}>MQTT</option>
-                    <option value="kafka" {{if eq .Config.Messaging.Backend "kafka"}}selected{{end}}>Kafka</option>
-                </select>
-            </div>
-            <div id="mqtt-fields">
-                <div class="form-row">
-                    <div class="form-group"><label>Broker</label><input type="text" name="mqtt_broker" class="form-input" value="{{.Config.Messaging.MQTT.Broker}}"></div>
-                    <div class="form-group"><label>Port</label><input type="number" name="mqtt_port" class="form-input" value="{{.Config.Messaging.MQTT.Port}}"></div>
-                </div>
-                <div class="form-group"><label>Client ID</label><input type="text" name="mqtt_client_id" class="form-input" value="{{.Config.Messaging.MQTT.ClientID}}"></div>
-            </div>
-            <div id="kafka-fields" style="display:none">
-                <div class="form-group"><label>Brokers (comma-separated)</label><input type="text" name="kafka_brokers" class="form-input" value="{{join .Config.Messaging.Kafka.Brokers ","}}"></div>
-            </div>
-            <div class="form-row">
-                <div class="form-group"><label>Order Topic</label><input type="text" name="order_topic" class="form-input" value="{{.Config.Messaging.OrderTopic}}"></div>
-                <div class="form-group"><label>Inbound Topic</label><input type="text" name="inbound_topic" class="form-input" value="{{.Config.Messaging.InboundTopic}}"></div>
-            </div>
-            <button class="btn btn-primary" onclick="saveMessaging()">Save</button>
-        </div>
-    </div>
-</div>
-
-<!-- 9. Auto-Confirm -->
-<div class="setup-section" id="section-autoconfirm">
-    <div class="section-header" onclick="toggleSection('section-autoconfirm')">
-        <h2><span class="section-chevron">&#9662;</span> Auto-Confirm Deliveries</h2>
-    </div>
-    <div class="card">
-        <div class="card-body">
-            <label class="form-group">
-                <input type="checkbox" id="auto-confirm" {{if .Config.Web.AutoConfirm}}checked{{end}}>
-                Automatically confirm deliveries when AMR reports arrival
-            </label>
-            <button class="btn btn-primary" onclick="saveAutoConfirm()">Save</button>
-        </div>
-    </div>
-</div>
-
-<!-- 10. Admin Password -->
+<!-- 3. Admin Password -->
 <div class="setup-section" id="section-pw">
     <div class="section-header" onclick="toggleSection('section-pw')">
         <h2><span class="section-chevron">&#9662;</span> Admin Password</h2>
@@ -611,29 +457,55 @@ function saveSectionState() {
     } catch (e) {}
 })();
 
-// --- WarLink ---
-async function saveWarLink() {
-    var d = ShinGoEdge.getFormData('warlink-form');
+// --- Station Configuration (unified save) ---
+async function saveStationConfig() {
     try {
-        await ShinGoEdge.api.put('/api/config/warlink', d);
-        ShinGoEdge.toast('WarLink config saved', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await Promise.all([
+            ShingoEdge.api.put('/api/config/station-id', {
+                station_id: document.getElementById('station-id-input').value.trim()
+            }),
+            ShingoEdge.api.put('/api/config/warlink', (function() {
+                var d = ShingoEdge.getFormData('warlink-form');
+                d.port = parseInt(d.port) || 8080;
+                return d;
+            })()),
+            ShingoEdge.api.put('/api/config/messaging', { kafka_brokers: collectBrokers() }),
+            ShingoEdge.api.put('/api/config/auto-confirm', {
+                auto_confirm: document.getElementById('auto-confirm').checked
+            })
+        ]);
+        ShingoEdge.toast('Configuration saved', 'success');
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
+
+// --- WarLink mode toggle ---
+function onWarlinkModeChange(mode) {
+    var pollInput = document.querySelector('#warlink-form [name="poll_rate"]');
+    if (pollInput) {
+        pollInput.disabled = (mode !== 'poll');
+        pollInput.style.opacity = (mode !== 'poll') ? '0.5' : '';
+    }
+}
+// Apply initial state
+(function() {
+    var modeSelect = document.querySelector('#warlink-form [name="mode"]');
+    if (modeSelect) onWarlinkModeChange(modeSelect.value);
+})();
 
 async function refreshPLCChips() {
     try {
-        var plcs = await ShinGoEdge.api.get('/api/plcs');
+        var plcs = await ShingoEdge.api.get('/api/plcs');
         var wrapper = document.getElementById('plc-chips-wrapper');
         if (!wrapper) return;
         if (!plcs || plcs.length === 0) {
             wrapper.innerHTML = '';
             return;
         }
-        var html = '<label style="display:block;margin-bottom:0.25rem;font-weight:500;color:var(--color-text-muted)">Available PLCs</label>' +
+        var html = '<label style="display:block;margin-bottom:0.25rem;font-weight:500;color:var(--text-muted)">Available PLCs</label>' +
             '<div id="plc-chips" style="display:flex;gap:0.5rem;flex-wrap:wrap">';
         for (var i = 0; i < plcs.length; i++) {
             var p = plcs[i];
-            html += '<span class="plc-chip ' + (p.connected ? 'plc-chip-connected' : 'plc-chip-disconnected') + '" id="plc-status-' + p.name + '">' + p.name + '</span>';
+            html += '<span class="plc-chip ' + (p.connected ? 'plc-chip-connected' : 'plc-chip-disconnected') + '" id="plc-status-' + p.name + '"><span class="plc-health-dot ' + (p.connected ? 'plc-health-online' : 'plc-health-unknown') + '" id="plc-health-' + p.name + '"></span>' + p.name + '</span>';
         }
         html += '</div>';
         wrapper.innerHTML = html;
@@ -645,7 +517,7 @@ var _tagCache = {};
 
 function loadTagsForPLC(plcName, cb) {
     if (_tagCache[plcName]) { cb(_tagCache[plcName]); return; }
-    ShinGoEdge.api.get('/api/plcs/tags/' + encodeURIComponent(plcName)).then(function(tags) {
+    ShingoEdge.api.get('/api/plcs/all-tags/' + encodeURIComponent(plcName)).then(function(tags) {
         _tagCache[plcName] = tags || [];
         cb(_tagCache[plcName]);
     }).catch(function() { cb([]); });
@@ -664,18 +536,18 @@ function onPLCSelectChange(sel) {
 
 function openTagPicker(input) {
     var form = input.closest('.card-body');
-    var plcName = form.querySelector('[name="plc_name"]').value;
-    if (!plcName) return;
-    loadTagsForPLC(plcName, function(tags) {
+    var plcSel = form.querySelector('[name="plc_name"]');
+    if (!plcSel || !plcSel.value) return;
+    loadTagsForPLC(plcSel.value, function(tags) {
         renderTagDropdown(input, tags, input.value);
     });
 }
 
 function filterTagPicker(input) {
     var form = input.closest('.card-body');
-    var plcName = form.querySelector('[name="plc_name"]').value;
-    if (!plcName) return;
-    var tags = _tagCache[plcName] || [];
+    var plcSel = form.querySelector('[name="plc_name"]');
+    if (!plcSel || !plcSel.value) return;
+    var tags = _tagCache[plcSel.value] || [];
     renderTagDropdown(input, tags, input.value);
 }
 
@@ -690,9 +562,12 @@ function renderTagDropdown(input, tags, filter) {
         var limit = Math.min(filtered.length, 100);
         for (var i = 0; i < limit; i++) {
             var t = filtered[i];
-            html += '<div class="tag-picker-item" onmousedown="selectTagPickerItem(this, \'' + ShinGoEdge.escapeHtml(t.name).replace(/'/g, "\\'") + '\')">';
-            html += '<span class="tag-picker-name">' + ShinGoEdge.escapeHtml(t.name) + '</span>';
-            html += '<span class="tag-picker-type">' + ShinGoEdge.escapeHtml(t.type) + '</span>';
+            html += '<div class="tag-picker-item" onmousedown="selectTagPickerItem(this, \'' + ShingoEdge.escapeHtml(t.name).replace(/'/g, "\\'") + '\')">';
+            html += '<span class="tag-picker-name">' + ShingoEdge.escapeHtml(t.name) + '</span>';
+            if (t.enabled === false) {
+                html += '<span class="tag-picker-unpublished">(not published)</span>';
+            }
+            html += '<span class="tag-picker-type">' + ShingoEdge.escapeHtml(t.type) + '</span>';
             html += '</div>';
         }
         if (filtered.length > limit) {
@@ -718,180 +593,131 @@ document.addEventListener('click', function(e) {
     }
 });
 
+// --- Cat-ID Chips ---
+var _catIDData = { 'js-add': [], 'js-edit': [] };
+
+function renderCatIDChips(prefix) {
+    var container = document.getElementById(prefix + '-catids');
+    var ids = _catIDData[prefix] || [];
+    var html = '';
+    for (var i = 0; i < ids.length; i++) {
+        html += '<span class="cat-id-chip">' + ShingoEdge.escapeHtml(ids[i]) +
+            '<button type="button" class="cat-id-remove" onclick="removeCatIDChip(\'' + prefix + '\',' + i + ')">&times;</button></span>';
+    }
+    container.innerHTML = html;
+}
+
+function addCatIDChip(prefix) {
+    var input = document.getElementById(prefix + '-catid-input');
+    var val = input.value.trim();
+    if (!val) return;
+    if (!_catIDData[prefix]) _catIDData[prefix] = [];
+    _catIDData[prefix].push(val);
+    input.value = '';
+    renderCatIDChips(prefix);
+}
+
+function removeCatIDChip(prefix, index) {
+    _catIDData[prefix].splice(index, 1);
+    renderCatIDChips(prefix);
+}
+
+function getCatIDs(prefix) {
+    return _catIDData[prefix] || [];
+}
+
+function setCatIDs(prefix, ids) {
+    _catIDData[prefix] = ids || [];
+    renderCatIDChips(prefix);
+}
+
 // --- Production Lines ---
 async function addLine() {
-    var d = ShinGoEdge.getFormData('line-add-form');
+    var d = ShingoEdge.getFormData('line-add-form');
     try {
-        await ShinGoEdge.api.post('/api/lines', d);
-        ShinGoEdge.toast('Line added', 'success');
-        ShinGoEdge.hideModal('line-add');
+        await ShingoEdge.api.post('/api/lines', d);
+        ShingoEdge.toast('Process added', 'success');
+        ShingoEdge.hideModal('line-add');
         location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 function openEditLine(id, name, desc) {
-    ShinGoEdge.populateForm('line-edit-form', { id: id, name: name, description: desc });
-    ShinGoEdge.showModal('line-edit');
+    ShingoEdge.populateForm('line-edit-form', { id: id, name: name, description: desc });
+    ShingoEdge.showModal('line-edit');
 }
 
 async function saveLine() {
-    var d = ShinGoEdge.getFormData('line-edit-form');
+    var d = ShingoEdge.getFormData('line-edit-form');
     var id = d.id; delete d.id;
     try {
-        await ShinGoEdge.api.put('/api/lines/' + id, d);
-        ShinGoEdge.toast('Line updated', 'success');
-        ShinGoEdge.hideModal('line-edit');
+        await ShingoEdge.api.put('/api/lines/' + id, d);
+        ShingoEdge.toast('Process updated', 'success');
+        ShingoEdge.hideModal('line-edit');
         location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function deleteLine(id) {
-    var ok = await ShinGoEdge.confirm('Delete this production line and all its job styles?');
+    var ok = await ShingoEdge.confirm('Delete this process and all its styles?');
     if (!ok) return;
     try {
-        await ShinGoEdge.api.del('/api/lines/' + id);
-        ShinGoEdge.toast('Deleted', 'success');
+        await ShingoEdge.api.del('/api/lines/' + id);
+        ShingoEdge.toast('Deleted', 'success');
         location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function setActiveStyle(lineID, jsID) {
     try {
-        await ShinGoEdge.api.put('/api/lines/' + lineID + '/active-style', {
+        await ShingoEdge.api.put('/api/lines/' + lineID + '/active-style', {
             job_style_id: jsID ? parseInt(jsID) : null
         });
-        ShinGoEdge.toast('Active style updated', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        ShingoEdge.toast('Active style updated', 'success');
+        loadStyleChips(lineID);
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
-function toggleLineDetail(lineID) {
-    var el = document.getElementById('line-detail-' + lineID);
-    if (el.style.display === 'none') {
-        el.style.display = '';
-        loadLineJobStyles(lineID);
-        loadLineActiveStyleDropdown(lineID);
-    } else {
-        el.style.display = 'none';
-    }
-}
-
-async function loadLineActiveStyleDropdown(lineID) {
+// --- Style Chips ---
+async function loadStyleChips(lineID) {
+    var container = document.getElementById('style-chips-' + lineID);
+    if (!container) return;
     try {
-        var styles = await ShinGoEdge.api.get('/api/lines/' + lineID + '/job-styles');
-        var line = await ShinGoEdge.api.get('/api/lines');
-        var activeLine = null;
-        for (var i = 0; i < line.length; i++) {
-            if (line[i].id === lineID) { activeLine = line[i]; break; }
+        var styles = await ShingoEdge.api.get('/api/lines/' + lineID + '/job-styles');
+        var lines = await ShingoEdge.api.get('/api/lines');
+        var activeStyleID = null;
+        for (var i = 0; i < lines.length; i++) {
+            if (lines[i].id === lineID) { activeStyleID = lines[i].active_job_style_id; break; }
         }
-        // Find the dropdown for this line
-        var card = document.getElementById('line-detail-' + lineID).parentElement;
-        var sel = card.querySelector('.card-header select');
-        if (!sel) return;
-        var html = '<option value="">-- No Active Style --</option>';
-        for (var i = 0; i < (styles || []).length; i++) {
-            var s = styles[i];
-            var selected = activeLine && activeLine.active_job_style_id === s.id ? ' selected' : '';
-            html += '<option value="' + s.id + '"' + selected + '>' + ShinGoEdge.escapeHtml(s.name) + '</option>';
-        }
-        sel.innerHTML = html;
-    } catch (e) {}
-}
-
-async function loadLineJobStyles(lineID) {
-    var body = document.getElementById('js-body-' + lineID);
-    if (!body) return;
-    try {
-        var styles = await ShinGoEdge.api.get('/api/lines/' + lineID + '/job-styles');
         if (!styles || styles.length === 0) {
-            body.innerHTML = '<tr><td colspan="3" class="empty-cell">No job styles for this line</td></tr>';
+            container.innerHTML = '<span style="font-size:0.8rem;color:var(--text-muted);padding:0.25rem 0">No styles</span>';
             return;
         }
         var html = '';
         for (var i = 0; i < styles.length; i++) {
             var s = styles[i];
-            html += '<tr id="js-' + s.id + '">' +
-                '<td>' + ShinGoEdge.escapeHtml(s.name) + '</td>' +
-                '<td>' + ShinGoEdge.escapeHtml(s.description) + '</td>' +
-                '<td class="actions">' +
-                    '<button class="btn-icon" onclick="openEditJS(' + s.id + ', \'' + ShinGoEdge.escapeHtml(s.name).replace(/'/g, "\\'") + '\', \'' + ShinGoEdge.escapeHtml(s.description).replace(/'/g, "\\'") + '\', ' + lineID + ')" title="Edit">&#9998;</button>' +
-                    '<button class="btn-icon btn-icon-danger" onclick="deleteJobStyle(' + s.id + ', ' + lineID + ')" title="Delete">&#128465;</button>' +
-                '</td></tr>';
+            var cls = s.id === activeStyleID ? 'style-chip style-chip-active' : 'style-chip style-chip-inactive';
+            html += '<span class="' + cls + '" onclick="openEditJS(' + s.id + ',' + lineID + ',' + (s.id === activeStyleID ? 'true' : 'false') + ')" title="' + ShingoEdge.escapeHtml(s.description || '') + '">' + ShingoEdge.escapeHtml(s.name) + '</span>';
         }
-        body.innerHTML = html;
-    } catch (e) { body.innerHTML = '<tr><td colspan="3" class="empty-cell">Error loading styles</td></tr>'; }
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<span style="font-size:0.8rem;color:var(--text-muted)">Error loading styles</span>';
+    }
 }
 
-// --- Reporting Points ---
-async function addReportingPoint() {
-    var d = ShinGoEdge.getFormData('rp-add-form');
-    d.job_style_id = parseInt(d.job_style_id) || 0;
-    d.line_id = d.line_id ? parseInt(d.line_id) : null;
-    try {
-        await ShinGoEdge.api.post('/api/reporting-points', d);
-        ShinGoEdge.toast('Reporting point added', 'success');
-        ShinGoEdge.hideModal('rp-add');
-        location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+function refreshAllStyleChips() {
+    var cards = document.querySelectorAll('[data-line-id]');
+    for (var i = 0; i < cards.length; i++) {
+        loadStyleChips(parseInt(cards[i].getAttribute('data-line-id')));
+    }
 }
 
-function openEditRP(id, plcName, tagName, jsID, enabled, lineID) {
-    ShinGoEdge.populateForm('rp-edit-form', { id: id, plc_name: plcName, tag_name: tagName, job_style_id: jsID, enabled: enabled, line_id: lineID || '' });
-    ShinGoEdge.showModal('rp-edit');
-}
-
-async function saveReportingPoint() {
-    var d = ShinGoEdge.getFormData('rp-edit-form');
-    var id = d.id; delete d.id;
-    d.job_style_id = parseInt(d.job_style_id) || 0;
-    d.line_id = d.line_id ? parseInt(d.line_id) : null;
-    try {
-        await ShinGoEdge.api.put('/api/reporting-points/' + id, d);
-        ShinGoEdge.toast('Reporting point updated', 'success');
-        ShinGoEdge.hideModal('rp-edit');
-        location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
-}
-
-async function deleteReportingPoint(id) {
-    var ok = await ShinGoEdge.confirm('Delete this reporting point?');
-    if (!ok) return;
-    try {
-        await ShinGoEdge.api.del('/api/reporting-points/' + id);
-        ShinGoEdge.toast('Deleted', 'success');
-        ShinGoEdge.removeRow('rp-' + id);
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
-}
-
-async function toggleRPEnabled(id, enabled) {
-    try {
-        // Get current values from the row
-        var row = document.getElementById('rp-' + id);
-        var cells = row.querySelectorAll('td');
-        var jsSelect = row.querySelector('select');
-        await ShinGoEdge.api.put('/api/reporting-points/' + id, {
-            plc_name: cells[0].textContent,
-            tag_name: cells[1].textContent.trim(),
-            job_style_id: parseInt(cells[2].dataset.jsid || 0),
-            enabled: enabled
-        });
-        ShinGoEdge.toast('Updated', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); location.reload(); }
-}
-
-async function readTag(rpId, plcName, tagName) {
-    try {
-        var res = await ShinGoEdge.api.post('/api/plcs/read-tag', { plc_name: plcName, tag_name: tagName });
-        ShinGoEdge.toast(plcName + '/' + tagName + ' = ' + JSON.stringify(res.value), 'info');
-        var row = document.getElementById('rp-' + rpId);
-        if (row) {
-            var cell = row.querySelector('.rp-last-count');
-            if (cell) cell.textContent = res.value;
-        }
-    } catch (e) { ShinGoEdge.toast('Read failed: ' + e, 'error'); }
-}
+// Load all chips on page load
+(function() { refreshAllStyleChips(); })();
 
 // --- Job Styles ---
 var _currentJSLineID = 0;
+var _currentJSIsActive = false;
 
 function openAddJS(lineID) {
     _currentJSLineID = lineID;
@@ -899,57 +725,110 @@ function openAddJS(lineID) {
     form.querySelector('[name="line_id"]').value = lineID;
     form.querySelector('[name="name"]').value = '';
     form.querySelector('[name="description"]').value = '';
-    ShinGoEdge.showModal('js-add');
+    form.querySelector('[name="plc_name"]').value = '';
+    form.querySelector('[name="tag_name"]').value = '';
+    form.querySelector('[name="rp_enabled"]').checked = true;
+    setCatIDs('js-add', []);
+    ShingoEdge.showModal('js-add');
 }
 
 async function addJobStyle() {
-    var d = ShinGoEdge.getFormData('js-add-form');
+    var d = ShingoEdge.getFormData('js-add-form');
     d.line_id = parseInt(d.line_id);
+    d.cat_ids = getCatIDs('js-add');
+    d.rp_plc_name = d.plc_name || '';
+    d.rp_tag_name = d.tag_name || '';
+    d.rp_enabled = !!d.rp_enabled;
+    delete d.plc_name;
+    delete d.tag_name;
     try {
-        await ShinGoEdge.api.post('/api/job-styles', d);
-        ShinGoEdge.toast('Job style added', 'success');
-        ShinGoEdge.hideModal('js-add');
-        loadLineJobStyles(d.line_id);
-        loadLineActiveStyleDropdown(d.line_id);
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await ShingoEdge.api.post('/api/job-styles', d);
+        ShingoEdge.toast('Style added', 'success');
+        ShingoEdge.hideModal('js-add');
+        loadStyleChips(d.line_id);
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
-function openEditJS(id, name, desc, lineID) {
-    ShinGoEdge.populateForm('js-edit-form', { id: id, name: name, description: desc, line_id: lineID });
-    ShinGoEdge.showModal('js-edit');
+async function openEditJS(id, lineID, isActive) {
+    _currentJSLineID = lineID;
+    _currentJSIsActive = isActive;
+
+    // Fetch style data
+    var styles = await ShingoEdge.api.get('/api/lines/' + lineID + '/job-styles');
+    var style = null;
+    for (var i = 0; i < (styles || []).length; i++) {
+        if (styles[i].id === id) { style = styles[i]; break; }
+    }
+    if (!style) { ShingoEdge.toast('Style not found', 'error'); return; }
+
+    var form = document.getElementById('js-edit-form');
+    form.querySelector('[name="id"]').value = id;
+    form.querySelector('[name="line_id"]').value = lineID;
+    form.querySelector('[name="name"]').value = style.name;
+    form.querySelector('[name="description"]').value = style.description;
+    setCatIDs('js-edit', style.cat_ids || []);
+
+    // Fetch reporting point for this style
+    var rp = null;
+    try {
+        rp = await ShingoEdge.api.get('/api/job-styles/' + id + '/reporting-point');
+    } catch (e) {}
+
+    form.querySelector('[name="plc_name"]').value = rp ? rp.plc_name : '';
+    form.querySelector('[name="tag_name"]').value = rp ? rp.tag_name : '';
+    form.querySelector('[name="rp_enabled"]').checked = rp ? rp.enabled : true;
+
+    // Show/hide "Set as Active" button
+    var setActiveBtn = document.getElementById('js-edit-set-active');
+    setActiveBtn.style.display = isActive ? 'none' : '';
+
+    ShingoEdge.showModal('js-edit');
 }
 
 async function saveJobStyle() {
-    var d = ShinGoEdge.getFormData('js-edit-form');
+    var d = ShingoEdge.getFormData('js-edit-form');
     var id = d.id; delete d.id;
     d.line_id = parseInt(d.line_id);
+    d.cat_ids = getCatIDs('js-edit');
+    d.rp_plc_name = d.plc_name || '';
+    d.rp_tag_name = d.tag_name || '';
+    d.rp_enabled = !!d.rp_enabled;
+    delete d.plc_name;
+    delete d.tag_name;
     try {
-        await ShinGoEdge.api.put('/api/job-styles/' + id, d);
-        ShinGoEdge.toast('Job style updated', 'success');
-        ShinGoEdge.hideModal('js-edit');
-        loadLineJobStyles(d.line_id);
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await ShingoEdge.api.put('/api/job-styles/' + id, d);
+        ShingoEdge.toast('Style updated', 'success');
+        ShingoEdge.hideModal('js-edit');
+        loadStyleChips(d.line_id);
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
+}
+
+async function setActiveStyleFromModal() {
+    var form = document.getElementById('js-edit-form');
+    var styleID = parseInt(form.querySelector('[name="id"]').value);
+    var lineID = parseInt(form.querySelector('[name="line_id"]').value);
+    await setActiveStyle(lineID, styleID);
+    ShingoEdge.hideModal('js-edit');
 }
 
 async function deleteJobStyle(id, lineID) {
-    var ok = await ShinGoEdge.confirm('Delete this job style?');
+    var ok = await ShingoEdge.confirm('Delete this style?');
     if (!ok) return;
     try {
-        await ShinGoEdge.api.del('/api/job-styles/' + id);
-        ShinGoEdge.toast('Deleted', 'success');
-        loadLineJobStyles(lineID);
-        loadLineActiveStyleDropdown(lineID);
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await ShingoEdge.api.del('/api/job-styles/' + id);
+        ShingoEdge.toast('Deleted', 'success');
+        loadStyleChips(lineID);
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 // --- Payloads ---
 async function onPayloadLineChange() {
     var lineID = document.getElementById('payload-line').value;
     var jsSel = document.getElementById('payload-job-style');
-    jsSel.innerHTML = '<option value="">-- Select Job Style --</option>';
+    jsSel.innerHTML = '<option value="">-- Select Style --</option>';
     if (!lineID) { loadPayloads(); return; }
     try {
-        var styles = await ShinGoEdge.api.get('/api/lines/' + lineID + '/job-styles');
+        var styles = await ShingoEdge.api.get('/api/lines/' + lineID + '/job-styles');
         for (var i = 0; i < (styles || []).length; i++) {
             var opt = document.createElement('option');
             opt.value = styles[i].id;
@@ -965,24 +844,24 @@ async function loadPayloads() {
     var body = document.getElementById('payload-body');
     var addBar = document.getElementById('payload-add-bar');
     if (!jsID) {
-        body.innerHTML = '<tr><td colspan="11" class="empty-cell">Select a line and job style to view payloads</td></tr>';
+        body.innerHTML = '<tr><td colspan="11" class="empty-cell">Select a process and style to view payloads</td></tr>';
         addBar.style.display = 'none';
         return;
     }
     addBar.style.display = '';
     try {
-        var payloads = await ShinGoEdge.api.get('/api/payloads/job-style/' + jsID);
+        var payloads = await ShingoEdge.api.get('/api/payloads/job-style/' + jsID);
         if (!payloads || payloads.length === 0) {
-            body.innerHTML = '<tr><td colspan="11" class="empty-cell">No payloads for this job style</td></tr>';
+            body.innerHTML = '<tr><td colspan="11" class="empty-cell">No payloads for this style</td></tr>';
             return;
         }
         var html = '';
         for (var i = 0; i < payloads.length; i++) {
             var p = payloads[i];
             html += '<tr id="payload-' + p.id + '">' +
-                '<td class="mono">' + ShinGoEdge.escapeHtml(p.location) + '</td>' +
-                '<td class="mono">' + ShinGoEdge.escapeHtml(p.staging_node) + '</td>' +
-                '<td>' + ShinGoEdge.escapeHtml(p.description) + '</td>' +
+                '<td class="mono">' + ShingoEdge.escapeHtml(p.location) + '</td>' +
+                '<td class="mono">' + ShingoEdge.escapeHtml(p.staging_node) + '</td>' +
+                '<td>' + ShingoEdge.escapeHtml(p.description) + '</td>' +
                 '<td>' + p.multiplier + '</td>' +
                 '<td>' + p.production_units + '</td>' +
                 '<td>' + p.remaining + '</td>' +
@@ -993,17 +872,17 @@ async function loadPayloads() {
                 '<td class="actions">' +
                     '<button class="btn-icon" onclick=\'openEditPayload(' + JSON.stringify(p).replace(/'/g, "\\'") + ')\' title="Edit">&#9998;</button>' +
                     '<button class="btn-icon" onclick="resetPayload(' + p.id + ', ' + p.production_units + ')" title="Reset to full">&#8634;</button>' +
-                    '<button class="btn-icon btn-icon-danger" onclick="deletePayload(' + p.id + ')" title="Delete">&#128465;</button>' +
+                    '<button class="btn-icon btn-icon-danger" onclick="deletePayload(' + p.id + ')" title="Delete">&#10005;</button>' +
                 '</td></tr>';
         }
         body.innerHTML = html;
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function addPayload() {
     var jsID = document.getElementById('payload-job-style').value;
-    if (!jsID) { ShinGoEdge.toast('Select a job style first', 'warning'); return; }
-    var d = ShinGoEdge.getFormData('payload-add-form');
+    if (!jsID) { ShingoEdge.toast('Select a style first', 'warning'); return; }
+    var d = ShingoEdge.getFormData('payload-add-form');
     d.job_style_id = parseInt(jsID);
     d.multiplier = parseFloat(d.multiplier) || 1;
     d.production_units = parseInt(d.production_units) || 0;
@@ -1012,15 +891,15 @@ async function addPayload() {
     d.reorder_qty = parseInt(d.reorder_qty) || 1;
     if (!d.manifest) d.manifest = '{}';
     try {
-        await ShinGoEdge.api.post('/api/payloads', d);
-        ShinGoEdge.toast('Payload added', 'success');
-        ShinGoEdge.hideModal('payload-add');
+        await ShingoEdge.api.post('/api/payloads', d);
+        ShingoEdge.toast('Payload added', 'success');
+        ShingoEdge.hideModal('payload-add');
         loadPayloads();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 function openEditPayload(p) {
-    ShinGoEdge.populateForm('payload-edit-form', {
+    ShingoEdge.populateForm('payload-edit-form', {
         id: p.id, location: p.location, staging_node: p.staging_node,
         description: p.description, manifest: p.manifest,
         multiplier: p.multiplier, production_units: p.production_units,
@@ -1028,11 +907,11 @@ function openEditPayload(p) {
         reorder_qty: p.reorder_qty, retrieve_empty: p.retrieve_empty,
         status: p.status
     });
-    ShinGoEdge.showModal('payload-edit');
+    ShingoEdge.showModal('payload-edit');
 }
 
 async function savePayload() {
-    var d = ShinGoEdge.getFormData('payload-edit-form');
+    var d = ShingoEdge.getFormData('payload-edit-form');
     var id = d.id; delete d.id;
     d.multiplier = parseFloat(d.multiplier) || 1;
     d.production_units = parseInt(d.production_units) || 0;
@@ -1041,157 +920,260 @@ async function savePayload() {
     d.reorder_qty = parseInt(d.reorder_qty) || 1;
     if (!d.manifest) d.manifest = '{}';
     try {
-        await ShinGoEdge.api.put('/api/payloads/' + id, d);
-        ShinGoEdge.toast('Payload updated', 'success');
-        ShinGoEdge.hideModal('payload-edit');
+        await ShingoEdge.api.put('/api/payloads/' + id, d);
+        ShingoEdge.toast('Payload updated', 'success');
+        ShingoEdge.hideModal('payload-edit');
         loadPayloads();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function deletePayload(id) {
-    var ok = await ShinGoEdge.confirm('Delete this payload?');
+    var ok = await ShingoEdge.confirm('Delete this payload?');
     if (!ok) return;
     try {
-        await ShinGoEdge.api.del('/api/payloads/' + id);
-        ShinGoEdge.toast('Deleted', 'success');
+        await ShingoEdge.api.del('/api/payloads/' + id);
+        ShingoEdge.toast('Deleted', 'success');
         loadPayloads();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function resetPayload(id, productionUnits) {
-    var ok = await ShinGoEdge.confirm('Reset this payload to ' + productionUnits + ' production units?');
+    var ok = await ShingoEdge.confirm('Reset this payload to ' + productionUnits + ' production units?');
     if (!ok) return;
     try {
-        await ShinGoEdge.api.put('/api/payloads/' + id + '/count', { piece_count: 0, reset: true });
-        ShinGoEdge.toast('Payload reset', 'success');
+        await ShingoEdge.api.put('/api/payloads/' + id + '/count', { piece_count: 0, reset: true });
+        ShingoEdge.toast('Payload reset', 'success');
         loadPayloads();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
-// --- E-Kanban Templates ---
-async function addTemplate() {
-    var d = ShinGoEdge.getFormData('tmpl-add-form');
-    if (!d.payload) d.payload = '{}';
+// --- Location Nodes (nested under processes) ---
+async function loadLineNodes(lineID) {
+    var container = document.getElementById('node-list-' + lineID);
+    if (!container) return;
     try {
-        await ShinGoEdge.api.post('/api/kanban-templates', d);
-        ShinGoEdge.toast('Template added', 'success');
-        ShinGoEdge.hideModal('tmpl-add');
-        location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        var nodes = await ShingoEdge.api.get('/api/lines/' + lineID + '/location-nodes');
+        if (!nodes || nodes.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+        var html = '<div style="border-top:1px solid var(--border);padding-top:0.4rem;margin-top:0.25rem">' +
+            '<label style="display:block;margin-bottom:0.25rem;font-weight:500;font-size:0.8rem;color:var(--text-muted)">Location Nodes</label>' +
+            '<div style="display:flex;gap:0.4rem;flex-wrap:wrap">';
+        for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            var tip = n.description ? ShingoEdge.escapeHtml(n.description) : '';
+            html += '<span class="style-chip style-chip-inactive" onclick="openEditNode(' + n.id + ',' + n.line_id + ')" title="' + tip + '" style="cursor:pointer">' + ShingoEdge.escapeHtml(n.node_id) + '</span>';
+        }
+        html += '</div></div>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '';
+    }
 }
 
-function openEditTemplate(id, name, orderType, desc, payload) {
-    ShinGoEdge.populateForm('tmpl-edit-form', { id: id, name: name, order_type: orderType, description: desc, payload: payload });
-    ShinGoEdge.showModal('tmpl-edit');
+function refreshAllLineNodes() {
+    var cards = document.querySelectorAll('[data-line-id]');
+    for (var i = 0; i < cards.length; i++) {
+        loadLineNodes(parseInt(cards[i].getAttribute('data-line-id')));
+    }
 }
 
-async function saveTemplate() {
-    var d = ShinGoEdge.getFormData('tmpl-edit-form');
-    var id = d.id; delete d.id;
-    try {
-        await ShinGoEdge.api.put('/api/kanban-templates/' + id, d);
-        ShinGoEdge.toast('Template updated', 'success');
-        ShinGoEdge.hideModal('tmpl-edit');
-        location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+// Load all nodes on page load
+(function() { refreshAllLineNodes(); })();
+
+var _currentNodeLineID = 0;
+
+function openAddNode(lineID) {
+    _currentNodeLineID = lineID;
+    var form = document.getElementById('node-add-form');
+    form.querySelector('[name="line_id"]').value = lineID;
+    form.querySelector('[name="node_id"]').value = '';
+    form.querySelector('[name="description"]').value = '';
+    ShingoEdge.showModal('node-add');
 }
 
-async function deleteTemplate(id) {
-    var ok = await ShinGoEdge.confirm('Delete this template?');
-    if (!ok) return;
-    try {
-        await ShinGoEdge.api.del('/api/kanban-templates/' + id);
-        ShinGoEdge.toast('Deleted', 'success');
-        ShinGoEdge.removeRow('tmpl-' + id);
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
-}
-
-// --- Location Nodes ---
 async function addNode() {
-    var d = ShinGoEdge.getFormData('node-add-form');
+    var d = ShingoEdge.getFormData('node-add-form');
+    d.line_id = parseInt(d.line_id);
     try {
-        await ShinGoEdge.api.post('/api/location-nodes', d);
-        ShinGoEdge.toast('Node added', 'success');
-        ShinGoEdge.hideModal('node-add');
-        location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await ShingoEdge.api.post('/api/location-nodes', d);
+        ShingoEdge.toast('Node added', 'success');
+        ShingoEdge.hideModal('node-add');
+        loadLineNodes(d.line_id);
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
-function openEditNode(id, nodeID, process, description) {
-    ShinGoEdge.populateForm('node-edit-form', { id: id, node_id: nodeID, process: process, description: description });
-    ShinGoEdge.showModal('node-edit');
+async function openEditNode(id, lineID) {
+    _currentNodeLineID = lineID;
+    // Fetch current node data
+    var nodes = await ShingoEdge.api.get('/api/lines/' + lineID + '/location-nodes');
+    var node = null;
+    for (var i = 0; i < (nodes || []).length; i++) {
+        if (nodes[i].id === id) { node = nodes[i]; break; }
+    }
+    if (!node) { ShingoEdge.toast('Node not found', 'error'); return; }
+    ShingoEdge.populateForm('node-edit-form', { id: id, line_id: lineID, node_id: node.node_id, description: node.description });
+    ShingoEdge.showModal('node-edit');
 }
 
 async function saveNode() {
-    var d = ShinGoEdge.getFormData('node-edit-form');
+    var d = ShingoEdge.getFormData('node-edit-form');
     var id = d.id; delete d.id;
+    d.line_id = parseInt(d.line_id);
     try {
-        await ShinGoEdge.api.put('/api/location-nodes/' + id, d);
-        ShinGoEdge.toast('Node updated', 'success');
-        ShinGoEdge.hideModal('node-edit');
-        location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await ShingoEdge.api.put('/api/location-nodes/' + id, d);
+        ShingoEdge.toast('Node updated', 'success');
+        ShingoEdge.hideModal('node-edit');
+        loadLineNodes(d.line_id);
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
-async function deleteNode(id) {
-    var ok = await ShinGoEdge.confirm('Delete this location node?');
+async function deleteNode(id, lineID) {
+    var ok = await ShingoEdge.confirm('Delete this location node?');
     if (!ok) return;
     try {
-        await ShinGoEdge.api.del('/api/location-nodes/' + id);
-        ShinGoEdge.toast('Deleted', 'success');
-        ShinGoEdge.removeRow('node-' + id);
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await ShingoEdge.api.del('/api/location-nodes/' + id);
+        ShingoEdge.toast('Deleted', 'success');
+        loadLineNodes(lineID || _currentNodeLineID);
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
-// --- Messaging ---
-function toggleMessagingFields() {
-    var backend = document.querySelector('#msg-form [name="backend"]').value;
-    document.getElementById('mqtt-fields').style.display = backend === 'mqtt' ? '' : 'none';
-    document.getElementById('kafka-fields').style.display = backend === 'kafka' ? '' : 'none';
+async function deleteNodeFromModal() {
+    var form = document.getElementById('node-edit-form');
+    var id = parseInt(form.querySelector('[name="id"]').value);
+    var lineID = parseInt(form.querySelector('[name="line_id"]').value);
+    var ok = await ShingoEdge.confirm('Delete this location node?');
+    if (!ok) return;
+    try {
+        await ShingoEdge.api.del('/api/location-nodes/' + id);
+        ShingoEdge.toast('Deleted', 'success');
+        ShingoEdge.hideModal('node-edit');
+        loadLineNodes(lineID);
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
-toggleMessagingFields();
 
-async function saveMessaging() {
-    var d = ShinGoEdge.getFormData('msg-form');
-    // Convert kafka_brokers from comma string to array
-    if (d.kafka_brokers && typeof d.kafka_brokers === 'string') {
-        d.kafka_brokers = d.kafka_brokers.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+// --- Messaging (Kafka) ---
+function addBrokerRow() {
+    var container = document.getElementById('broker-rows');
+    var row = document.createElement('div');
+    row.className = 'broker-row';
+    row.innerHTML = '<input type="text" class="form-input broker-host" style="flex:1" placeholder="localhost">' +
+        '<input type="number" class="form-input broker-port" style="width:80px" placeholder="9092">' +
+        '<button class="btn btn-sm" onclick="testBroker(this)">Test</button>' +
+        '<span class="broker-status"></span>' +
+        '<button class="btn-icon btn-icon-danger" onclick="removeBrokerRow(this)" title="Remove">&#10005;</button>';
+    container.appendChild(row);
+}
+
+function removeBrokerRow(btn) {
+    var row = btn.closest('.broker-row');
+    var container = document.getElementById('broker-rows');
+    if (container.querySelectorAll('.broker-row').length > 1) {
+        row.remove();
     } else {
-        d.kafka_brokers = [];
+        row.querySelector('.broker-host').value = '';
     }
-    try {
-        await ShinGoEdge.api.put('/api/config/messaging', d);
-        ShinGoEdge.toast('Messaging config saved', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
 }
 
-// --- Auto-Confirm ---
-async function saveAutoConfirm() {
+function collectBrokers() {
+    var rows = document.querySelectorAll('.broker-row');
+    var brokers = [];
+    for (var i = 0; i < rows.length; i++) {
+        var host = rows[i].querySelector('.broker-host').value.trim();
+        var port = rows[i].querySelector('.broker-port').value.trim();
+        if (host) brokers.push(host + ':' + (port || '9092'));
+    }
+    return brokers;
+}
+
+function brokerAddr(row) {
+    var host = row.querySelector('.broker-host').value.trim();
+    var port = row.querySelector('.broker-port').value.trim();
+    return host ? host + ':' + (port || '9092') : '';
+}
+
+async function testBroker(btn) {
+    var row = btn.closest('.broker-row');
+    var host = brokerAddr(row);
+    var status = row.querySelector('.broker-status');
+    if (!host) { status.textContent = ''; return; }
+    status.textContent = 'Testing...';
+    status.className = 'broker-status';
     try {
-        await ShinGoEdge.api.put('/api/config/auto-confirm', {
-            auto_confirm: document.getElementById('auto-confirm').checked
-        });
-        ShinGoEdge.toast('Auto-confirm saved', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        var res = await ShingoEdge.api.post('/api/config/kafka/test', { broker: host });
+        if (res.connected) {
+            status.textContent = 'Connected';
+            status.className = 'broker-status broker-status-ok';
+        } else {
+            status.textContent = res.error || 'Failed';
+            status.className = 'broker-status broker-status-err';
+        }
+    } catch (e) {
+        status.textContent = 'Error';
+        status.className = 'broker-status broker-status-err';
+    }
 }
 
 // --- Password ---
 async function changePassword() {
     try {
-        await ShinGoEdge.api.post('/api/config/password', {
+        await ShingoEdge.api.post('/api/config/password', {
             old_password: document.getElementById('pw-old').value,
             new_password: document.getElementById('pw-new').value
         });
-        ShinGoEdge.toast('Password changed', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        ShingoEdge.toast('Password changed', 'success');
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
+}
+
+// --- Persistent Toast ---
+function showPLCAlert(plcName, error) {
+    // Dedup by PLC name
+    var existing = document.querySelector('[data-plc-alert="' + plcName + '"]');
+    if (existing) return;
+    var container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-persistent';
+    toast.setAttribute('data-plc-alert', plcName);
+    toast.innerHTML = '<span class="toast-msg">PLC ' + ShingoEdge.escapeHtml(plcName) + ' offline' + (error ? ': ' + ShingoEdge.escapeHtml(error) : '') + '</span>' +
+        '<button class="toast-close" onclick="this.parentElement.remove()">&times;</button>';
+    container.appendChild(toast);
+}
+
+function dismissPLCAlert(plcName) {
+    var el = document.querySelector('[data-plc-alert="' + plcName + '"]');
+    if (el) el.remove();
 }
 
 // --- SSE ---
-ShinGoEdge.createSSE('/events', {
+ShingoEdge.createSSE('/events', {
+    onPlcHealthAlert: function(data) {
+        showPLCAlert(data.plc_name, data.error);
+        var dot = document.getElementById('plc-health-' + data.plc_name);
+        if (dot) { dot.className = 'plc-health-dot plc-health-offline'; }
+    },
+    onPlcHealthRecover: function(data) {
+        dismissPLCAlert(data.plc_name);
+        var dot = document.getElementById('plc-health-' + data.plc_name);
+        if (dot) { dot.className = 'plc-health-dot plc-health-online'; }
+    },
     onPlcStatus: function(data) {
         var el = document.getElementById('plc-status-' + data.plcName);
         if (el) {
+            // Preserve the health dot
+            var dot = el.querySelector('.plc-health-dot');
             el.className = 'plc-chip ' + (data.connected ? 'plc-chip-connected' : 'plc-chip-disconnected');
+            if (dot && !el.contains(dot)) el.insertBefore(dot, el.firstChild);
+        }
+        if (data.connected) {
+            dismissPLCAlert(data.plcName);
+            var hdot = document.getElementById('plc-health-' + data.plcName);
+            if (hdot) { hdot.className = 'plc-health-dot plc-health-online'; }
         }
     },
     onWarlinkStatus: function(data) {

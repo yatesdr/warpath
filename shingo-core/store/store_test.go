@@ -165,219 +165,6 @@ func TestMaterialCRUD(t *testing.T) {
 	}
 }
 
-// --- Inventory tests ---
-
-func TestInventoryCRUD(t *testing.T) {
-	db := testDB(t)
-
-	node := &Node{Name: "S1", VendorLocation: "Loc-01", NodeType: "storage", Capacity: 10, Enabled: true}
-	db.CreateNode(node)
-	mat := &Material{Code: "PART-A", Unit: "ea"}
-	db.CreateMaterial(mat)
-
-	// Add inventory
-	invID, err := db.AddInventory(node.ID, mat.ID, 5.0, false, nil, "test item")
-	if err != nil {
-		t.Fatalf("add: %v", err)
-	}
-	if invID == 0 {
-		t.Fatal("invID should be assigned")
-	}
-
-	// Get
-	item, err := db.GetInventoryItem(invID)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if item.Quantity != 5.0 {
-		t.Errorf("Quantity = %f, want 5.0", item.Quantity)
-	}
-	if item.MaterialCode != "PART-A" {
-		t.Errorf("MaterialCode = %q, want %q", item.MaterialCode, "PART-A")
-	}
-	if item.Notes != "test item" {
-		t.Errorf("Notes = %q, want %q", item.Notes, "test item")
-	}
-
-	// List
-	items, _ := db.ListNodeInventory(node.ID)
-	if len(items) != 1 {
-		t.Errorf("list len = %d, want 1", len(items))
-	}
-
-	// Update quantity
-	db.UpdateInventoryQuantity(invID, 3.0)
-	item2, _ := db.GetInventoryItem(invID)
-	if item2.Quantity != 3.0 {
-		t.Errorf("Quantity after update = %f, want 3.0", item2.Quantity)
-	}
-
-	// Count
-	count, _ := db.CountNodeInventory(node.ID)
-	if count != 1 {
-		t.Errorf("count = %d, want 1", count)
-	}
-
-	// Remove
-	db.RemoveInventory(invID)
-	_, err = db.GetInventoryItem(invID)
-	if err == nil {
-		t.Error("expected error after remove")
-	}
-}
-
-func TestInventoryClaimUnclaim(t *testing.T) {
-	db := testDB(t)
-
-	node := &Node{Name: "S1", VendorLocation: "Loc-01", NodeType: "storage", Capacity: 10, Enabled: true}
-	db.CreateNode(node)
-	mat := &Material{Code: "PART-A", Unit: "ea"}
-	db.CreateMaterial(mat)
-
-	// Create an order to claim against
-	order := &Order{EdgeUUID: "uuid-1", OrderType: "retrieve", Status: "pending", MaterialCode: "PART-A"}
-	db.CreateOrder(order)
-
-	invID, _ := db.AddInventory(node.ID, mat.ID, 1.0, false, nil, "")
-
-	// Claim
-	if err := db.ClaimInventory(invID, order.ID); err != nil {
-		t.Fatalf("claim: %v", err)
-	}
-	item, _ := db.GetInventoryItem(invID)
-	if item.ClaimedBy == nil || *item.ClaimedBy != order.ID {
-		t.Errorf("ClaimedBy = %v, want %d", item.ClaimedBy, order.ID)
-	}
-
-	// Unclaim
-	if err := db.UnclaimInventory(invID); err != nil {
-		t.Fatalf("unclaim: %v", err)
-	}
-	item2, _ := db.GetInventoryItem(invID)
-	if item2.ClaimedBy != nil {
-		t.Errorf("ClaimedBy after unclaim = %v, want nil", item2.ClaimedBy)
-	}
-}
-
-func TestFindSourceFIFO(t *testing.T) {
-	db := testDB(t)
-
-	// Create storage nodes
-	s1 := &Node{Name: "S1", VendorLocation: "Loc-01", NodeType: "storage", Capacity: 10, Enabled: true}
-	s2 := &Node{Name: "S2", VendorLocation: "Loc-02", NodeType: "storage", Capacity: 10, Enabled: true}
-	db.CreateNode(s1)
-	db.CreateNode(s2)
-
-	mat := &Material{Code: "PART-A", Unit: "ea"}
-	db.CreateMaterial(mat)
-
-	// Add older full pallet at S1
-	id1, _ := db.AddInventory(s1.ID, mat.ID, 10.0, false, nil, "")
-	// Add newer partial pallet at S2
-	db.AddInventory(s2.ID, mat.ID, 3.0, true, nil, "")
-
-	// FIFO with partial priority: should pick the partial at S2 first
-	source, err := db.FindSourceFIFO("PART-A")
-	if err != nil {
-		t.Fatalf("FindSourceFIFO: %v", err)
-	}
-	if source.NodeID != s2.ID {
-		t.Errorf("source node = %d, want %d (partial priority)", source.NodeID, s2.ID)
-	}
-	if !source.IsPartial {
-		t.Error("source should be partial")
-	}
-
-	// Claim the partial, now should find the full at S1
-	order := &Order{EdgeUUID: "uuid-1", OrderType: "retrieve", Status: "pending", MaterialCode: "PART-A"}
-	db.CreateOrder(order)
-	db.ClaimInventory(source.ID, order.ID)
-
-	source2, err := db.FindSourceFIFO("PART-A")
-	if err != nil {
-		t.Fatalf("FindSourceFIFO after claim: %v", err)
-	}
-	if source2.ID != id1 {
-		t.Errorf("source = %d, want %d (full pallet at S1)", source2.ID, id1)
-	}
-
-	// Claim that too, now should get no results
-	db.ClaimInventory(id1, order.ID)
-	_, err = db.FindSourceFIFO("PART-A")
-	if err == nil {
-		t.Error("expected error when no unclaimed inventory")
-	}
-}
-
-func TestFindSourceFIFO_DisabledNode(t *testing.T) {
-	db := testDB(t)
-
-	s1 := &Node{Name: "S1", VendorLocation: "Loc-01", NodeType: "storage", Capacity: 10, Enabled: false}
-	db.CreateNode(s1)
-	mat := &Material{Code: "PART-A", Unit: "ea"}
-	db.CreateMaterial(mat)
-	db.AddInventory(s1.ID, mat.ID, 5.0, false, nil, "")
-
-	_, err := db.FindSourceFIFO("PART-A")
-	if err == nil {
-		t.Error("expected error when only node is disabled")
-	}
-}
-
-func TestFindStorageDestination(t *testing.T) {
-	db := testDB(t)
-
-	mat := &Material{Code: "PART-A", Unit: "ea"}
-	db.CreateMaterial(mat)
-
-	// Two storage nodes, S1 has the material already
-	s1 := &Node{Name: "S1", VendorLocation: "Loc-01", NodeType: "storage", Capacity: 5, Enabled: true}
-	s2 := &Node{Name: "S2", VendorLocation: "Loc-02", NodeType: "storage", Capacity: 5, Enabled: true}
-	db.CreateNode(s1)
-	db.CreateNode(s2)
-
-	// Add one item of PART-A at S1 (for consolidation preference)
-	db.AddInventory(s1.ID, mat.ID, 1.0, false, nil, "")
-
-	// Should prefer S1 (consolidation)
-	dest, err := db.FindStorageDestination(mat.ID)
-	if err != nil {
-		t.Fatalf("FindStorageDestination: %v", err)
-	}
-	if dest.ID != s1.ID {
-		t.Errorf("dest = %d, want %d (consolidation)", dest.ID, s1.ID)
-	}
-}
-
-func TestFindStorageDestination_FallbackEmptiest(t *testing.T) {
-	db := testDB(t)
-
-	matA := &Material{Code: "PART-A", Unit: "ea"}
-	matB := &Material{Code: "PART-B", Unit: "ea"}
-	db.CreateMaterial(matA)
-	db.CreateMaterial(matB)
-
-	// S1 has 3 items (different material), S2 has 1 item
-	s1 := &Node{Name: "S1", VendorLocation: "Loc-01", NodeType: "storage", Capacity: 5, Enabled: true}
-	s2 := &Node{Name: "S2", VendorLocation: "Loc-02", NodeType: "storage", Capacity: 5, Enabled: true}
-	db.CreateNode(s1)
-	db.CreateNode(s2)
-
-	db.AddInventory(s1.ID, matB.ID, 1.0, false, nil, "")
-	db.AddInventory(s1.ID, matB.ID, 1.0, false, nil, "")
-	db.AddInventory(s1.ID, matB.ID, 1.0, false, nil, "")
-	db.AddInventory(s2.ID, matB.ID, 1.0, false, nil, "")
-
-	// No consolidation target for PART-A, fallback to emptiest (S2 with 1 vs S1 with 3)
-	dest, err := db.FindStorageDestination(matA.ID)
-	if err != nil {
-		t.Fatalf("FindStorageDestination fallback: %v", err)
-	}
-	if dest.ID != s2.ID {
-		t.Errorf("dest = %d, want %d (emptiest)", dest.ID, s2.ID)
-	}
-}
-
 // --- Order tests ---
 
 func TestOrderCRUD(t *testing.T) {
@@ -386,8 +173,7 @@ func TestOrderCRUD(t *testing.T) {
 	matID := int64(0)
 	o := &Order{
 		EdgeUUID:  "uuid-1",
-		ClientID:     "line-1",
-		FactoryID:    "plant-alpha",
+		StationID:    "line-1",
 		OrderType:    "retrieve",
 		Status:       "pending",
 		MaterialCode: "PART-A",
@@ -461,8 +247,8 @@ func TestOrderCRUD(t *testing.T) {
 	// Complete
 	db.CompleteOrder(o.ID)
 	got6, _ := db.GetOrder(o.ID)
-	if got6.Status != "completed" {
-		t.Errorf("Status after complete = %q, want %q", got6.Status, "completed")
+	if got6.Status != "confirmed" {
+		t.Errorf("Status after complete = %q, want %q", got6.Status, "confirmed")
 	}
 	if got6.CompletedAt == nil {
 		t.Error("CompletedAt should be set")
@@ -473,7 +259,7 @@ func TestListOrders(t *testing.T) {
 	db := testDB(t)
 
 	db.CreateOrder(&Order{EdgeUUID: "u1", Status: "pending"})
-	db.CreateOrder(&Order{EdgeUUID: "u2", Status: "completed"})
+	db.CreateOrder(&Order{EdgeUUID: "u2", Status: "confirmed"})
 	db.CreateOrder(&Order{EdgeUUID: "u3", Status: "pending"})
 
 	// All
@@ -500,7 +286,7 @@ func TestListDispatchedVendorOrderIDs(t *testing.T) {
 
 	o1 := &Order{EdgeUUID: "u1", Status: "dispatched"}
 	o2 := &Order{EdgeUUID: "u2", Status: "in_transit"}
-	o3 := &Order{EdgeUUID: "u3", Status: "completed"}
+	o3 := &Order{EdgeUUID: "u3", Status: "confirmed"}
 	db.CreateOrder(o1)
 	db.CreateOrder(o2)
 	db.CreateOrder(o3)
@@ -523,10 +309,10 @@ func TestOutboxCRUD(t *testing.T) {
 	db := testDB(t)
 
 	// Enqueue
-	if err := db.EnqueueOutbox("topic/line-1", []byte(`{"test":true}`), "ack", "line-1"); err != nil {
+	if err := db.EnqueueOutbox("shingo.dispatch", []byte(`{"test":true}`), "order.ack", "line-1"); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
-	db.EnqueueOutbox("topic/line-2", []byte(`{"test":2}`), "update", "line-2")
+	db.EnqueueOutbox("shingo.dispatch", []byte(`{"test":2}`), "order.update", "line-2")
 
 	// List pending
 	msgs, err := db.ListPendingOutbox(10)
@@ -536,11 +322,11 @@ func TestOutboxCRUD(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("len = %d, want 2", len(msgs))
 	}
-	if msgs[0].Topic != "topic/line-1" {
-		t.Errorf("topic = %q, want %q", msgs[0].Topic, "topic/line-1")
+	if msgs[0].Topic != "shingo.dispatch" {
+		t.Errorf("topic = %q, want %q", msgs[0].Topic, "shingo.dispatch")
 	}
-	if msgs[0].MsgType != "ack" {
-		t.Errorf("msg_type = %q, want %q", msgs[0].MsgType, "ack")
+	if msgs[0].MsgType != "order.ack" {
+		t.Errorf("msg_type = %q, want %q", msgs[0].MsgType, "order.ack")
 	}
 
 	// Ack
@@ -621,43 +407,6 @@ func TestCorrectionCRUD(t *testing.T) {
 	}
 	if corrections[0].Reason != "physical count mismatch" {
 		t.Errorf("reason = %q, want %q", corrections[0].Reason, "physical count mismatch")
-	}
-}
-
-// --- Move inventory ---
-
-func TestMoveInventory(t *testing.T) {
-	db := testDB(t)
-
-	s1 := &Node{Name: "S1", VendorLocation: "Loc-01", NodeType: "storage", Capacity: 10, Enabled: true}
-	s2 := &Node{Name: "S2", VendorLocation: "Loc-02", NodeType: "storage", Capacity: 10, Enabled: true}
-	db.CreateNode(s1)
-	db.CreateNode(s2)
-	mat := &Material{Code: "PART-A", Unit: "ea"}
-	db.CreateMaterial(mat)
-
-	invID, _ := db.AddInventory(s1.ID, mat.ID, 5.0, false, nil, "")
-
-	// Move from S1 to S2
-	if err := db.MoveInventory(invID, s2.ID); err != nil {
-		t.Fatalf("move: %v", err)
-	}
-
-	item, _ := db.GetInventoryItem(invID)
-	if item.NodeID != s2.ID {
-		t.Errorf("NodeID = %d, want %d", item.NodeID, s2.ID)
-	}
-
-	// S1 should be empty
-	items1, _ := db.ListNodeInventory(s1.ID)
-	if len(items1) != 0 {
-		t.Errorf("S1 inventory = %d, want 0", len(items1))
-	}
-
-	// S2 should have the item
-	items2, _ := db.ListNodeInventory(s2.ID)
-	if len(items2) != 1 {
-		t.Errorf("S2 inventory = %d, want 1", len(items2))
 	}
 }
 

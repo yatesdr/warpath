@@ -76,7 +76,7 @@ func (d *OutboxDrainer) drain() {
 	}
 
 	for _, msg := range msgs {
-		topic := d.cfg.OrderTopic
+		topic := d.cfg.OrdersTopic
 		if err := d.client.Publish(topic, msg.Payload); err != nil {
 			log.Printf("publish outbox msg %d: %v", msg.ID, err)
 			d.db.IncrementOutboxRetries(msg.ID)

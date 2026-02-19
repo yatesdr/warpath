@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ShinGo{{if .Page}} - {{.Page}}{{end}}</title>
+  <title>Shingo{{if .Page}} - {{.Page}}{{end}}</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
@@ -11,14 +11,16 @@
 <body>
   <nav>
     <div class="container" style="display:flex;align-items:center;gap:1.5rem;">
-      <a href="/" class="brand">ShinGo</a>
+      <a href="/" class="brand">Shingo</a>
       <a href="/"{{if eq .Page "dashboard"}} class="active"{{end}}>Dashboard</a>
       <a href="/nodes"{{if eq .Page "nodes"}} class="active"{{end}}>Nodes</a>
       <a href="/orders"{{if eq .Page "orders"}} class="active"{{end}}>Orders</a>
+      <a href="/demand"{{if eq .Page "demand"}} class="active"{{end}}>Demand</a>
       <a href="/robots"{{if eq .Page "robots"}} class="active"{{end}}>Robots</a>
       {{if .Authenticated}}
       <a href="/payloads"{{if eq .Page "payloads"}} class="active"{{end}}>Payloads</a>
       <a href="/diagnostics"{{if eq .Page "diagnostics"}} class="active"{{end}}>Diagnostics</a>
+      <a href="/test-orders"{{if eq .Page "test-orders"}} class="active"{{end}}>Test Orders</a>
       <a href="/fleet-explorer"{{if eq .Page "fleet-explorer"}} class="active"{{end}}>Fleet Explorer</a>
       <a href="/config"{{if eq .Page "config"}} class="active"{{end}}>Config</a>
       <div style="margin-left:auto"><a href="/logout">Logout</a></div>

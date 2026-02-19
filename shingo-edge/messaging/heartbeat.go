@@ -12,8 +12,7 @@ import (
 // Heartbeater sends edge.register on startup and edge.heartbeat periodically.
 type Heartbeater struct {
 	client    *Client
-	nodeID    string
-	factory   string
+	stationID string
 	version   string
 	lineIDs   []string
 	topic     string // orders topic to publish on
@@ -25,16 +24,15 @@ type Heartbeater struct {
 }
 
 // NewHeartbeater creates a heartbeater for the given edge identity.
-func NewHeartbeater(client *Client, nodeID, factory, version string, lineIDs []string, ordersTopic string) *Heartbeater {
+func NewHeartbeater(client *Client, stationID, version string, lineIDs []string, ordersTopic string) *Heartbeater {
 	return &Heartbeater{
-		client:   client,
-		nodeID:   nodeID,
-		factory:  factory,
-		version:  version,
-		lineIDs:  lineIDs,
-		topic:    ordersTopic,
-		interval: 60 * time.Second,
-		stopCh:   make(chan struct{}),
+		client:    client,
+		stationID: stationID,
+		version:   version,
+		lineIDs:   lineIDs,
+		topic:     ordersTopic,
+		interval:  60 * time.Second,
+		stopCh:    make(chan struct{}),
 	}
 }
 
@@ -54,14 +52,13 @@ func (h *Heartbeater) sendRegister() {
 	hostname, _ := os.Hostname()
 	env, err := protocol.NewDataEnvelope(
 		protocol.SubjectEdgeRegister,
-		protocol.Address{Role: protocol.RoleEdge, Node: h.nodeID, Factory: h.factory},
+		protocol.Address{Role: protocol.RoleEdge, Station: h.stationID},
 		protocol.Address{Role: protocol.RoleCore},
 		&protocol.EdgeRegister{
-			NodeID:   h.nodeID,
-			Factory:  h.factory,
-			Hostname: hostname,
-			Version:  h.version,
-			LineIDs:  h.lineIDs,
+			StationID: h.stationID,
+			Hostname:  hostname,
+			Version:   h.version,
+			LineIDs:   h.lineIDs,
 		},
 	)
 	if err != nil {
@@ -71,7 +68,7 @@ func (h *Heartbeater) sendRegister() {
 	if err := h.client.PublishEnvelope(h.topic, env); err != nil {
 		log.Printf("heartbeater: send register: %v", err)
 	} else {
-		log.Printf("heartbeater: sent edge.register (node=%s)", h.nodeID)
+		log.Printf("heartbeater: sent edge.register (station=%s)", h.stationID)
 	}
 }
 
@@ -79,11 +76,11 @@ func (h *Heartbeater) sendHeartbeat() {
 	uptime := int64(time.Since(h.startTime).Seconds())
 	env, err := protocol.NewDataEnvelope(
 		protocol.SubjectEdgeHeartbeat,
-		protocol.Address{Role: protocol.RoleEdge, Node: h.nodeID, Factory: h.factory},
+		protocol.Address{Role: protocol.RoleEdge, Station: h.stationID},
 		protocol.Address{Role: protocol.RoleCore},
 		&protocol.EdgeHeartbeat{
-			NodeID: h.nodeID,
-			Uptime: uptime,
+			StationID: h.stationID,
+			Uptime:    uptime,
 		},
 	)
 	if err != nil {

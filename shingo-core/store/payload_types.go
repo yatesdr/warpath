@@ -7,26 +7,26 @@ import (
 )
 
 type PayloadType struct {
-	ID                 int64
-	Name               string
-	Description        string
-	FormFactor         string
-	DefaultManifestJSON string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                  int64     `json:"id"`
+	Name                string    `json:"name"`
+	Description         string    `json:"description"`
+	FormFactor          string    `json:"form_factor"`
+	DefaultManifestJSON string    `json:"default_manifest_json"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 const payloadTypeSelectCols = `id, name, description, form_factor, default_manifest_json, created_at, updated_at`
 
 func scanPayloadType(row interface{ Scan(...any) error }) (*PayloadType, error) {
 	var pt PayloadType
-	var createdAt, updatedAt string
+	var createdAt, updatedAt any
 	err := row.Scan(&pt.ID, &pt.Name, &pt.Description, &pt.FormFactor, &pt.DefaultManifestJSON, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
-	pt.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-	pt.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	pt.CreatedAt = parseTime(createdAt)
+	pt.UpdatedAt = parseTime(updatedAt)
 	return &pt, nil
 }
 

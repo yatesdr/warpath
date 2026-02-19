@@ -42,6 +42,8 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 		"templates/rds_explorer.html",
 		"templates/robots.html",
 		"templates/payloads.html",
+		"templates/demand.html",
+		"templates/test-orders.html",
 	}
 	tmpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
@@ -81,6 +83,7 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 	r.Get("/orders", h.handleOrders)
 	r.Get("/orders/detail", h.handleOrderDetail)
 	r.Get("/robots", h.handleRobots)
+	r.Get("/demand", h.handleDemand)
 
 	// API routes (no auth required for read)
 	r.Route("/api", func(r chi.Router) {
@@ -98,6 +101,8 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 		r.Get("/nodes/occupancy", h.apiNodeOccupancy)
 		r.Get("/corrections", h.apiListNodeCorrections)
 		r.Get("/map/points", h.apiScenePoints)
+		r.Get("/demands", h.apiListDemands)
+		r.Get("/demands/{id}/log", h.apiDemandLog)
 	})
 
 	// Protected routes
@@ -108,7 +113,24 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 		r.Post("/nodes/delete", h.handleNodeDelete)
 		r.Post("/nodes/sync-fleet", h.handleNodeSyncFleet)
 		r.Post("/nodes/sync-scene", h.handleSceneSync)
-		r.Post("/api/nodes/test-order", h.handleTestOrder)
+		// Test Orders page
+		r.Get("/test-orders", h.handleTestOrders)
+		// Kafka test orders
+		r.Get("/api/test-orders", h.apiTestOrdersList)
+		r.Get("/api/test-orders/detail", h.apiTestOrderDetail)
+		r.Post("/api/test-orders/submit", h.apiTestOrderSubmit)
+		r.Post("/api/test-orders/cancel", h.apiTestOrderCancel)
+		r.Post("/api/test-orders/receipt", h.apiTestOrderReceipt)
+		// Direct-to-RDS orders
+		r.Get("/api/test-orders/direct", h.apiDirectOrdersList)
+		r.Post("/api/test-orders/direct", h.apiDirectOrderSubmit)
+		// Direct RDS robot commands
+		r.Post("/api/test-commands/submit", h.apiTestCommandSubmit)
+		r.Get("/api/test-commands", h.apiTestCommandsList)
+		r.Get("/api/test-commands/status", h.apiTestCommandStatus)
+		// Shared helpers
+		r.Get("/api/test-orders/robots", h.apiTestRobots)
+		r.Get("/api/test-orders/scene-points", h.apiTestScenePoints)
 		r.Post("/payload-types/create", h.handlePayloadTypeCreate)
 		r.Post("/payload-types/update", h.handlePayloadTypeUpdate)
 		r.Post("/payload-types/delete", h.handlePayloadTypeDelete)
@@ -130,6 +152,14 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 		r.Post("/api/robots/force-complete", h.apiRobotForceComplete)
 		r.Post("/api/orders/terminate", h.apiTerminateOrder)
 		r.Post("/api/orders/priority", h.apiSetOrderPriority)
+		r.Post("/api/demands", h.apiCreateDemand)
+		r.Put("/api/demands/{id}", h.apiUpdateDemand)
+		r.Put("/api/demands/{id}/apply", h.apiApplyDemand)
+		r.Delete("/api/demands/{id}", h.apiDeleteDemand)
+		r.Post("/api/demands/apply-all", h.apiApplyAllDemands)
+		r.Put("/api/demands/{id}/produced", h.apiSetDemandProduced)
+		r.Post("/api/demands/{id}/clear", h.apiClearDemandProduced)
+		r.Post("/api/demands/clear-all", h.apiClearAllProduced)
 	})
 
 	stopFn := func() {

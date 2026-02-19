@@ -28,6 +28,8 @@ var subjectTTLs = map[string]time.Duration{
 	SubjectEdgeHeartbeatAck: 90 * time.Second,
 	SubjectEdgeRegister:     5 * time.Minute,
 	SubjectEdgeRegistered:   5 * time.Minute,
+
+	SubjectProductionReport: 5 * time.Minute,
 }
 
 // FallbackTTL is used when no specific TTL is configured.

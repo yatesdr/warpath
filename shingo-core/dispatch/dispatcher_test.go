@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"shingo/protocol"
 	"shingocore/config"
 	"shingocore/fleet"
-	"shingocore/messaging"
 	"shingocore/store"
 )
 
@@ -75,7 +75,7 @@ func (m *mockBackend) Ping() error                    { return fmt.Errorf("mock:
 func (m *mockBackend) Name() string                   { return "mock" }
 func (m *mockBackend) MapState(vendorState string) string { return "dispatched" }
 func (m *mockBackend) IsTerminalState(vendorState string) bool { return false }
-func (m *mockBackend) Reconfigure(cfg map[string]any) {}
+func (m *mockBackend) Reconfigure(cfg fleet.ReconfigureParams) {}
 
 // --- Test helpers ---
 
@@ -117,8 +117,15 @@ func setupTestData(t *testing.T, db *store.DB) (storageNode *store.Node, lineNod
 func newTestDispatcher(t *testing.T, db *store.DB, backend fleet.Backend) (*Dispatcher, *mockEmitter) {
 	t.Helper()
 	emitter := &mockEmitter{}
-	d := NewDispatcher(db, backend, emitter, "plant-alpha", "shingocore/dispatch")
+	d := NewDispatcher(db, backend, emitter, "core", "shingo.dispatch")
 	return d, emitter
+}
+
+func testEnvelope() *protocol.Envelope {
+	return &protocol.Envelope{
+		Src: protocol.Address{Role: protocol.RoleEdge, Station: "line-1"},
+		Dst: protocol.Address{Role: protocol.RoleCore},
+	}
 }
 
 // --- Tests ---
@@ -130,16 +137,14 @@ func TestHandleOrderRequest_Retrieve_NoSource(t *testing.T) {
 	// No fleet backend needed since it should fail before dispatch
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	req := messaging.OrderRequest{
+	env := testEnvelope()
+	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-1",
 		OrderType:       OrderTypeRetrieve,
 		PayloadTypeCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
-	}
-
-	d.HandleOrderRequest(env, req)
+	})
 
 	// Should emit received
 	if len(emitter.received) != 1 {
@@ -161,16 +166,14 @@ func TestHandleOrderRequest_Retrieve_InvalidDeliveryNode(t *testing.T) {
 
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	req := messaging.OrderRequest{
+	env := testEnvelope()
+	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-2",
 		OrderType:       OrderTypeRetrieve,
 		PayloadTypeCode: "PART-A",
 		DeliveryNode:    "NONEXISTENT",
 		Quantity:        1.0,
-	}
-
-	d.HandleOrderRequest(env, req)
+	})
 
 	// Should get an error reply enqueued (delivery node not found)
 	if len(emitter.received) != 0 {
@@ -184,17 +187,15 @@ func TestHandleOrderRequest_Move_MissingPickup(t *testing.T) {
 
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	req := messaging.OrderRequest{
+	env := testEnvelope()
+	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-3",
 		OrderType:       OrderTypeMove,
 		PayloadTypeCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		PickupNode:      "",
 		Quantity:        1.0,
-	}
-
-	d.HandleOrderRequest(env, req)
+	})
 
 	if len(emitter.failed) != 1 {
 		t.Fatalf("failed events = %d, want 1", len(emitter.failed))
@@ -210,17 +211,15 @@ func TestHandleOrderRequest_Move_NoPayloadAtPickup(t *testing.T) {
 
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	req := messaging.OrderRequest{
+	env := testEnvelope()
+	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-4",
 		OrderType:       OrderTypeMove,
 		PayloadTypeCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		PickupNode:      storageNode.Name,
 		Quantity:        1.0,
-	}
-
-	d.HandleOrderRequest(env, req)
+	})
 
 	// Should fail because no payloads at pickup
 	if len(emitter.failed) != 1 {
@@ -237,15 +236,13 @@ func TestHandleOrderRequest_UnknownType(t *testing.T) {
 
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	req := messaging.OrderRequest{
+	env := testEnvelope()
+	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-5",
 		OrderType:       "bogus",
 		PayloadTypeCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
-	}
-
-	d.HandleOrderRequest(env, req)
+	})
 
 	if len(emitter.failed) != 1 {
 		t.Fatalf("failed events = %d, want 1", len(emitter.failed))
@@ -261,15 +258,13 @@ func TestHandleOrderRequest_UnknownPayloadType(t *testing.T) {
 
 	d, _ := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	req := messaging.OrderRequest{
+	env := testEnvelope()
+	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-pt",
 		OrderType:       OrderTypeRetrieve,
 		PayloadTypeCode: "NONEXISTENT",
 		DeliveryNode:    lineNode.Name,
-	}
-
-	d.HandleOrderRequest(env, req)
+	})
 
 	// Should fail before creating order — no received or failed events from emitter
 	// but an error reply should be enqueued in the outbox
@@ -278,15 +273,13 @@ func TestHandleOrderRequest_UnknownPayloadType(t *testing.T) {
 func TestHandleOrderCancel(t *testing.T) {
 	db := testDB(t)
 
-	order := &store.Order{EdgeUUID: "uuid-cancel", ClientID: "line-1", Status: StatusPending}
+	order := &store.Order{EdgeUUID: "uuid-cancel", StationID: "line-1", Status: StatusPending}
 	db.CreateOrder(order)
 
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	req := messaging.OrderCancel{OrderUUID: "uuid-cancel", Reason: "operator cancelled"}
-
-	d.HandleOrderCancel(env, req)
+	env := testEnvelope()
+	d.HandleOrderCancel(env, &protocol.OrderCancel{OrderUUID: "uuid-cancel", Reason: "operator cancelled"})
 
 	if len(emitter.cancelled) != 1 {
 		t.Fatalf("cancelled events = %d, want 1", len(emitter.cancelled))
@@ -306,7 +299,7 @@ func TestHandleOrderCancel_UnclaimsPayloads(t *testing.T) {
 	db := testDB(t)
 	storageNode, _, pt := setupTestData(t, db)
 
-	order := &store.Order{EdgeUUID: "uuid-unclaim", ClientID: "line-1", Status: StatusDispatched}
+	order := &store.Order{EdgeUUID: "uuid-unclaim", StationID: "line-1", Status: StatusDispatched}
 	db.CreateOrder(order)
 
 	p := &store.Payload{PayloadTypeID: pt.ID, NodeID: &storageNode.ID, Status: "available"}
@@ -315,8 +308,8 @@ func TestHandleOrderCancel_UnclaimsPayloads(t *testing.T) {
 
 	d, _ := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	d.HandleOrderCancel(env, messaging.OrderCancel{OrderUUID: "uuid-unclaim", Reason: "test"})
+	env := testEnvelope()
+	d.HandleOrderCancel(env, &protocol.OrderCancel{OrderUUID: "uuid-unclaim", Reason: "test"})
 
 	// Verify payload unclaimed
 	got, _ := db.GetPayload(p.ID)
@@ -325,18 +318,16 @@ func TestHandleOrderCancel_UnclaimsPayloads(t *testing.T) {
 	}
 }
 
-func TestHandleDeliveryReceipt(t *testing.T) {
+func TestHandleOrderReceipt(t *testing.T) {
 	db := testDB(t)
 
-	order := &store.Order{EdgeUUID: "uuid-receipt", ClientID: "line-1", Status: StatusDelivered}
+	order := &store.Order{EdgeUUID: "uuid-receipt", StationID: "line-1", Status: StatusDelivered}
 	db.CreateOrder(order)
 
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
 
-	env := &messaging.Envelope{ClientID: "line-1", FactoryID: "plant-alpha"}
-	req := messaging.DeliveryReceipt{OrderUUID: "uuid-receipt", ReceiptType: "confirmed", FinalCount: 50}
-
-	d.HandleDeliveryReceipt(env, req)
+	env := testEnvelope()
+	d.HandleOrderReceipt(env, &protocol.OrderReceipt{OrderUUID: "uuid-receipt", ReceiptType: "confirmed", FinalCount: 50})
 
 	if len(emitter.completed) != 1 {
 		t.Fatalf("completed events = %d, want 1", len(emitter.completed))
@@ -344,8 +335,8 @@ func TestHandleDeliveryReceipt(t *testing.T) {
 
 	// Verify order is completed
 	got, _ := db.GetOrder(order.ID)
-	if got.Status != StatusCompleted {
-		t.Errorf("status = %q, want %q", got.Status, StatusCompleted)
+	if got.Status != StatusConfirmed {
+		t.Errorf("status = %q, want %q", got.Status, StatusConfirmed)
 	}
 }
 
@@ -377,12 +368,14 @@ func TestFIFOPayloadSourceSelection(t *testing.T) {
 func TestStatusConstants(t *testing.T) {
 	// Verify all plan-defined statuses exist
 	statuses := []string{
-		StatusPending, StatusSourcing, StatusDispatched, StatusInTransit,
-		StatusDelivered, StatusConfirmed, StatusCompleted, StatusFailed, StatusCancelled,
+		StatusPending, StatusSourcing, StatusSubmitted, StatusDispatched,
+		StatusAcknowledged, StatusInTransit, StatusDelivered, StatusConfirmed,
+		StatusFailed, StatusCancelled,
 	}
 	expected := []string{
-		"pending", "sourcing", "dispatched", "in_transit",
-		"delivered", "confirmed", "completed", "failed", "cancelled",
+		"pending", "sourcing", "submitted", "dispatched",
+		"acknowledged", "in_transit", "delivered", "confirmed",
+		"failed", "cancelled",
 	}
 	for i, s := range statuses {
 		if s != expected[i] {

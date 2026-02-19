@@ -34,7 +34,7 @@
       <thead>
         <tr>
           <th>ID</th>
-          <th>Client</th>
+          <th>Station</th>
           <th>Type</th>
           <th>Payload Type</th>
           <th>Status</th>
@@ -46,7 +46,7 @@
         {{range .ActiveOrders}}
         <tr>
           <td><a href="/orders/detail?id={{.ID}}">{{.ID}}</a></td>
-          <td>{{.ClientID}}</td>
+          <td>{{.StationID}}</td>
           <td>{{.OrderType}}</td>
           <td>{{if .PayloadTypeID}}PT#{{deref .PayloadTypeID}}{{else}}{{.MaterialCode}}{{end}}</td>
           <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>

@@ -1,5 +1,7 @@
 package orders
 
+import "shingo/protocol"
+
 // Order types
 const (
 	TypeRetrieve = "retrieve"
@@ -7,27 +9,26 @@ const (
 	TypeMove     = "move"
 )
 
-// Order statuses
+// Order statuses aliased from protocol.
 const (
-	StatusQueued       = "queued"
-	StatusSubmitted    = "submitted"
-	StatusAcknowledged = "acknowledged"
-	StatusInTransit    = "in_transit"
-	StatusDelivered    = "delivered"
-	StatusConfirmed    = "confirmed"
-	StatusCancelled    = "cancelled"
+	StatusPending      = protocol.StatusPending
+	StatusSubmitted    = protocol.StatusSubmitted
+	StatusAcknowledged = protocol.StatusAcknowledged
+	StatusInTransit    = protocol.StatusInTransit
+	StatusDelivered    = protocol.StatusDelivered
+	StatusConfirmed    = protocol.StatusConfirmed
+	StatusCancelled    = protocol.StatusCancelled
+	StatusFailed       = protocol.StatusFailed
 )
 
-// validTransitions defines which status transitions are allowed.
 var validTransitions = map[string][]string{
-	StatusQueued:       {StatusSubmitted, StatusCancelled},
-	StatusSubmitted:    {StatusAcknowledged, StatusCancelled},
-	StatusAcknowledged: {StatusInTransit, StatusCancelled},
-	StatusInTransit:    {StatusDelivered, StatusCancelled},
-	StatusDelivered:    {StatusConfirmed, StatusCancelled},
+	StatusPending:      {StatusSubmitted, StatusCancelled, StatusFailed},
+	StatusSubmitted:    {StatusAcknowledged, StatusCancelled, StatusFailed},
+	StatusAcknowledged: {StatusInTransit, StatusCancelled, StatusFailed},
+	StatusInTransit:    {StatusDelivered, StatusCancelled, StatusFailed},
+	StatusDelivered:    {StatusConfirmed, StatusCancelled, StatusFailed},
 }
 
-// IsValidTransition checks if a status transition is allowed.
 func IsValidTransition(from, to string) bool {
 	allowed, ok := validTransitions[from]
 	if !ok {
@@ -41,7 +42,6 @@ func IsValidTransition(from, to string) bool {
 	return false
 }
 
-// IsTerminal returns true if the status is a terminal state.
 func IsTerminal(status string) bool {
-	return status == StatusConfirmed || status == StatusCancelled
+	return status == StatusConfirmed || status == StatusCancelled || status == StatusFailed
 }

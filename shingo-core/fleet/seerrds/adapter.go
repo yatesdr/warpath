@@ -1,6 +1,7 @@
 package seerrds
 
 import (
+	"encoding/json"
 	"time"
 
 	"shingocore/fleet"
@@ -74,14 +75,12 @@ func (a *Adapter) IsTerminalState(vendorState string) bool {
 	return IsTerminalState(vendorState)
 }
 
-func (a *Adapter) Reconfigure(cfg map[string]any) {
-	if baseURL, ok := cfg["base_url"].(string); ok {
-		timeout, _ := cfg["timeout"].(time.Duration)
-		if timeout == 0 {
-			timeout = 10 * time.Second
-		}
-		a.client.Reconfigure(baseURL, timeout)
+func (a *Adapter) Reconfigure(cfg fleet.ReconfigureParams) {
+	timeout := cfg.Timeout
+	if timeout == 0 {
+		timeout = 10 * time.Second
 	}
+	a.client.Reconfigure(cfg.BaseURL, timeout)
 }
 
 // --- fleet.TrackingBackend ---
@@ -158,8 +157,55 @@ func (a *Adapter) BaseURL() string {
 	return a.client.BaseURL()
 }
 
+// --- fleet.SceneSyncer ---
+
+func (a *Adapter) GetSceneAreas() ([]fleet.SceneArea, error) {
+	scene, err := a.client.GetScene()
+	if err != nil {
+		return nil, err
+	}
+	areas := make([]fleet.SceneArea, len(scene.Areas))
+	for i, rdsArea := range scene.Areas {
+		fa := fleet.SceneArea{Name: rdsArea.Name}
+		for _, ap := range rdsArea.LogicalMap.AdvancedPoints {
+			label := ""
+			if p, ok := rds.FindProperty(ap.Property, "label"); ok {
+				label = p.StringValue
+			}
+			propsJSON, _ := json.Marshal(ap.Property)
+			fa.AdvancedPoints = append(fa.AdvancedPoints, fleet.ScenePoint{
+				ClassName:      ap.ClassName,
+				InstanceName:   ap.InstanceName,
+				Label:          label,
+				Dir:            ap.Dir,
+				PosX:           ap.Pos.X,
+				PosY:           ap.Pos.Y,
+				PosZ:           ap.Pos.Z,
+				PropertiesJSON: string(propsJSON),
+			})
+		}
+		for _, blg := range rdsArea.LogicalMap.BinLocationsList {
+			for _, bin := range blg.BinLocationList {
+				propsJSON, _ := json.Marshal(bin.Property)
+				fa.BinLocations = append(fa.BinLocations, fleet.ScenePoint{
+					ClassName:      bin.ClassName,
+					InstanceName:   bin.InstanceName,
+					PointName:      bin.PointName,
+					GroupName:      bin.GroupName,
+					PosX:           bin.Pos.X,
+					PosY:           bin.Pos.Y,
+					PosZ:           bin.Pos.Z,
+					PropertiesJSON: string(propsJSON),
+				})
+			}
+		}
+		areas[i] = fa
+	}
+	return areas, nil
+}
+
 // RDSClient returns the underlying rds.Client for vendor-specific operations
-// (scene sync, simulation, etc.) that don't belong in the fleet interface.
+// (simulation, etc.) that don't belong in the fleet interface.
 func (a *Adapter) RDSClient() *rds.Client {
 	return a.client
 }

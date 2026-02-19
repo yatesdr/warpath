@@ -1,18 +1,18 @@
-// ShinGo Edge — shop-floor materials management UI
+// Shingo Edge — shop-floor materials management UI
 (function() {
     'use strict';
 
-    var ShinGoEdge = {};
+    var ShingoEdge = {};
 
     // --- HTML escaping ---
-    ShinGoEdge.escapeHtml = function(text) {
+    ShingoEdge.escapeHtml = function(text) {
         var div = document.createElement('div');
         div.appendChild(document.createTextNode(text));
         return div.innerHTML;
     };
 
     // --- SSE Factory ---
-    ShinGoEdge.createSSE = function(url, handlers) {
+    ShingoEdge.createSSE = function(url, handlers) {
         var es = null;
         var reconnectDelay = 1000;
 
@@ -61,11 +61,11 @@
     };
 
     // --- Modal helpers ---
-    ShinGoEdge.showModal = function(id) {
+    ShingoEdge.showModal = function(id) {
         document.getElementById(id).style.display = '';
     };
 
-    ShinGoEdge.hideModal = function(id) {
+    ShingoEdge.hideModal = function(id) {
         var modal = document.getElementById(id);
         modal.style.display = 'none';
         // Clear form inputs on close
@@ -80,13 +80,13 @@
     };
 
     // --- Confirm dialog ---
-    ShinGoEdge.confirm = function(message) {
+    ShingoEdge.confirm = function(message) {
         return new Promise(function(resolve) {
             var overlay = document.createElement('div');
             overlay.className = 'confirm-overlay';
             var box = document.createElement('div');
             box.className = 'confirm-box';
-            box.innerHTML = '<p>' + ShinGoEdge.escapeHtml(message) + '</p>';
+            box.innerHTML = '<p>' + ShingoEdge.escapeHtml(message) + '</p>';
             var cancelBtn = document.createElement('button');
             cancelBtn.className = 'btn';
             cancelBtn.textContent = 'Cancel';
@@ -103,7 +103,7 @@
     };
 
     // --- Form helpers ---
-    ShinGoEdge.populateForm = function(formId, data) {
+    ShingoEdge.populateForm = function(formId, data) {
         var form = document.getElementById(formId);
         if (!form) return;
         for (var key in data) {
@@ -117,7 +117,7 @@
         }
     };
 
-    ShinGoEdge.getFormData = function(formId) {
+    ShingoEdge.getFormData = function(formId) {
         var form = document.getElementById(formId);
         if (!form) return {};
         var data = {};
@@ -137,7 +137,7 @@
     };
 
     // --- DOM row helpers ---
-    ShinGoEdge.removeRow = function(rowId) {
+    ShingoEdge.removeRow = function(rowId) {
         var row = document.getElementById(rowId);
         if (row) {
             row.style.opacity = '0';
@@ -146,7 +146,7 @@
         }
     };
 
-    ShinGoEdge.replaceRowCells = function(rowId, cellData) {
+    ShingoEdge.replaceRowCells = function(rowId, cellData) {
         var row = document.getElementById(rowId);
         if (!row) return;
         for (var key in cellData) {
@@ -156,7 +156,7 @@
     };
 
     // --- API helpers ---
-    ShinGoEdge.api = {
+    ShingoEdge.api = {
         get: function(url) {
             return fetch(url).then(handleResponse);
         },
@@ -195,7 +195,7 @@
     }
 
     // --- Toast notifications ---
-    ShinGoEdge.toast = function(message, type) {
+    ShingoEdge.toast = function(message, type) {
         type = type || 'info';
         var container = document.querySelector('.toast-container');
         if (!container) {
@@ -244,7 +244,7 @@
         }
     }
 
-    ShinGoEdge.toggleTheme = function() {
+    ShingoEdge.toggleTheme = function() {
         var stored = getStoredTheme();
         if (stored === 'light') {
             localStorage.setItem('theme', 'dark');
@@ -265,5 +265,5 @@
     });
 
     // Export
-    window.ShinGoEdge = ShinGoEdge;
+    window.ShingoEdge = ShingoEdge;
 })();

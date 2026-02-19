@@ -7,20 +7,21 @@ import (
 	"time"
 
 	"shingo/protocol"
+	"shingocore/dispatch"
 	"shingocore/store"
 )
 
 // CoreHandler handles inbound protocol messages on the orders topic.
-// It processes registration and heartbeat messages directly, and logs
-// order messages (dispatcher wiring deferred to follow-up).
+// It processes registration and heartbeat messages directly, and
+// delegates order messages to the dispatcher.
 type CoreHandler struct {
 	protocol.NoOpHandler
 
-	db        *store.DB
-	client    *Client
-	factoryID string
-	nodeID    string
+	db         *store.DB
+	client     *Client
+	stationID  string
 	dispatchTopic string
+	dispatcher *dispatch.Dispatcher
 
 	// Background goroutine for stale edge detection
 	stopOnce sync.Once
@@ -28,13 +29,13 @@ type CoreHandler struct {
 }
 
 // NewCoreHandler creates a handler for inbound edge messages.
-func NewCoreHandler(db *store.DB, client *Client, factoryID, nodeID, dispatchTopic string) *CoreHandler {
+func NewCoreHandler(db *store.DB, client *Client, stationID, dispatchTopic string, dispatcher *dispatch.Dispatcher) *CoreHandler {
 	return &CoreHandler{
 		db:            db,
 		client:        client,
-		factoryID:     factoryID,
-		nodeID:        nodeID,
+		stationID:     stationID,
 		dispatchTopic: dispatchTopic,
+		dispatcher:    dispatcher,
 		stopCh:        make(chan struct{}),
 	}
 }
@@ -65,26 +66,33 @@ func (h *CoreHandler) HandleData(env *protocol.Envelope, p *protocol.Data) {
 			return
 		}
 		h.handleEdgeHeartbeat(env, &hb)
+	case protocol.SubjectProductionReport:
+		var rpt protocol.ProductionReport
+		if err := json.Unmarshal(p.Body, &rpt); err != nil {
+			log.Printf("core_handler: decode production report body: %v", err)
+			return
+		}
+		h.handleProductionReport(env, &rpt)
 	default:
 		log.Printf("core_handler: unhandled data subject: %s", p.Subject)
 	}
 }
 
 func (h *CoreHandler) handleEdgeRegister(env *protocol.Envelope, p *protocol.EdgeRegister) {
-	log.Printf("core_handler: edge registered: %s (factory=%s, hostname=%s, version=%s, lines=%v)",
-		p.NodeID, p.Factory, p.Hostname, p.Version, p.LineIDs)
+	log.Printf("core_handler: edge registered: %s (hostname=%s, version=%s, lines=%v)",
+		p.StationID, p.Hostname, p.Version, p.LineIDs)
 
-	if err := h.db.RegisterEdge(p.NodeID, p.Factory, p.Hostname, p.Version, p.LineIDs); err != nil {
-		log.Printf("core_handler: register edge %s: %v", p.NodeID, err)
+	if err := h.db.RegisterEdge(p.StationID, p.Hostname, p.Version, p.LineIDs); err != nil {
+		log.Printf("core_handler: register edge %s: %v", p.StationID, err)
 		return
 	}
 
 	reply, err := protocol.NewDataReply(
 		protocol.SubjectEdgeRegistered,
-		protocol.Address{Role: protocol.RoleCore, Node: h.nodeID, Factory: h.factoryID},
-		protocol.Address{Role: protocol.RoleEdge, Node: p.NodeID, Factory: p.Factory},
+		protocol.Address{Role: protocol.RoleCore, Station: h.stationID},
+		protocol.Address{Role: protocol.RoleEdge, Station: p.StationID},
 		env.ID,
-		&protocol.EdgeRegistered{NodeID: p.NodeID, Message: "registered"},
+		&protocol.EdgeRegistered{StationID: p.StationID, Message: "registered"},
 	)
 	if err != nil {
 		log.Printf("core_handler: build registered reply: %v", err)
@@ -97,17 +105,17 @@ func (h *CoreHandler) handleEdgeRegister(env *protocol.Envelope, p *protocol.Edg
 }
 
 func (h *CoreHandler) handleEdgeHeartbeat(env *protocol.Envelope, p *protocol.EdgeHeartbeat) {
-	if err := h.db.UpdateHeartbeat(p.NodeID); err != nil {
-		log.Printf("core_handler: update heartbeat for %s: %v", p.NodeID, err)
+	if err := h.db.UpdateHeartbeat(p.StationID); err != nil {
+		log.Printf("core_handler: update heartbeat for %s: %v", p.StationID, err)
 		return
 	}
 
 	reply, err := protocol.NewDataReply(
 		protocol.SubjectEdgeHeartbeatAck,
-		protocol.Address{Role: protocol.RoleCore, Node: h.nodeID, Factory: h.factoryID},
-		protocol.Address{Role: protocol.RoleEdge, Node: p.NodeID, Factory: env.Src.Factory},
+		protocol.Address{Role: protocol.RoleCore, Station: h.stationID},
+		protocol.Address{Role: protocol.RoleEdge, Station: p.StationID},
 		env.ID,
-		&protocol.EdgeHeartbeatAck{NodeID: p.NodeID, ServerTS: time.Now().Unix()},
+		&protocol.EdgeHeartbeatAck{StationID: p.StationID, ServerTS: time.Now().UTC()},
 	)
 	if err != nil {
 		log.Printf("core_handler: build heartbeat ack: %v", err)
@@ -119,27 +127,46 @@ func (h *CoreHandler) handleEdgeHeartbeat(env *protocol.Envelope, p *protocol.Ed
 	}
 }
 
-// Order message handlers log receipt during transition period.
-// Full dispatcher wiring deferred to follow-up.
+// Order message handlers delegate to the dispatcher.
 
 func (h *CoreHandler) HandleOrderRequest(env *protocol.Envelope, p *protocol.OrderRequest) {
-	log.Printf("core_handler: order request from %s: uuid=%s type=%s", env.Src.Node, p.OrderUUID, p.OrderType)
+	log.Printf("core_handler: order request from %s: uuid=%s type=%s", env.Src.Station, p.OrderUUID, p.OrderType)
+	h.dispatcher.HandleOrderRequest(env, p)
 }
 
 func (h *CoreHandler) HandleOrderCancel(env *protocol.Envelope, p *protocol.OrderCancel) {
-	log.Printf("core_handler: order cancel from %s: uuid=%s", env.Src.Node, p.OrderUUID)
+	log.Printf("core_handler: order cancel from %s: uuid=%s", env.Src.Station, p.OrderUUID)
+	h.dispatcher.HandleOrderCancel(env, p)
 }
 
 func (h *CoreHandler) HandleOrderReceipt(env *protocol.Envelope, p *protocol.OrderReceipt) {
-	log.Printf("core_handler: delivery receipt from %s: uuid=%s", env.Src.Node, p.OrderUUID)
+	log.Printf("core_handler: delivery receipt from %s: uuid=%s", env.Src.Station, p.OrderUUID)
+	h.dispatcher.HandleOrderReceipt(env, p)
 }
 
 func (h *CoreHandler) HandleOrderRedirect(env *protocol.Envelope, p *protocol.OrderRedirect) {
-	log.Printf("core_handler: redirect from %s: uuid=%s -> %s", env.Src.Node, p.OrderUUID, p.NewDeliveryNode)
+	log.Printf("core_handler: redirect from %s: uuid=%s -> %s", env.Src.Station, p.OrderUUID, p.NewDeliveryNode)
+	h.dispatcher.HandleOrderRedirect(env, p)
 }
 
 func (h *CoreHandler) HandleOrderStorageWaybill(env *protocol.Envelope, p *protocol.OrderStorageWaybill) {
-	log.Printf("core_handler: storage waybill from %s: uuid=%s", env.Src.Node, p.OrderUUID)
+	log.Printf("core_handler: storage waybill from %s: uuid=%s", env.Src.Station, p.OrderUUID)
+	h.dispatcher.HandleOrderStorageWaybill(env, p)
+}
+
+func (h *CoreHandler) handleProductionReport(env *protocol.Envelope, rpt *protocol.ProductionReport) {
+	log.Printf("core_handler: production report from %s: %d entries", rpt.StationID, len(rpt.Reports))
+	for _, entry := range rpt.Reports {
+		if entry.CatID == "" || entry.Count <= 0 {
+			continue
+		}
+		if err := h.db.IncrementProduced(entry.CatID, entry.Count); err != nil {
+			log.Printf("core_handler: increment produced %s: %v", entry.CatID, err)
+		}
+		if err := h.db.LogProduction(entry.CatID, rpt.StationID, entry.Count); err != nil {
+			log.Printf("core_handler: log production %s: %v", entry.CatID, err)
+		}
+	}
 }
 
 func (h *CoreHandler) staleEdgeLoop() {

@@ -4,68 +4,41 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
 	"shingoedge/config"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	kafkago "github.com/segmentio/kafka-go"
 )
 
-// Client is the unified messaging client (MQTT or Kafka).
+// Client is the Kafka messaging client.
 type Client struct {
 	mu       sync.RWMutex
 	cfg      *config.MessagingConfig
-	backend  string
-	mqttConn mqtt.Client
 	kafkaW   *kafkago.Writer
 	kafkaR   *kafkago.Reader
+	stopChan chan struct{}
 }
 
 // NewClient creates a messaging client based on config.
 func NewClient(cfg *config.MessagingConfig) *Client {
 	return &Client{
-		cfg:     cfg,
-		backend: cfg.Backend,
+		cfg:      cfg,
+		stopChan: make(chan struct{}),
 	}
 }
 
-// Connect establishes the messaging connection.
+// Connect establishes the Kafka connection.
 func (c *Client) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	switch c.backend {
-	case "mqtt":
-		return c.connectMQTT()
-	case "kafka":
-		return c.connectKafka()
-	default:
-		return fmt.Errorf("unknown messaging backend: %s", c.backend)
+	if len(c.cfg.Kafka.Brokers) == 0 {
+		return fmt.Errorf("no kafka brokers configured")
 	}
-}
 
-func (c *Client) connectMQTT() error {
-	broker := fmt.Sprintf("tcp://%s:%d", c.cfg.MQTT.Broker, c.cfg.MQTT.Port)
-	opts := mqtt.NewClientOptions().
-		AddBroker(broker).
-		SetClientID(c.cfg.MQTT.ClientID).
-		SetAutoReconnect(true).
-		SetConnectRetry(true).
-		SetConnectRetryInterval(5 * time.Second)
-
-	client := mqtt.NewClient(opts)
-	token := client.Connect()
-	token.Wait()
-	if err := token.Error(); err != nil {
-		return fmt.Errorf("mqtt connect: %w", err)
-	}
-	c.mqttConn = client
-	return nil
-}
-
-func (c *Client) connectKafka() error {
 	c.kafkaW = &kafkago.Writer{
 		Addr:         kafkago.TCP(c.cfg.Kafka.Brokers...),
 		Balancer:     &kafkago.LeastBytes{},
@@ -74,30 +47,18 @@ func (c *Client) connectKafka() error {
 	return nil
 }
 
-// Publish sends a message to the configured topic.
+// Publish sends a message to the given topic.
 func (c *Client) Publish(topic string, payload []byte) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	switch c.backend {
-	case "mqtt":
-		if c.mqttConn == nil || !c.mqttConn.IsConnected() {
-			return fmt.Errorf("mqtt not connected")
-		}
-		token := c.mqttConn.Publish(topic, 1, false, payload)
-		token.Wait()
-		return token.Error()
-	case "kafka":
-		if c.kafkaW == nil {
-			return fmt.Errorf("kafka writer not initialized")
-		}
-		return c.kafkaW.WriteMessages(context.Background(), kafkago.Message{
-			Topic: topic,
-			Value: payload,
-		})
-	default:
-		return fmt.Errorf("unknown backend: %s", c.backend)
+	if c.kafkaW == nil {
+		return fmt.Errorf("kafka writer not initialized")
 	}
+	return c.kafkaW.WriteMessages(context.Background(), kafkago.Message{
+		Topic: topic,
+		Value: payload,
+	})
 }
 
 // PublishEnvelope encodes and publishes a protocol envelope to the given topic.
@@ -109,40 +70,87 @@ func (c *Client) PublishEnvelope(topic string, env interface{ Encode() ([]byte, 
 	return c.Publish(topic, data)
 }
 
-// Subscribe registers a handler for messages on the inbound topic.
+// Subscribe registers a handler for messages on the given topic.
+// The consumer goroutine automatically reconnects on errors with
+// exponential backoff capped at 5 seconds.
 func (c *Client) Subscribe(topic string, handler func(payload []byte)) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	switch c.backend {
-	case "mqtt":
-		if c.mqttConn == nil {
-			return fmt.Errorf("mqtt not connected")
+	if c.kafkaW == nil {
+		return fmt.Errorf("kafka not connected")
+	}
+	c.kafkaR = kafkago.NewReader(kafkago.ReaderConfig{
+		Brokers: c.cfg.Kafka.Brokers,
+		Topic:   topic,
+		GroupID: c.cfg.Kafka.GroupID,
+	})
+	go c.readLoop(topic, handler)
+	return nil
+}
+
+// readLoop reads messages from Kafka, reconnecting on errors with
+// exponential backoff (500ms base, capped at 5s, with ±20% jitter).
+func (c *Client) readLoop(topic string, handler func(payload []byte)) {
+	const (
+		baseBackoff = 500 * time.Millisecond
+		maxBackoff  = 5 * time.Second
+	)
+	backoff := baseBackoff
+
+	for {
+		c.mu.RLock()
+		reader := c.kafkaR
+		c.mu.RUnlock()
+
+		if reader == nil {
+			return
 		}
-		token := c.mqttConn.Subscribe(topic, 1, func(_ mqtt.Client, msg mqtt.Message) {
-			handler(msg.Payload())
-		})
-		token.Wait()
-		return token.Error()
-	case "kafka":
-		c.kafkaR = kafkago.NewReader(kafkago.ReaderConfig{
-			Brokers: c.cfg.Kafka.Brokers,
-			Topic:   topic,
-			GroupID: c.cfg.MQTT.ClientID, // reuse client ID as consumer group
-		})
-		go func() {
-			for {
-				msg, err := c.kafkaR.ReadMessage(context.Background())
-				if err != nil {
-					log.Printf("kafka read: %v", err)
-					return
-				}
-				handler(msg.Value)
+
+		msg, err := reader.ReadMessage(context.Background())
+		if err != nil {
+			// Check if we're shutting down
+			select {
+			case <-c.stopChan:
+				return
+			default:
 			}
-		}()
-		return nil
-	default:
-		return fmt.Errorf("unknown backend: %s", c.backend)
+
+			// Add ±20% jitter to avoid thundering herd
+			jittered := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
+			log.Printf("kafka read error: %v, reconnecting in %v", err, jittered.Round(time.Millisecond))
+
+			timer := time.NewTimer(jittered)
+			select {
+			case <-c.stopChan:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+
+			// Recreate the reader
+			c.mu.Lock()
+			if c.kafkaR != nil {
+				c.kafkaR.Close()
+			}
+			c.kafkaR = kafkago.NewReader(kafkago.ReaderConfig{
+				Brokers: c.cfg.Kafka.Brokers,
+				Topic:   topic,
+				GroupID: c.cfg.Kafka.GroupID,
+			})
+			c.mu.Unlock()
+
+			// Increase backoff for next failure
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
+		}
+
+		// Reset backoff on successful read
+		backoff = baseBackoff
+		handler(msg.Value)
 	}
 }
 
@@ -150,24 +158,20 @@ func (c *Client) Subscribe(topic string, handler func(payload []byte)) error {
 func (c *Client) IsConnected() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	switch c.backend {
-	case "mqtt":
-		return c.mqttConn != nil && c.mqttConn.IsConnected()
-	case "kafka":
-		return c.kafkaW != nil
-	default:
-		return false
-	}
+	return c.kafkaW != nil
 }
 
 // Close shuts down the messaging connection.
 func (c *Client) Close() {
+	// Signal readLoop to stop
+	select {
+	case <-c.stopChan:
+	default:
+		close(c.stopChan)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.mqttConn != nil {
-		c.mqttConn.Disconnect(1000)
-		c.mqttConn = nil
-	}
 	if c.kafkaW != nil {
 		c.kafkaW.Close()
 		c.kafkaW = nil

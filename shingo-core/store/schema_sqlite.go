@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS materials (
 CREATE TABLE IF NOT EXISTS orders (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     edge_uuid    TEXT NOT NULL,
-    client_id       TEXT NOT NULL DEFAULT '',
+    station_id      TEXT NOT NULL DEFAULT '',
     factory_id      TEXT NOT NULL DEFAULT '',
     order_type      TEXT NOT NULL DEFAULT 'retrieve',
     status          TEXT NOT NULL DEFAULT 'pending',
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     topic       TEXT NOT NULL,
     payload     BLOB NOT NULL,
     msg_type    TEXT NOT NULL DEFAULT '',
-    client_id   TEXT NOT NULL DEFAULT '',
+    station_id  TEXT NOT NULL DEFAULT '',
     retries     INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     sent_at     TEXT
@@ -182,7 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_scene_points_area ON scene_points(area_name);
 
 CREATE TABLE IF NOT EXISTS edge_registry (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    node_id         TEXT NOT NULL UNIQUE,
+    station_id      TEXT NOT NULL UNIQUE,
     factory_id      TEXT NOT NULL,
     hostname        TEXT NOT NULL DEFAULT '',
     version         TEXT NOT NULL DEFAULT '',
@@ -190,5 +190,38 @@ CREATE TABLE IF NOT EXISTS edge_registry (
     registered_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     last_heartbeat  TEXT,
     status          TEXT NOT NULL DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS demands (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    cat_id       TEXT NOT NULL UNIQUE,
+    description  TEXT NOT NULL DEFAULT '',
+    demand_qty   REAL NOT NULL DEFAULT 0,
+    produced_qty REAL NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS production_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    cat_id      TEXT NOT NULL,
+    station_id  TEXT NOT NULL,
+    quantity    REAL NOT NULL,
+    reported_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_production_log_cat ON production_log(cat_id);
+
+CREATE TABLE IF NOT EXISTS test_commands (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    command_type    TEXT NOT NULL,
+    robot_id        TEXT NOT NULL,
+    vendor_order_id TEXT NOT NULL DEFAULT '',
+    vendor_state    TEXT NOT NULL DEFAULT '',
+    location        TEXT NOT NULL DEFAULT '',
+    config_id       TEXT NOT NULL DEFAULT '',
+    detail          TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    completed_at    TEXT
 );
 `

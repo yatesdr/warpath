@@ -1,0 +1,578 @@
+{{define "content"}}
+<div>
+  <h1>Test Orders</h1>
+
+  <!-- Tab bar -->
+  <div class="to-tabs">
+    <button class="to-tab active" onclick="switchTab('kafka')">Kafka Orders</button>
+    <button class="to-tab" onclick="switchTab('direct')">Direct-to-RDS</button>
+    <button class="to-tab" onclick="switchTab('commands')">Robot Commands</button>
+  </div>
+
+  <!-- Tab 1: Kafka Orders -->
+  <div id="tab-kafka" class="to-tab-content active">
+    {{if .Authenticated}}
+    <div class="to-form-card">
+      <h3>Submit Kafka Order</h3>
+      <div class="to-form-grid">
+        <div>
+          <label class="to-label">Order Type</label>
+          <select id="k-order-type" class="to-input" onchange="updateKafkaFields()">
+            <option value="move">Move</option>
+            <option value="retrieve">Retrieve</option>
+            <option value="store">Store</option>
+          </select>
+        </div>
+        <div id="k-pickup-wrap">
+          <label class="to-label">Pickup Node</label>
+          <select id="k-pickup-node" class="to-input">
+            <option value="">-- select --</option>
+            {{range .Nodes}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <div id="k-delivery-wrap">
+          <label class="to-label">Delivery Node</label>
+          <select id="k-delivery-node" class="to-input">
+            <option value="">-- select --</option>
+            {{range .Nodes}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <div id="k-pt-wrap">
+          <label class="to-label">Payload Type</label>
+          <select id="k-payload-type" class="to-input">
+            <option value="">-- none --</option>
+            {{range .PayloadTypes}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <div>
+          <label class="to-label">Quantity</label>
+          <input type="number" id="k-quantity" class="to-input" value="1" min="1" step="1">
+        </div>
+        <div>
+          <label class="to-label">Priority</label>
+          <input type="number" id="k-priority" class="to-input" value="0" min="0">
+        </div>
+      </div>
+      <div style="margin-top:.75rem;">
+        <button class="btn btn-primary" onclick="submitKafkaOrder()">Submit Order</button>
+      </div>
+    </div>
+    {{end}}
+
+    <h3>Kafka Orders (station: core-test)</h3>
+    <div id="kafka-orders-table">
+      <p style="color:#888;">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Tab 2: Direct-to-RDS -->
+  <div id="tab-direct" class="to-tab-content">
+    {{if .Authenticated}}
+    <div class="to-form-card">
+      <h3>Submit Direct Move Order</h3>
+      <div class="to-form-grid">
+        <div>
+          <label class="to-label">From Node</label>
+          <select id="d-from-node" class="to-input">
+            <option value="">-- select --</option>
+            {{range .Nodes}}<option value="{{.ID}}">{{.Name}} ({{.VendorLocation}})</option>{{end}}
+          </select>
+        </div>
+        <div>
+          <label class="to-label">To Node</label>
+          <select id="d-to-node" class="to-input">
+            <option value="">-- select --</option>
+            {{range .Nodes}}<option value="{{.ID}}">{{.Name}} ({{.VendorLocation}})</option>{{end}}
+          </select>
+        </div>
+        <div>
+          <label class="to-label">Priority</label>
+          <input type="number" id="d-priority" class="to-input" value="0" min="0">
+        </div>
+      </div>
+      <div style="margin-top:.75rem;">
+        <button class="btn btn-primary" onclick="submitDirectOrder()">Submit Order</button>
+      </div>
+    </div>
+    {{end}}
+
+    <h3>Direct Orders (station: core-direct)</h3>
+    <div id="direct-orders-table">
+      <p style="color:#888;">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Tab 3: Robot Commands -->
+  <div id="tab-commands" class="to-tab-content">
+    {{if .Authenticated}}
+    <div class="to-form-card">
+      <h3>Submit Robot Command</h3>
+      <div class="to-form-grid">
+        <div>
+          <label class="to-label">Command Type</label>
+          <select id="c-cmd-type" class="to-input" onchange="updateCmdFields()">
+            <option value="charge">Charge</option>
+            <option value="jack">Jack</option>
+            <option value="unjack">UnJack</option>
+          </select>
+        </div>
+        <div>
+          <label class="to-label">Robot</label>
+          <select id="c-robot" class="to-input">
+            <option value="">Loading...</option>
+          </select>
+        </div>
+        <div>
+          <label class="to-label">Location</label>
+          <select id="c-location" class="to-input">
+            <option value="">Loading...</option>
+          </select>
+        </div>
+        <div id="c-config-wrap">
+          <label class="to-label">Config ID</label>
+          <input type="text" id="c-config-id" class="to-input" placeholder="PostAction configId">
+        </div>
+      </div>
+      <div style="margin-top:.75rem;">
+        <button class="btn btn-primary" onclick="submitCommand()">Submit Command</button>
+      </div>
+    </div>
+    {{end}}
+
+    <h3>Robot Commands</h3>
+    <div id="commands-table">
+      <p style="color:#888;">Loading...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Order History Modal -->
+<div class="modal-overlay" id="history-modal">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <h2>Order History: <span id="hist-order-id"></span></h2>
+      <button class="modal-close" onclick="hideModal('history-modal')">&times;</button>
+    </div>
+    <div id="hist-body" style="max-height:400px;overflow-y:auto;">
+      <p style="color:#888;">Loading...</p>
+    </div>
+    <div style="text-align:right;margin-top:1rem;">
+      <button class="btn" onclick="hideModal('history-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Receipt Modal -->
+<div class="modal-overlay" id="receipt-modal">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <h2>Confirm Receipt</h2>
+      <button class="modal-close" onclick="hideModal('receipt-modal')">&times;</button>
+    </div>
+    <input type="hidden" id="receipt-uuid">
+    <div style="margin-bottom:.75rem;">
+      <label class="to-label">Receipt Type</label>
+      <select id="receipt-type" class="to-input">
+        <option value="full">Full</option>
+        <option value="partial">Partial</option>
+        <option value="rejected">Rejected</option>
+      </select>
+    </div>
+    <div style="margin-bottom:1rem;">
+      <label class="to-label">Final Count</label>
+      <input type="number" id="receipt-count" class="to-input" value="1" step="any" min="0">
+    </div>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+      <button class="btn" onclick="hideModal('receipt-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="sendReceipt()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.to-tabs { display:flex; gap:0; border-bottom:2px solid #dee2e6; margin-bottom:1.5rem; }
+.to-tab {
+  background:none; border:none; padding:.6rem 1.2rem; cursor:pointer;
+  font-size:.95rem; color:#6c757d; border-bottom:2px solid transparent;
+  margin-bottom:-2px; font-weight:500;
+}
+.to-tab:hover { color:#495057; }
+.to-tab.active { color:#7c3aed; border-bottom-color:#7c3aed; }
+.to-tab-content { display:none; }
+.to-tab-content.active { display:block; }
+.to-form-card {
+  background:#f8f9fa; border:1px solid #dee2e6; border-radius:.5rem;
+  padding:1rem 1.25rem; margin-bottom:1.5rem;
+}
+.to-form-card h3 { margin:0 0 .75rem; font-size:1rem; }
+.to-form-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.75rem; }
+.to-label { display:block; margin-bottom:.2rem; font-weight:600; font-size:.85rem; }
+.to-input {
+  width:100%; padding:.35rem .5rem; border:1px solid #ced4da; border-radius:4px;
+  font-size:.9rem; box-sizing:border-box; background:#fff;
+}
+.to-status { display:inline-block; padding:2px 8px; border-radius:3px; font-size:.8rem; font-weight:600; }
+.to-status-pending { background:#ffeaa7; color:#856404; }
+.to-status-sourcing { background:#dfe6e9; color:#636e72; }
+.to-status-dispatched { background:#74b9ff; color:#0c3d6b; }
+.to-status-in_transit { background:#a29bfe; color:#2d1f6b; }
+.to-status-delivered { background:#55efc4; color:#00694a; }
+.to-status-confirmed { background:#00b894; color:#fff; }
+.to-status-completed { background:#00cec9; color:#fff; }
+.to-status-failed { background:#fab1a0; color:#831010; }
+.to-status-cancelled { background:#dfe6e9; color:#636e72; }
+.to-status-CREATED { background:#ffeaa7; color:#856404; }
+.to-status-TOBEDISPATCHED { background:#dfe6e9; color:#636e72; }
+.to-status-RUNNING { background:#74b9ff; color:#0c3d6b; }
+.to-status-FINISHED { background:#00cec9; color:#fff; }
+.to-status-FAILED { background:#fab1a0; color:#831010; }
+.to-status-STOPPED { background:#dfe6e9; color:#636e72; }
+.to-actions { white-space:nowrap; }
+.to-actions button { margin-right:.25rem; }
+.to-btn-sm {
+  padding:2px 8px; font-size:.78rem; border:1px solid #ced4da; border-radius:3px;
+  background:#fff; cursor:pointer; color:#495057;
+}
+.to-btn-sm:hover { background:#e9ecef; }
+.to-btn-danger { border-color:#dc3545; color:#dc3545; }
+.to-btn-danger:hover { background:#f8d7da; }
+</style>
+
+<script>
+var authenticated = {{.Authenticated}};
+
+function switchTab(name) {
+  document.querySelectorAll('.to-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.to-tab-content').forEach(function(c) { c.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+
+function showModal(id) { document.getElementById(id).classList.add('active'); }
+function hideModal(id) { document.getElementById(id).classList.remove('active'); }
+function esc(s) { var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function statusBadge(s) {
+  if (!s) return '';
+  return '<span class="to-status to-status-' + esc(s) + '">' + esc(s) + '</span>';
+}
+
+function fmtTime(t) {
+  if (!t || t === '0001-01-01T00:00:00Z') return '-';
+  try {
+    var d = new Date(t);
+    return d.toLocaleString();
+  } catch(e) { return t; }
+}
+
+// --- Kafka order field visibility ---
+function updateKafkaFields() {
+  var t = document.getElementById('k-order-type').value;
+  document.getElementById('k-pickup-wrap').style.display = (t === 'move' || t === 'store') ? '' : 'none';
+  document.getElementById('k-delivery-wrap').style.display = (t === 'move' || t === 'retrieve') ? '' : 'none';
+  document.getElementById('k-pt-wrap').style.display = (t === 'retrieve' || t === 'move') ? '' : 'none';
+}
+
+var scenePoints = []; // cached scene data
+
+function updateCmdFields() {
+  var t = document.getElementById('c-cmd-type').value;
+  document.getElementById('c-config-wrap').style.display = (t === 'jack' || t === 'unjack') ? '' : 'none';
+  populateLocationDropdown(t);
+}
+
+function populateLocationDropdown(cmdType) {
+  var sel = document.getElementById('c-location');
+  sel.innerHTML = '<option value="">-- select --</option>';
+  var filtered = scenePoints.filter(function(sp) {
+    if (cmdType === 'charge') return sp.ClassName === 'ChargePoint';
+    return sp.ClassName === 'GeneralLocation';
+  });
+  for (var i = 0; i < filtered.length; i++) {
+    var sp = filtered[i];
+    var opt = document.createElement('option');
+    opt.value = sp.InstanceName;
+    opt.textContent = sp.InstanceName + (sp.Label ? ' (' + sp.Label + ')' : '');
+    sel.appendChild(opt);
+  }
+  if (filtered.length === 0) {
+    sel.innerHTML = '<option value="">No locations synced</option>';
+  }
+}
+
+async function loadScenePoints() {
+  try {
+    var res = await fetch('/api/test-orders/scene-points');
+    if (!res.ok) return;
+    scenePoints = await res.json();
+    if (!scenePoints) scenePoints = [];
+    populateLocationDropdown(document.getElementById('c-cmd-type').value);
+  } catch(e) { console.error('load scene points:', e); }
+}
+
+// --- Render order tables ---
+function renderOrdersTable(orders, containerId, isKafka) {
+  var container = document.getElementById(containerId);
+  if (!orders || orders.length === 0) {
+    container.innerHTML = '<p style="color:#888;">No orders found.</p>';
+    return;
+  }
+  var html = '<table class="table"><thead><tr>';
+  html += '<th>ID</th><th>UUID</th><th>Type</th><th>Status</th><th>Vendor</th><th>Robot</th><th>From / To</th><th>Created</th>';
+  if (authenticated) html += '<th>Actions</th>';
+  html += '</tr></thead><tbody>';
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    var isActive = ['pending','sourcing','dispatched','in_transit','delivered'].indexOf(o.Status) >= 0;
+    var isDelivered = o.Status === 'delivered';
+    html += '<tr>';
+    html += '<td>' + o.ID + '</td>';
+    html += '<td style="font-size:.8rem;">' + esc(o.EdgeUUID) + '</td>';
+    html += '<td>' + esc(o.OrderType) + '</td>';
+    html += '<td>' + statusBadge(o.Status) + '</td>';
+    html += '<td>' + statusBadge(o.VendorState) + '</td>';
+    html += '<td>' + esc(o.RobotID) + '</td>';
+    html += '<td style="font-size:.85rem;">' + esc(o.PickupNode || '-') + ' &rarr; ' + esc(o.DeliveryNode || '-') + '</td>';
+    html += '<td style="font-size:.8rem;">' + fmtTime(o.CreatedAt) + '</td>';
+    if (authenticated) {
+      html += '<td class="to-actions">';
+      html += '<button class="to-btn-sm" onclick="viewHistory(' + o.ID + ')">History</button>';
+      if (isKafka && isActive) {
+        html += '<button class="to-btn-sm to-btn-danger" onclick="cancelOrder(\'' + esc(o.EdgeUUID) + '\')">Cancel</button>';
+      }
+      if (isKafka && isDelivered) {
+        html += '<button class="to-btn-sm" onclick="openReceipt(\'' + esc(o.EdgeUUID) + '\')">Receipt</button>';
+      }
+      html += '</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function renderCommandsTable(cmds) {
+  var container = document.getElementById('commands-table');
+  if (!cmds || cmds.length === 0) {
+    container.innerHTML = '<p style="color:#888;">No commands found.</p>';
+    return;
+  }
+  var html = '<table class="table"><thead><tr>';
+  html += '<th>ID</th><th>Type</th><th>Robot</th><th>Location</th><th>Vendor Order</th><th>State</th><th>Created</th>';
+  if (authenticated) html += '<th>Actions</th>';
+  html += '</tr></thead><tbody>';
+  for (var i = 0; i < cmds.length; i++) {
+    var c = cmds[i];
+    html += '<tr>';
+    html += '<td>' + c.ID + '</td>';
+    html += '<td>' + esc(c.CommandType) + '</td>';
+    html += '<td>' + esc(c.RobotID) + '</td>';
+    html += '<td>' + esc(c.Location) + '</td>';
+    html += '<td style="font-size:.8rem;">' + esc(c.VendorOrderID) + '</td>';
+    html += '<td>' + statusBadge(c.VendorState) + '</td>';
+    html += '<td style="font-size:.8rem;">' + fmtTime(c.CreatedAt) + '</td>';
+    if (authenticated) {
+      html += '<td class="to-actions">';
+      if (!c.CompletedAt) {
+        html += '<button class="to-btn-sm" onclick="refreshCmdStatus(' + c.ID + ')">Refresh</button>';
+      }
+      html += '</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+// --- Data loading ---
+async function refreshKafkaOrders() {
+  try {
+    var res = await fetch('/api/test-orders');
+    var data = await res.json();
+    renderOrdersTable(data, 'kafka-orders-table', true);
+  } catch(e) { console.error('refresh kafka orders:', e); }
+}
+
+async function refreshDirectOrders() {
+  try {
+    var res = await fetch('/api/test-orders/direct');
+    var data = await res.json();
+    renderOrdersTable(data, 'direct-orders-table', false);
+  } catch(e) { console.error('refresh direct orders:', e); }
+}
+
+async function refreshCommands() {
+  try {
+    var res = await fetch('/api/test-commands');
+    var data = await res.json();
+    renderCommandsTable(data);
+  } catch(e) { console.error('refresh commands:', e); }
+}
+
+async function loadRobots() {
+  try {
+    var res = await fetch('/api/test-orders/robots');
+    if (!res.ok) { document.getElementById('c-robot').innerHTML = '<option value="">Unavailable</option>'; return; }
+    var robots = await res.json();
+    var sel = document.getElementById('c-robot');
+    sel.innerHTML = '<option value="">-- select --</option>';
+    for (var i = 0; i < robots.length; i++) {
+      var r = robots[i];
+      var opt = document.createElement('option');
+      opt.value = r.VehicleID;
+      opt.textContent = r.VehicleID + (r.Connected ? '' : ' (offline)');
+      sel.appendChild(opt);
+    }
+  } catch(e) { console.error('load robots:', e); }
+}
+
+// --- Kafka order actions ---
+async function submitKafkaOrder() {
+  var body = {
+    order_type: document.getElementById('k-order-type').value,
+    pickup_node: document.getElementById('k-pickup-node').value,
+    delivery_node: document.getElementById('k-delivery-node').value,
+    payload_type_code: document.getElementById('k-payload-type').value,
+    quantity: parseFloat(document.getElementById('k-quantity').value) || 1,
+    priority: parseInt(document.getElementById('k-priority').value) || 0
+  };
+  try {
+    var res = await fetch('/api/test-orders/submit', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    var data = await res.json();
+    if (!res.ok) { alert(data.error || 'Error'); return; }
+    alert('Order submitted: ' + data.order_uuid);
+    refreshKafkaOrders();
+  } catch(e) { alert('Error: ' + e); }
+}
+
+async function cancelOrder(uuid) {
+  if (!confirm('Cancel order ' + uuid + '?')) return;
+  try {
+    var res = await fetch('/api/test-orders/cancel', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_uuid: uuid, reason: 'cancelled via test page'}) });
+    var data = await res.json();
+    if (!res.ok) { alert(data.error || 'Error'); return; }
+    refreshKafkaOrders();
+  } catch(e) { alert('Error: ' + e); }
+}
+
+function openReceipt(uuid) {
+  document.getElementById('receipt-uuid').value = uuid;
+  document.getElementById('receipt-type').value = 'full';
+  document.getElementById('receipt-count').value = '1';
+  showModal('receipt-modal');
+}
+
+async function sendReceipt() {
+  var body = {
+    order_uuid: document.getElementById('receipt-uuid').value,
+    receipt_type: document.getElementById('receipt-type').value,
+    final_count: parseFloat(document.getElementById('receipt-count').value) || 0
+  };
+  try {
+    var res = await fetch('/api/test-orders/receipt', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    var data = await res.json();
+    if (!res.ok) { alert(data.error || 'Error'); return; }
+    hideModal('receipt-modal');
+    refreshKafkaOrders();
+  } catch(e) { alert('Error: ' + e); }
+}
+
+// --- Direct order actions ---
+async function submitDirectOrder() {
+  var body = {
+    from_node_id: parseInt(document.getElementById('d-from-node').value),
+    to_node_id: parseInt(document.getElementById('d-to-node').value),
+    priority: parseInt(document.getElementById('d-priority').value) || 0
+  };
+  if (!body.from_node_id || !body.to_node_id) { alert('Select both from and to nodes'); return; }
+  try {
+    var res = await fetch('/api/test-orders/direct', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    var data = await res.json();
+    if (!res.ok) { alert(data.error || 'Error'); return; }
+    alert('Direct order dispatched: ' + data.vendor_order_id);
+    refreshDirectOrders();
+  } catch(e) { alert('Error: ' + e); }
+}
+
+// --- Robot command actions ---
+async function submitCommand() {
+  var body = {
+    command_type: document.getElementById('c-cmd-type').value,
+    robot_id: document.getElementById('c-robot').value,
+    location: document.getElementById('c-location').value,
+    config_id: document.getElementById('c-config-id') ? document.getElementById('c-config-id').value : ''
+  };
+  if (!body.robot_id) { alert('Select a robot'); return; }
+  try {
+    var res = await fetch('/api/test-commands/submit', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    var data = await res.json();
+    if (!res.ok) { alert(data.error || 'Error'); return; }
+    alert('Command submitted: ' + data.vendor_order_id);
+    refreshCommands();
+  } catch(e) { alert('Error: ' + e); }
+}
+
+async function refreshCmdStatus(id) {
+  try {
+    var res = await fetch('/api/test-commands/status?id=' + id);
+    var data = await res.json();
+    if (!res.ok) { alert(data.error || 'Error'); return; }
+    refreshCommands();
+  } catch(e) { alert('Error: ' + e); }
+}
+
+// --- History modal ---
+async function viewHistory(orderId) {
+  document.getElementById('hist-order-id').textContent = '#' + orderId;
+  document.getElementById('hist-body').innerHTML = '<p style="color:#888;">Loading...</p>';
+  showModal('history-modal');
+  try {
+    var res = await fetch('/api/test-orders/detail?id=' + orderId);
+    var data = await res.json();
+    if (!res.ok) { document.getElementById('hist-body').innerHTML = '<p style="color:red;">' + esc(data.error || 'Error') + '</p>'; return; }
+
+    var html = '';
+    if (data.order) {
+      var o = data.order;
+      html += '<div style="margin-bottom:1rem;font-size:.9rem;">';
+      html += '<strong>UUID:</strong> ' + esc(o.EdgeUUID) + '<br>';
+      html += '<strong>Type:</strong> ' + esc(o.OrderType) + ' &nbsp; <strong>Status:</strong> ' + statusBadge(o.Status) + '<br>';
+      html += '<strong>Vendor:</strong> ' + esc(o.VendorOrderID || '-') + ' ' + statusBadge(o.VendorState) + '<br>';
+      html += '<strong>Robot:</strong> ' + esc(o.RobotID || '-') + '<br>';
+      html += '<strong>Route:</strong> ' + esc(o.PickupNode || '-') + ' &rarr; ' + esc(o.DeliveryNode || '-') + '<br>';
+      if (o.ErrorDetail) html += '<strong>Error:</strong> <span style="color:#dc3545;">' + esc(o.ErrorDetail) + '</span><br>';
+      html += '</div>';
+    }
+
+    if (data.history && data.history.length > 0) {
+      html += '<table class="table"><thead><tr><th>Status</th><th>Detail</th><th>Time</th></tr></thead><tbody>';
+      for (var i = 0; i < data.history.length; i++) {
+        var h = data.history[i];
+        html += '<tr><td>' + statusBadge(h.Status) + '</td><td style="font-size:.85rem;">' + esc(h.Detail) + '</td><td style="font-size:.8rem;">' + fmtTime(h.CreatedAt) + '</td></tr>';
+      }
+      html += '</tbody></table>';
+    } else {
+      html += '<p style="color:#888;">No history entries.</p>';
+    }
+    document.getElementById('hist-body').innerHTML = html;
+  } catch(e) { document.getElementById('hist-body').innerHTML = '<p style="color:red;">Error: ' + esc(String(e)) + '</p>'; }
+}
+
+// --- SSE ---
+var es = new EventSource('/events');
+es.addEventListener('order-update', function() {
+  refreshKafkaOrders();
+  refreshDirectOrders();
+});
+
+// --- Init ---
+document.addEventListener('DOMContentLoaded', function() {
+  updateKafkaFields();
+  updateCmdFields();
+  refreshKafkaOrders();
+  refreshDirectOrders();
+  refreshCommands();
+  if (authenticated) { loadRobots(); loadScenePoints(); }
+});
+</script>
+{{end}}

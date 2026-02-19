@@ -11,11 +11,7 @@
     <h3>General</h3>
     <form method="POST" action="/config/save">
       <input type="hidden" name="section" value="general">
-      <div class="form-group mb-1">
-        <label>Server Identity</label>
-        <input type="text" name="factory_id" value="{{.Config.FactoryID}}" placeholder="Factory / site identifier">
-      </div>
-      <h4 class="mb-1" style="margin-top:0.75rem; border-top:1px solid var(--border); padding-top:0.75rem">Fleet Backend</h4>
+      <h4 class="mb-1">Fleet Backend</h4>
       <div class="grid grid-3">
         <div class="form-group">
           <label>Base URL</label>
@@ -41,45 +37,24 @@
       <input type="hidden" name="section" value="services">
 
       <!-- Messaging subsection -->
-      <h4 class="mb-1">Messaging</h4>
+      <h4 class="mb-1">Messaging (Kafka)</h4>
+
+      <label style="font-size:0.85rem">Brokers</label>
+      <div id="kafka-broker-rows">
+        {{range $i, $b := .Config.Messaging.Kafka.Brokers}}
+        {{$parts := splitBroker $b}}
+        <div class="flex gap-1 mb-1 kafka-broker-row">
+          <input type="text" name="kafka_host_{{$i}}" value="{{index $parts 0}}" placeholder="Host" style="flex:2">
+          <input type="number" name="kafka_port_{{$i}}" value="{{index $parts 1}}" placeholder="9093" style="flex:1">
+          <button type="button" class="btn btn-danger btn-sm" onclick="removeKafkaBroker(this)">-</button>
+        </div>
+        {{end}}
+      </div>
+      <button type="button" class="btn btn-sm" onclick="addKafkaBroker()" style="margin-bottom:0.5rem">+ Add Broker</button>
+
       <div class="form-group mb-1">
-        <label>Backend</label>
-        <select name="msg_backend" id="cfg-msg-backend" onchange="toggleMessaging()">
-          <option value="mqtt"{{if eq .Config.Messaging.Backend "mqtt"}} selected{{end}}>MQTT</option>
-          <option value="kafka"{{if eq .Config.Messaging.Backend "kafka"}} selected{{end}}>Kafka</option>
-        </select>
-      </div>
-
-      <div id="cfg-mqtt-fields"{{if eq .Config.Messaging.Backend "kafka"}} style="display:none"{{end}}>
-        <div class="grid grid-3">
-          <div class="form-group">
-            <label>Broker</label>
-            <input type="text" name="mqtt_broker" value="{{.Config.Messaging.MQTT.Broker}}">
-          </div>
-          <div class="form-group">
-            <label>Port</label>
-            <input type="number" name="mqtt_port" value="{{.Config.Messaging.MQTT.Port}}">
-          </div>
-          <div class="form-group">
-            <label>Client ID</label>
-            <input type="text" name="mqtt_client_id" value="{{.Config.Messaging.MQTT.ClientID}}">
-          </div>
-        </div>
-      </div>
-
-      <div id="cfg-kafka-fields"{{if ne .Config.Messaging.Backend "kafka"}} style="display:none"{{end}}>
-        <label style="font-size:0.85rem">Brokers</label>
-        <div id="kafka-broker-rows">
-          {{range $i, $b := .Config.Messaging.Kafka.Brokers}}
-          {{$parts := splitBroker $b}}
-          <div class="flex gap-1 mb-1 kafka-broker-row">
-            <input type="text" name="kafka_host_{{$i}}" value="{{index $parts 0}}" placeholder="Host" style="flex:2">
-            <input type="number" name="kafka_port_{{$i}}" value="{{index $parts 1}}" placeholder="9093" style="flex:1">
-            <button type="button" class="btn btn-danger btn-sm" onclick="removeKafkaBroker(this)">-</button>
-          </div>
-          {{end}}
-        </div>
-        <button type="button" class="btn btn-sm" onclick="addKafkaBroker()" style="margin-bottom:0.5rem">+ Add Broker</button>
+        <label>Group ID</label>
+        <input type="text" name="group_id" value="{{.Config.Messaging.Kafka.GroupID}}" placeholder="shingocore">
       </div>
 
       <h4 class="mb-1" style="margin-top:0.75rem; border-top:1px solid var(--border); padding-top:0.75rem">Topics</h4>
@@ -89,8 +64,8 @@
           <input type="text" name="orders_topic" value="{{.Config.Messaging.OrdersTopic}}">
         </div>
         <div class="form-group">
-          <label>Dispatch Topic Prefix</label>
-          <input type="text" name="dispatch_topic_prefix" value="{{.Config.Messaging.DispatchTopicPrefix}}">
+          <label>Dispatch Topic</label>
+          <input type="text" name="dispatch_topic" value="{{.Config.Messaging.DispatchTopic}}">
         </div>
       </div>
 
@@ -117,12 +92,6 @@
 </div>
 
 <script>
-function toggleMessaging() {
-  var backend = document.getElementById('cfg-msg-backend').value;
-  document.getElementById('cfg-mqtt-fields').style.display = backend === 'mqtt' ? '' : 'none';
-  document.getElementById('cfg-kafka-fields').style.display = backend === 'kafka' ? '' : 'none';
-}
-
 var kafkaBrokerIdx = {{len .Config.Messaging.Kafka.Brokers}};
 
 function addKafkaBroker() {

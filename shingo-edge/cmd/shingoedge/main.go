@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"shingoedge/config"
 	"shingoedge/engine"
@@ -55,8 +57,14 @@ func main() {
 	eng.Start()
 	defer eng.Stop()
 
+	// Ensure Kafka GroupID is set (unique per edge so each gets all messages)
+	if cfg.Messaging.Kafka.GroupID == "" {
+		cfg.Messaging.Kafka.GroupID = cfg.KafkaGroupID()
+	}
+
 	// Set up messaging
 	msgClient := messaging.NewClient(&cfg.Messaging)
+	defer msgClient.Close()
 	if err := msgClient.Connect(); err != nil {
 		log.Printf("messaging connect: %v (will retry via outbox)", err)
 	} else {
@@ -65,32 +73,35 @@ func main() {
 		drainer.Start()
 		defer drainer.Stop()
 
-		// Start inbound subscriber (old protocol)
-		sub := messaging.NewSubscriber(msgClient, cfg, eng.OrderManager())
-		if err := sub.Start(); err != nil {
-			log.Printf("inbound subscriber: %v", err)
-		}
-
-		// Protocol ingestor (new unified protocol — runs alongside old subscriber during transition)
-		nodeID := cfg.NodeID()
+		// Protocol ingestor (inbound from ShinGo Core)
+		stationID := cfg.StationID()
 		edgeHandler := messaging.NewEdgeHandler(eng.OrderManager())
 		ingestor := protocol.NewIngestor(edgeHandler, func(hdr *protocol.RawHeader) bool {
-			return hdr.Dst.Node == nodeID || hdr.Dst.Node == "*"
+			return hdr.Dst.Station == stationID || hdr.Dst.Station == protocol.StationBroadcast
 		})
 		if err := msgClient.Subscribe(cfg.Messaging.DispatchTopic, func(data []byte) {
 			ingestor.HandleRaw(data)
 		}); err != nil {
 			log.Printf("protocol ingestor subscribe: %v", err)
 		} else {
-			log.Printf("protocol ingestor listening on %s (node=%s)", cfg.Messaging.DispatchTopic, nodeID)
+			log.Printf("protocol ingestor listening on %s (station=%s)", cfg.Messaging.DispatchTopic, stationID)
 		}
 
 		// Heartbeater (registration + periodic heartbeat)
-		hb := messaging.NewHeartbeater(msgClient, nodeID, cfg.Namespace, "dev", []string{cfg.LineID}, cfg.Messaging.OrdersTopic)
+		hb := messaging.NewHeartbeater(msgClient, stationID, "dev", []string{cfg.LineID}, cfg.Messaging.OrdersTopic)
 		hb.Start()
 		defer hb.Stop()
+
+		// Production reporter (accumulates deltas, sends periodic reports to core)
+		reporter := messaging.NewProductionReporter(msgClient, db, stationID, cfg.Messaging.OrdersTopic)
+		eng.Events.SubscribeTypes(func(evt engine.Event) {
+			if delta, ok := evt.Payload.(engine.CounterDeltaEvent); ok {
+				reporter.RecordDelta(delta.JobStyleID, delta.Delta)
+			}
+		}, engine.EventCounterDelta)
+		reporter.Start()
+		defer reporter.Stop()
 	}
-	defer msgClient.Close()
 
 	// Set up HTTP server
 	router, stopWeb := www.NewRouter(eng)
@@ -113,4 +124,14 @@ func main() {
 	<-sigCh
 
 	log.Println("Shutting down...")
+
+	// Stop SSE event hub first so long-lived connections close
+	stopWeb()
+
+	// Graceful HTTP shutdown with 10s deadline
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("http server shutdown: %v", err)
+	}
 }

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
 type Client struct {
+	mu         sync.RWMutex
 	baseURL    string
 	httpClient *http.Client
 }
@@ -23,8 +25,14 @@ func NewClient(baseURL string, timeout time.Duration) *Client {
 	}
 }
 
+func (c *Client) url(path string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.baseURL + path
+}
+
 func (c *Client) get(path string, result any) error {
-	resp, err := c.httpClient.Get(c.baseURL + path)
+	resp, err := c.httpClient.Get(c.url(path))
 	if err != nil {
 		return fmt.Errorf("rds GET %s: %w", path, err)
 	}
@@ -41,7 +49,7 @@ func (c *Client) post(path string, body any, result any) error {
 		}
 		bodyReader = bytes.NewReader(data)
 	}
-	resp, err := c.httpClient.Post(c.baseURL+path, "application/json", bodyReader)
+	resp, err := c.httpClient.Post(c.url(path), "application/json", bodyReader)
 	if err != nil {
 		return fmt.Errorf("rds POST %s: %w", path, err)
 	}
@@ -66,7 +74,7 @@ func (c *Client) decode(resp *http.Response, result any) error {
 }
 
 func (c *Client) getRaw(path string) ([]byte, error) {
-	resp, err := c.httpClient.Get(c.baseURL + path)
+	resp, err := c.httpClient.Get(c.url(path))
 	if err != nil {
 		return nil, fmt.Errorf("rds GET %s: %w", path, err)
 	}
@@ -82,7 +90,7 @@ func (c *Client) getRaw(path string) ([]byte, error) {
 }
 
 func (c *Client) postRaw(path string, contentType string, body io.Reader, result any) error {
-	resp, err := c.httpClient.Post(c.baseURL+path, contentType, body)
+	resp, err := c.httpClient.Post(c.url(path), contentType, body)
 	if err != nil {
 		return fmt.Errorf("rds POST %s: %w", path, err)
 	}
@@ -91,10 +99,16 @@ func (c *Client) postRaw(path string, contentType string, body io.Reader, result
 }
 
 // BaseURL returns the client's base URL.
-func (c *Client) BaseURL() string { return c.baseURL }
+func (c *Client) BaseURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.baseURL
+}
 
 // Reconfigure updates the client's base URL and timeout for hot-reload.
 func (c *Client) Reconfigure(baseURL string, timeout time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.baseURL = baseURL
 	c.httpClient.Timeout = timeout
 }

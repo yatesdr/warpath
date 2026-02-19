@@ -87,14 +87,6 @@ func (r *RedisStore) GetCount(ctx context.Context, nodeID int64) (int, error) {
 	return val, err
 }
 
-func (r *RedisStore) IncrementCount(ctx context.Context, nodeID int64) error {
-	return r.client.Incr(ctx, countKey(nodeID)).Err()
-}
-
-func (r *RedisStore) DecrementCount(ctx context.Context, nodeID int64) error {
-	return r.client.Decr(ctx, countKey(nodeID)).Err()
-}
-
 func (r *RedisStore) GetAllNodeIDs(ctx context.Context) ([]int64, error) {
 	members, err := r.client.SMembers(ctx, allNodesKey).Result()
 	if err != nil {

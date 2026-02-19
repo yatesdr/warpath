@@ -3,6 +3,7 @@ package messaging
 import (
 	"encoding/json"
 	"log"
+	"time"
 
 	"shingoedge/orders"
 	"shingo/protocol"
@@ -29,14 +30,14 @@ func (h *EdgeHandler) HandleData(env *protocol.Envelope, p *protocol.Data) {
 			log.Printf("edge_handler: decode edge registered body: %v", err)
 			return
 		}
-		log.Printf("edge_handler: registration acknowledged: node=%s msg=%s", reg.NodeID, reg.Message)
+		log.Printf("edge_handler: registration acknowledged: station=%s msg=%s", reg.StationID, reg.Message)
 	case protocol.SubjectEdgeHeartbeatAck:
 		var ack protocol.EdgeHeartbeatAck
 		if err := json.Unmarshal(p.Body, &ack); err != nil {
 			log.Printf("edge_handler: decode heartbeat ack body: %v", err)
 			return
 		}
-		log.Printf("edge_handler: heartbeat ack: node=%s server_ts=%d", ack.NodeID, ack.ServerTS)
+		log.Printf("edge_handler: heartbeat ack: station=%s server_ts=%s", ack.StationID, ack.ServerTS)
 	default:
 		log.Printf("edge_handler: unhandled data subject: %s", p.Subject)
 	}
@@ -65,15 +66,21 @@ func (h *EdgeHandler) HandleOrderUpdate(env *protocol.Envelope, p *protocol.Orde
 
 func (h *EdgeHandler) HandleOrderDelivered(env *protocol.Envelope, p *protocol.OrderDelivered) {
 	log.Printf("edge_handler: order delivered: uuid=%s at=%s", p.OrderUUID, p.DeliveredAt)
-	if err := h.orderMgr.HandleDispatchReply(p.OrderUUID, "delivered", "", "", p.DeliveredAt); err != nil {
+	if err := h.orderMgr.HandleDispatchReply(p.OrderUUID, "delivered", "", "", p.DeliveredAt.Format(time.RFC3339)); err != nil {
 		log.Printf("edge_handler: handle delivered for %s: %v", p.OrderUUID, err)
 	}
 }
 
 func (h *EdgeHandler) HandleOrderError(env *protocol.Envelope, p *protocol.OrderError) {
 	log.Printf("edge_handler: order error: uuid=%s code=%s detail=%s", p.OrderUUID, p.ErrorCode, p.Detail)
+	if err := h.orderMgr.HandleDispatchReply(p.OrderUUID, "error", "", "", p.Detail); err != nil {
+		log.Printf("edge_handler: handle error for %s: %v", p.OrderUUID, err)
+	}
 }
 
 func (h *EdgeHandler) HandleOrderCancelled(env *protocol.Envelope, p *protocol.OrderCancelled) {
 	log.Printf("edge_handler: order cancelled: uuid=%s reason=%s", p.OrderUUID, p.Reason)
+	if err := h.orderMgr.HandleDispatchReply(p.OrderUUID, "cancelled", "", "", p.Reason); err != nil {
+		log.Printf("edge_handler: handle cancelled for %s: %v", p.OrderUUID, err)
+	}
 }

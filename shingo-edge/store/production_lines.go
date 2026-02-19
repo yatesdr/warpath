@@ -1,12 +1,14 @@
 package store
 
+import "time"
+
 // ProductionLine represents a physical production line.
 type ProductionLine struct {
-	ID               int64  `json:"id"`
-	Name             string `json:"name"`
-	Description      string `json:"description"`
-	ActiveJobStyleID *int64 `json:"active_job_style_id"`
-	CreatedAt        string `json:"created_at"`
+	ID               int64     `json:"id"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	ActiveJobStyleID *int64    `json:"active_job_style_id"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 func (db *DB) ListProductionLines() ([]ProductionLine, error) {
@@ -18,9 +20,11 @@ func (db *DB) ListProductionLines() ([]ProductionLine, error) {
 	var lines []ProductionLine
 	for rows.Next() {
 		var l ProductionLine
-		if err := rows.Scan(&l.ID, &l.Name, &l.Description, &l.ActiveJobStyleID, &l.CreatedAt); err != nil {
+		var createdAt string
+		if err := rows.Scan(&l.ID, &l.Name, &l.Description, &l.ActiveJobStyleID, &createdAt); err != nil {
 			return nil, err
 		}
+		l.CreatedAt = scanTime(createdAt)
 		lines = append(lines, l)
 	}
 	return lines, rows.Err()
@@ -28,11 +32,13 @@ func (db *DB) ListProductionLines() ([]ProductionLine, error) {
 
 func (db *DB) GetProductionLine(id int64) (*ProductionLine, error) {
 	l := &ProductionLine{}
+	var createdAt string
 	err := db.QueryRow(`SELECT id, name, description, active_job_style_id, created_at FROM production_lines WHERE id = ?`, id).
-		Scan(&l.ID, &l.Name, &l.Description, &l.ActiveJobStyleID, &l.CreatedAt)
+		Scan(&l.ID, &l.Name, &l.Description, &l.ActiveJobStyleID, &createdAt)
 	if err != nil {
 		return nil, err
 	}
+	l.CreatedAt = scanTime(createdAt)
 	return l, nil
 }
 

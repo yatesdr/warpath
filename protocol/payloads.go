@@ -1,6 +1,9 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Data is the payload for TypeData messages.
 // Subject selects the sub-schema; Body carries the subject-specific data.
@@ -13,30 +16,29 @@ type Data struct {
 
 // EdgeRegister is sent by an edge on startup.
 type EdgeRegister struct {
-	NodeID   string   `json:"node_id"`
-	Factory  string   `json:"factory"`
-	Hostname string   `json:"hostname"`
-	Version  string   `json:"version"`
-	LineIDs  []string `json:"line_ids"`
+	StationID string   `json:"station_id"`
+	Hostname  string   `json:"hostname"`
+	Version   string   `json:"version"`
+	LineIDs   []string `json:"line_ids"`
 }
 
 // EdgeHeartbeat is sent periodically by an edge.
 type EdgeHeartbeat struct {
-	NodeID  string `json:"node_id"`
-	Uptime  int64  `json:"uptime_s"`
-	Orders  int    `json:"active_orders"`
+	StationID string `json:"station_id"`
+	Uptime    int64  `json:"uptime_s"`
+	Orders    int    `json:"active_orders"`
 }
 
 // EdgeRegistered acknowledges edge registration.
 type EdgeRegistered struct {
-	NodeID  string `json:"node_id"`
-	Message string `json:"message,omitempty"`
+	StationID string `json:"station_id"`
+	Message   string `json:"message,omitempty"`
 }
 
 // EdgeHeartbeatAck acknowledges a heartbeat.
 type EdgeHeartbeatAck struct {
-	NodeID   string `json:"node_id"`
-	ServerTS int64  `json:"server_ts"`
+	StationID string    `json:"station_id"`
+	ServerTS  time.Time `json:"server_ts"`
 }
 
 // --- Order payloads: Edge -> Core ---
@@ -111,8 +113,8 @@ type OrderUpdate struct {
 
 // OrderDelivered signals fleet delivery complete.
 type OrderDelivered struct {
-	OrderUUID   string `json:"order_uuid"`
-	DeliveredAt string `json:"delivered_at"`
+	OrderUUID   string    `json:"order_uuid"`
+	DeliveredAt time.Time `json:"delivered_at"`
 }
 
 // OrderError signals order failure.
@@ -126,4 +128,18 @@ type OrderError struct {
 type OrderCancelled struct {
 	OrderUUID string `json:"order_uuid"`
 	Reason    string `json:"reason"`
+}
+
+// --- Production data schemas ---
+
+// ProductionReportEntry is a single cat_id production count.
+type ProductionReportEntry struct {
+	CatID string  `json:"cat_id"`
+	Count float64 `json:"count"`
+}
+
+// ProductionReport carries production counts from an edge station.
+type ProductionReport struct {
+	StationID string                  `json:"station_id"`
+	Reports   []ProductionReportEntry `json:"reports"`
 }

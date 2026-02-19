@@ -1,17 +1,23 @@
 package dispatch
 
+import "shingo/protocol"
+
 const (
 	OrderTypeRetrieve = "retrieve"
 	OrderTypeMove     = "move"
 	OrderTypeStore    = "store"
+)
 
-	StatusPending    = "pending"
-	StatusSourcing   = "sourcing"
-	StatusDispatched = "dispatched"
-	StatusInTransit  = "in_transit"
-	StatusDelivered  = "delivered"
-	StatusConfirmed  = "confirmed"
-	StatusCompleted  = "completed"
-	StatusFailed     = "failed"
-	StatusCancelled  = "cancelled"
+// Order statuses aliased from protocol for local use.
+const (
+	StatusPending      = protocol.StatusPending
+	StatusSourcing     = protocol.StatusSourcing
+	StatusSubmitted    = protocol.StatusSubmitted
+	StatusDispatched   = protocol.StatusDispatched
+	StatusAcknowledged = protocol.StatusAcknowledged
+	StatusInTransit    = protocol.StatusInTransit
+	StatusDelivered    = protocol.StatusDelivered
+	StatusConfirmed    = protocol.StatusConfirmed
+	StatusFailed       = protocol.StatusFailed
+	StatusCancelled    = protocol.StatusCancelled
 )

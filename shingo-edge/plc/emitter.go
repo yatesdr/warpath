@@ -8,6 +8,8 @@ type EventEmitter interface {
 	EmitCounterAnomaly(snapshotID, rpID int64, plcName, tagName string, oldVal, newVal int64, anomalyType string)
 	EmitPLCConnected(plcName string)
 	EmitPLCDisconnected(plcName string, err error)
+	EmitPLCHealthAlert(plcName string, errMsg string)
+	EmitPLCHealthRecover(plcName string)
 	EmitWarLinkConnected()
 	EmitWarLinkDisconnected(err error)
 }

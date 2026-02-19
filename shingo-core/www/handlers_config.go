@@ -29,9 +29,9 @@ func (h *Handlers) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 	section := r.FormValue("section")
 	cfg := h.engine.AppConfig()
 
+	cfg.Lock()
 	switch section {
 	case "general":
-		cfg.FactoryID = r.FormValue("factory_id")
 		// Fleet fields are part of the general section
 		if v := r.FormValue("fleet_base_url"); v != "" || r.Form.Has("fleet_base_url") {
 			cfg.RDS.BaseURL = v
@@ -43,13 +43,6 @@ func (h *Handlers) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "services":
-		// Messaging
-		cfg.Messaging.Backend = r.FormValue("msg_backend")
-		cfg.Messaging.MQTT.Broker = r.FormValue("mqtt_broker")
-		if p, err := strconv.Atoi(r.FormValue("mqtt_port")); err == nil {
-			cfg.Messaging.MQTT.Port = p
-		}
-		cfg.Messaging.MQTT.ClientID = r.FormValue("mqtt_client_id")
 		// Kafka brokers: indexed fields kafka_host_N / kafka_port_N
 		var brokers []string
 		for i := 0; ; i++ {
@@ -64,8 +57,9 @@ func (h *Handlers) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 			brokers = append(brokers, host+":"+port)
 		}
 		cfg.Messaging.Kafka.Brokers = brokers
+		cfg.Messaging.Kafka.GroupID = r.FormValue("group_id")
 		cfg.Messaging.OrdersTopic = r.FormValue("orders_topic")
-		cfg.Messaging.DispatchTopicPrefix = r.FormValue("dispatch_topic_prefix")
+		cfg.Messaging.DispatchTopic = r.FormValue("dispatch_topic")
 		// Redis / ValKey
 		cfg.Redis.Address = r.FormValue("redis_address")
 		cfg.Redis.Password = r.FormValue("redis_password")
@@ -81,20 +75,15 @@ func (h *Handlers) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 			cfg.RDS.Timeout = d
 		}
 	case "messaging":
-		cfg.Messaging.Backend = r.FormValue("msg_backend")
-		cfg.Messaging.MQTT.Broker = r.FormValue("mqtt_broker")
-		if p, err := strconv.Atoi(r.FormValue("mqtt_port")); err == nil {
-			cfg.Messaging.MQTT.Port = p
-		}
-		cfg.Messaging.MQTT.ClientID = r.FormValue("mqtt_client_id")
 		brokers := r.FormValue("kafka_brokers")
 		if brokers != "" {
 			cfg.Messaging.Kafka.Brokers = splitTrim(brokers, ",")
 		} else {
 			cfg.Messaging.Kafka.Brokers = []string{}
 		}
+		cfg.Messaging.Kafka.GroupID = r.FormValue("group_id")
 		cfg.Messaging.OrdersTopic = r.FormValue("orders_topic")
-		cfg.Messaging.DispatchTopicPrefix = r.FormValue("dispatch_topic_prefix")
+		cfg.Messaging.DispatchTopic = r.FormValue("dispatch_topic")
 	case "redis":
 		cfg.Redis.Address = r.FormValue("redis_address")
 		cfg.Redis.Password = r.FormValue("redis_password")
@@ -102,9 +91,11 @@ func (h *Handlers) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 			cfg.Redis.DB = d
 		}
 	default:
+		cfg.Unlock()
 		http.Error(w, "unknown section", http.StatusBadRequest)
 		return
 	}
+	cfg.Unlock()
 
 	if err := cfg.Save(h.engine.ConfigPath()); err != nil {
 		log.Printf("config: save error: %v", err)

@@ -1,6 +1,7 @@
 package www
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -100,50 +101,62 @@ func (h *EventHub) ClientCount() int {
 	return len(h.clients)
 }
 
+// sseJSON safely marshals data to JSON for SSE broadcast.
+// Falls back to an error payload if marshaling fails.
+func sseJSON(v any) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("sse: marshal error: %v", err)
+		return `{"error":"marshal_failed"}`
+	}
+	return string(data)
+}
+
 // SetupEngineListeners wires engine events to SSE broadcasts.
 func (h *EventHub) SetupEngineListeners(eng *engine.Engine) {
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
-		h.Broadcast("order-update", fmt.Sprintf(`{"type":"received","order_id":%d}`, evt.Payload.(engine.OrderReceivedEvent).OrderID))
+		ev := evt.Payload.(engine.OrderReceivedEvent)
+		h.Broadcast("order-update", sseJSON(map[string]any{"type": "received", "order_id": ev.OrderID}))
 	}, engine.EventOrderReceived)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.OrderDispatchedEvent)
-		h.Broadcast("order-update", fmt.Sprintf(`{"type":"dispatched","order_id":%d,"vendor_order_id":"%s"}`, ev.OrderID, ev.VendorOrderID))
+		h.Broadcast("order-update", sseJSON(map[string]any{"type": "dispatched", "order_id": ev.OrderID, "vendor_order_id": ev.VendorOrderID}))
 	}, engine.EventOrderDispatched)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.OrderStatusChangedEvent)
-		h.Broadcast("order-update", fmt.Sprintf(`{"type":"status_changed","order_id":%d,"new_status":"%s"}`, ev.OrderID, ev.NewStatus))
+		h.Broadcast("order-update", sseJSON(map[string]any{"type": "status_changed", "order_id": ev.OrderID, "new_status": ev.NewStatus}))
 	}, engine.EventOrderStatusChanged)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.OrderCompletedEvent)
-		h.Broadcast("order-update", fmt.Sprintf(`{"type":"completed","order_id":%d}`, ev.OrderID))
+		h.Broadcast("order-update", sseJSON(map[string]any{"type": "completed", "order_id": ev.OrderID}))
 	}, engine.EventOrderCompleted)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.OrderFailedEvent)
-		h.Broadcast("order-update", fmt.Sprintf(`{"type":"failed","order_id":%d,"detail":"%s"}`, ev.OrderID, ev.Detail))
+		h.Broadcast("order-update", sseJSON(map[string]any{"type": "failed", "order_id": ev.OrderID, "detail": ev.Detail}))
 	}, engine.EventOrderFailed)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.OrderCancelledEvent)
-		h.Broadcast("order-update", fmt.Sprintf(`{"type":"cancelled","order_id":%d,"reason":"%s"}`, ev.OrderID, ev.Reason))
+		h.Broadcast("order-update", sseJSON(map[string]any{"type": "cancelled", "order_id": ev.OrderID, "reason": ev.Reason}))
 	}, engine.EventOrderCancelled)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.PayloadChangedEvent)
-		h.Broadcast("payload-update", fmt.Sprintf(`{"node_id":%d,"action":"%s","payload_id":%d}`, ev.NodeID, ev.Action, ev.PayloadID))
+		h.Broadcast("payload-update", sseJSON(map[string]any{"node_id": ev.NodeID, "action": ev.Action, "payload_id": ev.PayloadID}))
 	}, engine.EventPayloadChanged)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.CorrectionAppliedEvent)
-		h.Broadcast("inventory-update", fmt.Sprintf(`{"node_id":%d,"action":"correction","type":"%s"}`, ev.NodeID, ev.CorrectionType))
+		h.Broadcast("inventory-update", sseJSON(map[string]any{"node_id": ev.NodeID, "action": "correction", "type": ev.CorrectionType}))
 	}, engine.EventCorrectionApplied)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.NodeUpdatedEvent)
-		h.Broadcast("node-update", fmt.Sprintf(`{"node_id":%d,"action":"%s"}`, ev.NodeID, ev.Action))
+		h.Broadcast("node-update", sseJSON(map[string]any{"node_id": ev.NodeID, "action": ev.Action}))
 	}, engine.EventNodeUpdated)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {

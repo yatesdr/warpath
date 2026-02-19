@@ -7,8 +7,8 @@ import (
 )
 
 func TestEnvelopeRoundTrip(t *testing.T) {
-	src := Address{Role: RoleEdge, Node: "plant-a.line-1", Factory: "plant-a"}
-	dst := Address{Role: RoleCore, Node: "", Factory: ""}
+	src := Address{Role: RoleEdge, Station: "plant-a.line-1"}
+	dst := Address{Role: RoleCore}
 
 	env, err := NewEnvelope(TypeOrderRequest, src, dst, &OrderRequest{
 		OrderUUID: "test-uuid-123",
@@ -67,7 +67,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 func TestNewReply(t *testing.T) {
 	reply, err := NewReply(TypeOrderAck,
 		Address{Role: RoleCore},
-		Address{Role: RoleEdge, Node: "plant-a.line-1"},
+		Address{Role: RoleEdge, Station: "plant-a.line-1"},
 		"orig-msg-id",
 		&OrderAck{OrderUUID: "uuid-1", ShingoOrderID: 42},
 	)
@@ -129,9 +129,9 @@ func TestIngestorDispatch(t *testing.T) {
 
 	// Build a valid data envelope with edge.register subject
 	env, _ := NewDataEnvelope(SubjectEdgeRegister,
-		Address{Role: RoleEdge, Node: "test-node"},
+		Address{Role: RoleEdge, Station: "test-node"},
 		Address{Role: RoleCore},
-		&EdgeRegister{NodeID: "test-node", Factory: "plant-a"},
+		&EdgeRegister{StationID: "test-node"},
 	)
 	data, _ := env.Encode()
 
@@ -149,8 +149,8 @@ func TestIngestorDispatch(t *testing.T) {
 	if err := json.Unmarshal(handler.dataPayload.Body, &reg); err != nil {
 		t.Fatalf("unmarshal body: %v", err)
 	}
-	if reg.NodeID != "test-node" {
-		t.Errorf("node_id = %q, want %q", reg.NodeID, "test-node")
+	if reg.StationID != "test-node" {
+		t.Errorf("station_id = %q, want %q", reg.StationID, "test-node")
 	}
 }
 
@@ -160,9 +160,9 @@ func TestIngestorFilter(t *testing.T) {
 	ingestor := NewIngestor(handler, func(_ *RawHeader) bool { return false })
 
 	env, _ := NewDataEnvelope(SubjectEdgeRegister,
-		Address{Role: RoleEdge, Node: "test-node"},
+		Address{Role: RoleEdge, Station: "test-node"},
 		Address{Role: RoleCore},
-		&EdgeRegister{NodeID: "test-node"},
+		&EdgeRegister{StationID: "test-node"},
 	)
 	data, _ := env.Encode()
 
@@ -178,9 +178,9 @@ func TestIngestorDropsExpired(t *testing.T) {
 	ingestor := NewIngestor(handler, nil)
 
 	env, _ := NewDataEnvelope(SubjectEdgeRegister,
-		Address{Role: RoleEdge, Node: "test-node"},
+		Address{Role: RoleEdge, Station: "test-node"},
 		Address{Role: RoleCore},
-		&EdgeRegister{NodeID: "test-node"},
+		&EdgeRegister{StationID: "test-node"},
 	)
 	// Force expiry in the past
 	env.ExpiresAt = time.Now().UTC().Add(-1 * time.Minute)
@@ -195,28 +195,28 @@ func TestIngestorDropsExpired(t *testing.T) {
 
 func TestEdgeFilter(t *testing.T) {
 	filter := func(hdr *RawHeader) bool {
-		return hdr.Dst.Node == "plant-a.line-1" || hdr.Dst.Node == "*"
+		return hdr.Dst.Station == "plant-a.line-1" || hdr.Dst.Station == "*"
 	}
 
 	// Matching node
-	if !filter(&RawHeader{Dst: Address{Node: "plant-a.line-1"}}) {
+	if !filter(&RawHeader{Dst: Address{Station: "plant-a.line-1"}}) {
 		t.Error("expected filter to accept matching node")
 	}
 	// Broadcast
-	if !filter(&RawHeader{Dst: Address{Node: "*"}}) {
+	if !filter(&RawHeader{Dst: Address{Station: "*"}}) {
 		t.Error("expected filter to accept broadcast")
 	}
 	// Other node
-	if filter(&RawHeader{Dst: Address{Node: "plant-a.line-2"}}) {
+	if filter(&RawHeader{Dst: Address{Station: "plant-a.line-2"}}) {
 		t.Error("expected filter to reject other node")
 	}
 }
 
 func TestWireFormatKeys(t *testing.T) {
 	env, _ := NewDataEnvelope(SubjectEdgeHeartbeat,
-		Address{Role: RoleEdge, Node: "n1", Factory: "f1"},
+		Address{Role: RoleEdge, Station: "n1"},
 		Address{Role: RoleCore},
-		&EdgeHeartbeat{NodeID: "n1", Uptime: 60},
+		&EdgeHeartbeat{StationID: "n1", Uptime: 60},
 	)
 	data, _ := env.Encode()
 
@@ -242,13 +242,12 @@ func TestWireFormatKeys(t *testing.T) {
 }
 
 func TestDataEnvelopeRoundTrip(t *testing.T) {
-	src := Address{Role: RoleEdge, Node: "plant-a.line-1", Factory: "plant-a"}
+	src := Address{Role: RoleEdge, Station: "plant-a.line-1"}
 	dst := Address{Role: RoleCore}
 
 	env, err := NewDataEnvelope(SubjectEdgeRegister, src, dst, &EdgeRegister{
-		NodeID:  "plant-a.line-1",
-		Factory: "plant-a",
-		Version: "1.0.0",
+		StationID: "plant-a.line-1",
+		Version:   "1.0.0",
 	})
 	if err != nil {
 		t.Fatalf("NewDataEnvelope: %v", err)
@@ -283,8 +282,8 @@ func TestDataEnvelopeRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(d.Body, &reg); err != nil {
 		t.Fatalf("unmarshal body: %v", err)
 	}
-	if reg.NodeID != "plant-a.line-1" {
-		t.Errorf("node_id = %q, want %q", reg.NodeID, "plant-a.line-1")
+	if reg.StationID != "plant-a.line-1" {
+		t.Errorf("station_id = %q, want %q", reg.StationID, "plant-a.line-1")
 	}
 	if reg.Version != "1.0.0" {
 		t.Errorf("version = %q, want %q", reg.Version, "1.0.0")
@@ -311,10 +310,10 @@ func TestDataTTLForSubjects(t *testing.T) {
 
 func TestNewDataReply(t *testing.T) {
 	reply, err := NewDataReply(SubjectEdgeRegistered,
-		Address{Role: RoleCore, Node: "core"},
-		Address{Role: RoleEdge, Node: "plant-a.line-1"},
+		Address{Role: RoleCore, Station: "core"},
+		Address{Role: RoleEdge, Station: "plant-a.line-1"},
 		"orig-msg-id",
-		&EdgeRegistered{NodeID: "plant-a.line-1", Message: "registered"},
+		&EdgeRegistered{StationID: "plant-a.line-1", Message: "registered"},
 	)
 	if err != nil {
 		t.Fatalf("NewDataReply: %v", err)
@@ -338,9 +337,9 @@ func TestNewDataReply(t *testing.T) {
 
 func TestDataWireFormat(t *testing.T) {
 	env, _ := NewDataEnvelope(SubjectEdgeHeartbeat,
-		Address{Role: RoleEdge, Node: "plant-a.line-1", Factory: "plant-a"},
+		Address{Role: RoleEdge, Station: "plant-a.line-1"},
 		Address{Role: RoleCore},
-		&EdgeHeartbeat{NodeID: "plant-a.line-1", Uptime: 3600, Orders: 2},
+		&EdgeHeartbeat{StationID: "plant-a.line-1", Uptime: 3600, Orders: 2},
 	)
 	raw, _ := env.Encode()
 

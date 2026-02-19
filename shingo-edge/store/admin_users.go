@@ -1,20 +1,24 @@
 package store
 
+import "time"
+
 // AdminUser is a user who can access the setup page.
 type AdminUser struct {
-	ID           int64  `json:"id"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"-"`
-	CreatedAt    string `json:"created_at"`
+	ID           int64     `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (db *DB) GetAdminUser(username string) (*AdminUser, error) {
 	u := &AdminUser{}
+	var createdAt string
 	err := db.QueryRow(`SELECT id, username, password_hash, created_at FROM admin_users WHERE username = ?`, username).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &createdAt)
 	if err != nil {
 		return nil, err
 	}
+	u.CreatedAt = scanTime(createdAt)
 	return u, nil
 }
 

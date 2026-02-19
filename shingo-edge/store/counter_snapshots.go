@@ -1,14 +1,16 @@
 package store
 
+import "time"
+
 // CounterSnapshot records a PLC counter reading.
 type CounterSnapshot struct {
-	ID                int64   `json:"id"`
-	ReportingPointID  int64   `json:"reporting_point_id"`
-	CountValue        int64   `json:"count_value"`
-	Delta             int64   `json:"delta"`
-	Anomaly           *string `json:"anomaly"`
-	OperatorConfirmed bool    `json:"operator_confirmed"`
-	RecordedAt        string  `json:"recorded_at"`
+	ID                int64     `json:"id"`
+	ReportingPointID  int64     `json:"reporting_point_id"`
+	CountValue        int64     `json:"count_value"`
+	Delta             int64     `json:"delta"`
+	Anomaly           *string   `json:"anomaly"`
+	OperatorConfirmed bool      `json:"operator_confirmed"`
+	RecordedAt        time.Time `json:"recorded_at"`
 }
 
 func (db *DB) InsertCounterSnapshot(rpID int64, countValue, delta int64, anomaly string, confirmed bool) (int64, error) {
@@ -37,9 +39,11 @@ func (db *DB) ListUnconfirmedAnomalies() ([]CounterSnapshot, error) {
 	var snaps []CounterSnapshot
 	for rows.Next() {
 		var s CounterSnapshot
-		if err := rows.Scan(&s.ID, &s.ReportingPointID, &s.CountValue, &s.Delta, &s.Anomaly, &s.OperatorConfirmed, &s.RecordedAt); err != nil {
+		var recordedAt string
+		if err := rows.Scan(&s.ID, &s.ReportingPointID, &s.CountValue, &s.Delta, &s.Anomaly, &s.OperatorConfirmed, &recordedAt); err != nil {
 			return nil, err
 		}
+		s.RecordedAt = scanTime(recordedAt)
 		snaps = append(snaps, s)
 	}
 	return snaps, rows.Err()

@@ -1,15 +1,17 @@
 package store
 
+import "time"
+
 // ChangeoverLog records a changeover state transition.
 type ChangeoverLog struct {
-	ID           int64  `json:"id"`
-	FromJobStyle string `json:"from_job_style"`
-	ToJobStyle   string `json:"to_job_style"`
-	State        string `json:"state"`
-	Detail       string `json:"detail"`
-	Operator     string `json:"operator"`
-	LineID       int64  `json:"line_id"`
-	CreatedAt    string `json:"created_at"`
+	ID           int64     `json:"id"`
+	FromJobStyle string    `json:"from_job_style"`
+	ToJobStyle   string    `json:"to_job_style"`
+	State        string    `json:"state"`
+	Detail       string    `json:"detail"`
+	Operator     string    `json:"operator"`
+	LineID       int64     `json:"line_id"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (db *DB) InsertChangeoverLog(fromJobStyle, toJobStyle, state, detail, operator string, lineID int64) (int64, error) {
@@ -57,9 +59,11 @@ func scanChangeoverLogs(rows interface{ Next() bool; Scan(...interface{}) error;
 	var logs []ChangeoverLog
 	for rows.Next() {
 		var l ChangeoverLog
-		if err := rows.Scan(&l.ID, &l.FromJobStyle, &l.ToJobStyle, &l.State, &l.Detail, &l.Operator, &l.LineID, &l.CreatedAt); err != nil {
+		var createdAt string
+		if err := rows.Scan(&l.ID, &l.FromJobStyle, &l.ToJobStyle, &l.State, &l.Detail, &l.Operator, &l.LineID, &createdAt); err != nil {
 			return nil, err
 		}
+		l.CreatedAt = scanTime(createdAt)
 		logs = append(logs, l)
 	}
 	return logs, rows.Err()

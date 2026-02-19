@@ -1,26 +1,29 @@
 package store
 
-import "database/sql"
+import (
+	"database/sql"
+	"time"
+)
 
 // Payload represents a payload slot at an LSL node for a job style.
 type Payload struct {
-	ID              int64   `json:"id"`
-	JobStyleID      int64   `json:"job_style_id"`
-	Location        string  `json:"location"`
-	StagingNode     string  `json:"staging_node"`
-	Description     string  `json:"description"`
-	Manifest        string  `json:"manifest"`
-	Multiplier      float64 `json:"multiplier"`
-	ProductionUnits int     `json:"production_units"`
-	Remaining       int     `json:"remaining"`
-	ReorderPoint    int     `json:"reorder_point"`
-	ReorderQty      int     `json:"reorder_qty"`
-	RetrieveEmpty   bool    `json:"retrieve_empty"`
-	Status          string  `json:"status"`
-	HasDescription  string  `json:"has_description"`
-	AutoReorder     bool    `json:"auto_reorder"`
-	CreatedAt       string  `json:"created_at"`
-	UpdatedAt       string  `json:"updated_at"`
+	ID              int64     `json:"id"`
+	JobStyleID      int64     `json:"job_style_id"`
+	Location        string    `json:"location"`
+	StagingNode     string    `json:"staging_node"`
+	Description     string    `json:"description"`
+	Manifest        string    `json:"manifest"`
+	Multiplier      float64   `json:"multiplier"`
+	ProductionUnits int       `json:"production_units"`
+	Remaining       int       `json:"remaining"`
+	ReorderPoint    int       `json:"reorder_point"`
+	ReorderQty      int       `json:"reorder_qty"`
+	RetrieveEmpty   bool      `json:"retrieve_empty"`
+	Status          string    `json:"status"`
+	HasDescription  string    `json:"has_description"`
+	AutoReorder     bool      `json:"auto_reorder"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 	// Joined
 	JobStyleName string `json:"job_style_name"`
 }
@@ -29,13 +32,16 @@ func scanPayloads(rows *sql.Rows) ([]Payload, error) {
 	var payloads []Payload
 	for rows.Next() {
 		var p Payload
+		var createdAt, updatedAt string
 		if err := rows.Scan(&p.ID, &p.JobStyleID, &p.Location, &p.StagingNode,
 			&p.Description, &p.Manifest, &p.Multiplier, &p.ProductionUnits,
 			&p.Remaining, &p.ReorderPoint, &p.ReorderQty, &p.RetrieveEmpty,
 			&p.Status, &p.HasDescription, &p.AutoReorder,
-			&p.CreatedAt, &p.UpdatedAt, &p.JobStyleName); err != nil {
+			&createdAt, &updatedAt, &p.JobStyleName); err != nil {
 			return nil, err
 		}
+		p.CreatedAt = scanTime(createdAt)
+		p.UpdatedAt = scanTime(updatedAt)
 		payloads = append(payloads, p)
 	}
 	return payloads, rows.Err()
@@ -78,15 +84,18 @@ func (db *DB) ListActivePayloadsByJobStyle(jobStyleID int64) ([]Payload, error) 
 
 func (db *DB) GetPayload(id int64) (*Payload, error) {
 	p := &Payload{}
+	var createdAt, updatedAt string
 	err := db.QueryRow(`SELECT `+payloadSelectCols+` `+payloadJoin+` WHERE p.id = ?`, id).
 		Scan(&p.ID, &p.JobStyleID, &p.Location, &p.StagingNode,
 			&p.Description, &p.Manifest, &p.Multiplier, &p.ProductionUnits,
 			&p.Remaining, &p.ReorderPoint, &p.ReorderQty, &p.RetrieveEmpty,
 			&p.Status, &p.HasDescription, &p.AutoReorder,
-			&p.CreatedAt, &p.UpdatedAt, &p.JobStyleName)
+			&createdAt, &updatedAt, &p.JobStyleName)
 	if err != nil {
 		return nil, err
 	}
+	p.CreatedAt = scanTime(createdAt)
+	p.UpdatedAt = scanTime(updatedAt)
 	return p, nil
 }
 

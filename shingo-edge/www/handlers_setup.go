@@ -13,8 +13,6 @@ func (h *Handlers) handleSetup(w http.ResponseWriter, r *http.Request) {
 	jobStyles, _ := db.ListJobStyles()
 	payloads, _ := db.ListPayloads()
 	reportingPoints, _ := db.ListReportingPoints()
-	templates, _ := db.ListKanbanTemplates()
-
 	// Build JobStyleMap (ID -> Name) for display
 	jobStyleMap := make(map[int64]string)
 	for _, js := range jobStyles {
@@ -35,7 +33,6 @@ func (h *Handlers) handleSetup(w http.ResponseWriter, r *http.Request) {
 		plcStatus[name] = plcStatuses[name] == "Connected"
 	}
 
-	locationNodes, _ := db.ListLocationNodes()
 	anomalies, rpMap := loadAnomalyData(h)
 
 	data := map[string]interface{}{
@@ -46,15 +43,14 @@ func (h *Handlers) handleSetup(w http.ResponseWriter, r *http.Request) {
 		"JobStyles":         jobStyles,
 		"Payloads":          payloads,
 		"ReportingPoints":   reportingPoints,
-		"Templates":         templates,
 		"Config":            cfg,
 		"JobStyleMap":       jobStyleMap,
 		"LineMap":           lineMap,
 		"PLCNames":          plcNames,
-		"LocationNodes":     locationNodes,
 		"Anomalies":         anomalies,
 		"ReportingPointMap": rpMap,
 		"WarLinkConnected":  mgr.IsWarLinkConnected(),
+		"StationIDDefault":  cfg.Namespace + "." + cfg.LineID,
 	}
 
 	h.renderTemplate(w, "setup.html", data)

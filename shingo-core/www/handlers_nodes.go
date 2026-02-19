@@ -2,7 +2,6 @@ package www
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -10,11 +9,7 @@ import (
 
 	"shingocore/engine"
 	"shingocore/fleet"
-	"shingocore/fleet/seerrds"
-	"shingocore/rds"
 	"shingocore/store"
-
-	"github.com/google/uuid"
 )
 
 // nodeSceneInfo holds parsed scene data for a node location, used in the template.
@@ -22,6 +17,21 @@ type nodeSceneInfo struct {
 	PointName string
 	Tasks     string
 	BoundMap  string
+}
+
+// sceneProperty is a minimal representation of a scene point property for template rendering.
+type sceneProperty struct {
+	Key         string `json:"key"`
+	StringValue string `json:"stringValue,omitempty"`
+}
+
+func findSceneProperty(props []sceneProperty, key string) (string, bool) {
+	for _, p := range props {
+		if p.Key == key {
+			return p.StringValue, true
+		}
+	}
+	return "", false
 }
 
 // parseNodeTasks extracts task names from a binTask JSON property value.
@@ -69,13 +79,13 @@ func (h *Handlers) handleNodes(w http.ResponseWriter, r *http.Request) {
 		if sp.ClassName == "GeneralLocation" {
 			nodeLabels[sp.InstanceName] = sp.Label
 			info := &nodeSceneInfo{PointName: sp.PointName}
-			var props []rds.SceneProperty
+			var props []sceneProperty
 			if err := json.Unmarshal([]byte(sp.PropertiesJSON), &props); err == nil {
-				if p, ok := rds.FindProperty(props, "bindRobotMap"); ok {
-					info.BoundMap = p.StringValue
+				if v, ok := findSceneProperty(props, "bindRobotMap"); ok {
+					info.BoundMap = v
 				}
-				if p, ok := rds.FindProperty(props, "binTask"); ok {
-					info.Tasks = parseNodeTasks(p.StringValue)
+				if v, ok := findSceneProperty(props, "binTask"); ok {
+					info.Tasks = parseNodeTasks(v)
 				}
 			}
 			nodeInfo[sp.InstanceName] = info
@@ -167,211 +177,40 @@ func (h *Handlers) handleNodeUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleNodeSyncFleet(w http.ResponseWriter, r *http.Request) {
-	// Scene sync requires the Seer RDS adapter
-	adapter, ok := h.engine.Fleet().(*seerrds.Adapter)
+	syncer, ok := h.engine.Fleet().(fleet.SceneSyncer)
 	if !ok {
 		log.Printf("node sync: fleet backend does not support scene sync")
 		http.Redirect(w, r, "/nodes", http.StatusSeeOther)
 		return
 	}
-	scene, err := adapter.RDSClient().GetScene()
+	areas, err := syncer.GetSceneAreas()
 	if err != nil {
 		log.Printf("node sync: fleet error: %v", err)
 		http.Redirect(w, r, "/nodes", http.StatusSeeOther)
 		return
 	}
-
-	// Phase 1: Sync all scene points (same as handleSceneSync)
-	locationSet := make(map[string]string) // instanceName -> areaName
-	pointsTotal := 0
-	for _, area := range scene.Areas {
-		h.engine.DB().DeleteScenePointsByArea(area.Name)
-
-		for _, ap := range area.LogicalMap.AdvancedPoints {
-			label := ""
-			if p, ok := rds.FindProperty(ap.Property, "label"); ok {
-				label = p.StringValue
-			}
-			propsJSON, _ := json.Marshal(ap.Property)
-			sp := &store.ScenePoint{
-				AreaName:       area.Name,
-				InstanceName:   ap.InstanceName,
-				ClassName:      ap.ClassName,
-				Label:          label,
-				PosX:           ap.Pos.X,
-				PosY:           ap.Pos.Y,
-				PosZ:           ap.Pos.Z,
-				Dir:            ap.Dir,
-				PropertiesJSON: string(propsJSON),
-			}
-			h.engine.DB().UpsertScenePoint(sp)
-			pointsTotal++
-		}
-
-		for _, blg := range area.LogicalMap.BinLocationsList {
-			for _, bin := range blg.BinLocationList {
-				locationSet[bin.InstanceName] = area.Name
-				propsJSON, _ := json.Marshal(bin.Property)
-				sp := &store.ScenePoint{
-					AreaName:       area.Name,
-					InstanceName:   bin.InstanceName,
-					ClassName:      bin.ClassName,
-					PointName:      bin.PointName,
-					GroupName:      bin.GroupName,
-					PosX:           bin.Pos.X,
-					PosY:           bin.Pos.Y,
-					PosZ:           bin.Pos.Z,
-					PropertiesJSON: string(propsJSON),
-				}
-				h.engine.DB().UpsertScenePoint(sp)
-				pointsTotal++
-			}
-		}
-	}
-
-	// Phase 2: Create nodes for locations not yet in DB
-	created := 0
-	for instanceName, areaName := range locationSet {
-		if _, err := h.engine.DB().GetNodeByVendorLocation(instanceName); err == nil {
-			continue
-		}
-		node := &store.Node{
-			Name:           instanceName,
-			VendorLocation: instanceName,
-			NodeType:       "storage",
-			Zone:           areaName,
-			Capacity:       1,
-			Enabled:        true,
-		}
-		if err := h.engine.DB().CreateNode(node); err != nil {
-			continue
-		}
-		h.engine.NodeState().RefreshNodeMeta(node.ID)
-		h.engine.Events.Emit(engine.Event{Type: engine.EventNodeUpdated, Payload: engine.NodeUpdatedEvent{
-			NodeID: node.ID, NodeName: node.Name, Action: "created",
-		}})
-		created++
-	}
-
-	// Phase 3: Delete nodes not present in current scene
-	deleted := 0
-	nodes, _ := h.engine.DB().ListNodes()
-	for _, n := range nodes {
-		if _, inScene := locationSet[n.VendorLocation]; !inScene {
-			h.engine.DB().DeleteNode(n.ID)
-			h.engine.Events.Emit(engine.Event{Type: engine.EventNodeUpdated, Payload: engine.NodeUpdatedEvent{
-				NodeID: n.ID, NodeName: n.Name, Action: "deleted",
-			}})
-			deleted++
-		}
-	}
-
-	// Phase 4: Update zones on remaining nodes
-	if deleted > 0 || created > 0 {
-		nodes, _ = h.engine.DB().ListNodes()
-	}
-	for _, n := range nodes {
-		if zone, ok := locationSet[n.VendorLocation]; ok && n.Zone != zone {
-			n.Zone = zone
-			h.engine.DB().UpdateNode(n)
-		}
-	}
-
-	locationNames := make([]string, 0, len(locationSet))
-	for k := range locationSet {
-		locationNames = append(locationNames, k)
-	}
-	log.Printf("node sync: %d scene points, locations=%v, created %d, deleted %d nodes", pointsTotal, locationNames, created, deleted)
+	pointsTotal, locationSet := h.engine.SyncScenePoints(areas)
+	created, deleted := h.engine.SyncFleetNodes(locationSet)
+	log.Printf("node sync: %d scene points, created %d, deleted %d nodes", pointsTotal, created, deleted)
 	http.Redirect(w, r, "/nodes", http.StatusSeeOther)
 }
 
 func (h *Handlers) handleSceneSync(w http.ResponseWriter, r *http.Request) {
-	// Scene sync requires the Seer RDS adapter
-	adapter, ok := h.engine.Fleet().(*seerrds.Adapter)
+	syncer, ok := h.engine.Fleet().(fleet.SceneSyncer)
 	if !ok {
 		log.Printf("scene sync: fleet backend does not support scene sync")
 		http.Redirect(w, r, "/nodes", http.StatusSeeOther)
 		return
 	}
-	scene, err := adapter.RDSClient().GetScene()
+	areas, err := syncer.GetSceneAreas()
 	if err != nil {
 		log.Printf("scene sync: fleet error: %v", err)
 		http.Redirect(w, r, "/nodes", http.StatusSeeOther)
 		return
 	}
-
-	// Build location-to-area lookup for node zone updates
-	locationArea := make(map[string]string)
-
-	total := 0
-	for _, area := range scene.Areas {
-		// Clear existing points for this area before re-sync
-		h.engine.DB().DeleteScenePointsByArea(area.Name)
-
-		// Persist advanced points (LocationMark, ActionPoint, ChargePoint)
-		for _, ap := range area.LogicalMap.AdvancedPoints {
-			label := ""
-			if p, ok := rds.FindProperty(ap.Property, "label"); ok {
-				label = p.StringValue
-			}
-			propsJSON, _ := json.Marshal(ap.Property)
-			sp := &store.ScenePoint{
-				AreaName:       area.Name,
-				InstanceName:   ap.InstanceName,
-				ClassName:      ap.ClassName,
-				Label:          label,
-				PosX:           ap.Pos.X,
-				PosY:           ap.Pos.Y,
-				PosZ:           ap.Pos.Z,
-				Dir:            ap.Dir,
-				PropertiesJSON: string(propsJSON),
-			}
-			if err := h.engine.DB().UpsertScenePoint(sp); err != nil {
-				log.Printf("scene sync: upsert point %s: %v", ap.InstanceName, err)
-			}
-			total++
-		}
-
-		// Persist bin locations
-		for _, blg := range area.LogicalMap.BinLocationsList {
-			for _, bin := range blg.BinLocationList {
-				locationArea[bin.InstanceName] = area.Name
-				propsJSON, _ := json.Marshal(bin.Property)
-				sp := &store.ScenePoint{
-					AreaName:       area.Name,
-					InstanceName:   bin.InstanceName,
-					ClassName:      bin.ClassName,
-					PointName:      bin.PointName,
-					GroupName:      bin.GroupName,
-					PosX:           bin.Pos.X,
-					PosY:           bin.Pos.Y,
-					PosZ:           bin.Pos.Z,
-					PropertiesJSON: string(propsJSON),
-				}
-				if err := h.engine.DB().UpsertScenePoint(sp); err != nil {
-					log.Printf("scene sync: upsert bin %s: %v", bin.InstanceName, err)
-				}
-				total++
-			}
-		}
-	}
-
-	// Update node zones from bin locations
-	nodes, _ := h.engine.DB().ListNodes()
-	for _, node := range nodes {
-		if node.VendorLocation == "" || node.Zone != "" {
-			continue
-		}
-		if zone, ok := locationArea[node.VendorLocation]; ok {
-			node.Zone = zone
-			h.engine.DB().UpdateNode(node)
-			h.engine.Events.Emit(engine.Event{Type: engine.EventNodeUpdated, Payload: engine.NodeUpdatedEvent{
-				NodeID: node.ID, NodeName: node.Name, Action: "updated",
-			}})
-		}
-	}
-
-	log.Printf("scene sync: persisted %d scene points", total)
+	total, locationSet := h.engine.SyncScenePoints(areas)
+	h.engine.UpdateNodeZones(locationSet, false)
+	log.Printf("scene sync: %d points synced", total)
 	http.Redirect(w, r, "/nodes", http.StatusSeeOther)
 }
 
@@ -469,83 +308,3 @@ func (h *Handlers) apiNodeOccupancy(w http.ResponseWriter, r *http.Request) {
 	h.jsonOK(w, results)
 }
 
-func (h *Handlers) handleTestOrder(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		FromNodeID int64 `json:"from_node_id"`
-		ToNodeID   int64 `json:"to_node_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.jsonError(w, "invalid request", http.StatusBadRequest)
-		return
-	}
-
-	if req.FromNodeID == req.ToNodeID {
-		h.jsonError(w, "source and destination must be different", http.StatusBadRequest)
-		return
-	}
-
-	sourceNode, err := h.engine.DB().GetNode(req.FromNodeID)
-	if err != nil {
-		h.jsonError(w, "source node not found", http.StatusNotFound)
-		return
-	}
-	destNode, err := h.engine.DB().GetNode(req.ToNodeID)
-	if err != nil {
-		h.jsonError(w, "destination node not found", http.StatusNotFound)
-		return
-	}
-
-	edgeUUID := "test-" + uuid.New().String()[:8]
-
-	order := &store.Order{
-		EdgeUUID:     edgeUUID,
-		ClientID:     "shingocore",
-		FactoryID:    h.engine.AppConfig().FactoryID,
-		OrderType:    "move",
-		Status:       "pending",
-		SourceNodeID: &sourceNode.ID,
-		DestNodeID:   &destNode.ID,
-		PickupNode:   sourceNode.Name,
-		DeliveryNode: destNode.Name,
-		PayloadDesc:  "test order from shingo core",
-	}
-	if err := h.engine.DB().CreateOrder(order); err != nil {
-		h.jsonError(w, "failed to create order: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	h.engine.DB().UpdateOrderStatus(order.ID, "pending", "test order created")
-
-	vendorOrderID := fmt.Sprintf("sg-%d-%s", order.ID, uuid.New().String()[:8])
-	fleetReq := fleet.TransportOrderRequest{
-		OrderID:    vendorOrderID,
-		ExternalID: edgeUUID,
-		FromLoc:    sourceNode.VendorLocation,
-		ToLoc:      destNode.VendorLocation,
-	}
-
-	if _, err := h.engine.Fleet().CreateTransportOrder(fleetReq); err != nil {
-		h.engine.DB().UpdateOrderStatus(order.ID, "failed", err.Error())
-		h.jsonError(w, "fleet dispatch failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	h.engine.DB().UpdateOrderVendor(order.ID, vendorOrderID, "CREATED", "")
-	h.engine.DB().UpdateOrderStatus(order.ID, "dispatched", "vendor order "+vendorOrderID)
-
-	h.engine.Events.Emit(engine.Event{
-		Type: engine.EventOrderDispatched,
-		Payload: engine.OrderDispatchedEvent{
-			OrderID:       order.ID,
-			VendorOrderID: vendorOrderID,
-			SourceNode:    sourceNode.Name,
-			DestNode:      destNode.Name,
-		},
-	})
-
-	h.jsonOK(w, map[string]any{
-		"order_id":        order.ID,
-		"vendor_order_id": vendorOrderID,
-		"from":            sourceNode.Name,
-		"to":              destNode.Name,
-	})
-}

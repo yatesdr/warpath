@@ -4,6 +4,7 @@ const schemaMigrations = `
 DROP TABLE IF EXISTS bom_entries;
 DROP TABLE IF EXISTS inventory;
 DROP TABLE IF EXISTS materials;
+DROP TABLE IF EXISTS kanban_templates;
 `
 
 const schema = `
@@ -64,20 +65,11 @@ CREATE TABLE IF NOT EXISTS counter_snapshots (
     recorded_at        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
-CREATE TABLE IF NOT EXISTS kanban_templates (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL UNIQUE,
-    order_type  TEXT NOT NULL,
-    payload     TEXT NOT NULL DEFAULT '{}',
-    description TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-);
-
 CREATE TABLE IF NOT EXISTS orders (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     uuid            TEXT NOT NULL UNIQUE,
     order_type      TEXT NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'queued',
+    status          TEXT NOT NULL DEFAULT 'pending',
     payload_id      INTEGER REFERENCES payloads(id),
     retrieve_empty  INTEGER NOT NULL DEFAULT 1,
     quantity        REAL NOT NULL DEFAULT 0,
@@ -85,7 +77,6 @@ CREATE TABLE IF NOT EXISTS orders (
     staging_node    TEXT NOT NULL DEFAULT '',
     pickup_node     TEXT NOT NULL DEFAULT '',
     load_type       TEXT NOT NULL DEFAULT '',
-    template_id     INTEGER REFERENCES kanban_templates(id),
     waybill_id      TEXT,
     external_ref    TEXT,
     final_count     REAL,
@@ -121,7 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(sent_at) WHERE sent_at I
 CREATE TABLE IF NOT EXISTS location_nodes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     node_id     TEXT NOT NULL UNIQUE,
-    process     TEXT NOT NULL DEFAULT '',
+    line_id     INTEGER REFERENCES production_lines(id) ON DELETE CASCADE,
     description TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
@@ -166,6 +157,7 @@ func (db *DB) migrate() error {
 	db.Exec("ALTER TABLE job_styles ADD COLUMN line_id INTEGER REFERENCES production_lines(id) ON DELETE CASCADE")
 	db.Exec("ALTER TABLE reporting_points ADD COLUMN line_id INTEGER REFERENCES production_lines(id) ON DELETE CASCADE")
 	db.Exec("ALTER TABLE changeover_log ADD COLUMN line_id INTEGER")
+	db.Exec("ALTER TABLE job_styles ADD COLUMN cat_id TEXT NOT NULL DEFAULT ''")
 
 	// Auto-create default line if job_styles exist but no lines do
 	var lineCount int
@@ -181,6 +173,16 @@ func (db *DB) migrate() error {
 			db.Exec("UPDATE reporting_points SET line_id = (SELECT id FROM production_lines WHERE name = 'Line 1') WHERE line_id IS NULL")
 		}
 	}
+
+	// WarLink tag management tracking
+	db.Exec("ALTER TABLE reporting_points ADD COLUMN warlink_managed INTEGER NOT NULL DEFAULT 0")
+
+	// Location nodes: migrate process text → line_id FK
+	db.Exec("ALTER TABLE location_nodes ADD COLUMN line_id INTEGER REFERENCES production_lines(id) ON DELETE CASCADE")
+	db.Exec("UPDATE location_nodes SET line_id = (SELECT id FROM production_lines WHERE name = location_nodes.process) WHERE line_id IS NULL AND process != ''")
+
+	// Migrate queued -> pending status
+	db.Exec("UPDATE orders SET status='pending' WHERE status='queued'")
 
 	return nil
 }

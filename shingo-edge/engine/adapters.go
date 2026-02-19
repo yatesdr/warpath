@@ -37,6 +37,14 @@ func (e *plcEmitter) EmitPLCDisconnected(plcName string, err error) {
 	e.bus.Emit(Event{Type: EventPLCDisconnected, Payload: PLCEvent{PLCName: plcName, Error: errStr}})
 }
 
+func (e *plcEmitter) EmitPLCHealthAlert(plcName string, errMsg string) {
+	e.bus.Emit(Event{Type: EventPLCHealthAlert, Payload: PLCHealthAlertEvent{PLCName: plcName, Error: errMsg}})
+}
+
+func (e *plcEmitter) EmitPLCHealthRecover(plcName string) {
+	e.bus.Emit(Event{Type: EventPLCHealthRecover, Payload: PLCHealthRecoverEvent{PLCName: plcName}})
+}
+
 func (e *plcEmitter) EmitWarLinkConnected() {
 	e.bus.Emit(Event{Type: EventWarLinkConnected, Payload: WarLinkEvent{Connected: true}})
 }
@@ -60,9 +68,9 @@ func (e *orderEmitter) EmitOrderCreated(orderID int64, orderUUID, orderType stri
 	}})
 }
 
-func (e *orderEmitter) EmitOrderStatusChanged(orderID int64, orderUUID, orderType, oldStatus, newStatus string) {
+func (e *orderEmitter) EmitOrderStatusChanged(orderID int64, orderUUID, orderType, oldStatus, newStatus, eta string) {
 	e.bus.Emit(Event{Type: EventOrderStatusChanged, Payload: OrderStatusChangedEvent{
-		OrderID: orderID, OrderUUID: orderUUID, OrderType: orderType, OldStatus: oldStatus, NewStatus: newStatus,
+		OrderID: orderID, OrderUUID: orderUUID, OrderType: orderType, OldStatus: oldStatus, NewStatus: newStatus, ETA: eta,
 	}})
 }
 

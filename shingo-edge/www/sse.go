@@ -169,6 +169,15 @@ func (h *EventHub) SetupEngineListeners(eng *engine.Engine) {
 			sseEvt = SSEEvent{Type: "counter-anomaly", Data: p}
 		case engine.EventChangeoverStarted, engine.EventChangeoverStateChanged, engine.EventChangeoverCompleted:
 			sseEvt = SSEEvent{Type: "changeover-update", Data: evt.Payload}
+		case engine.EventCounterRead:
+			p := evt.Payload.(engine.CounterReadEvent)
+			sseEvt = SSEEvent{Type: "counter-read", Data: p}
+		case engine.EventPLCHealthAlert:
+			p := evt.Payload.(engine.PLCHealthAlertEvent)
+			sseEvt = SSEEvent{Type: "plc-health-alert", Data: p}
+		case engine.EventPLCHealthRecover:
+			p := evt.Payload.(engine.PLCHealthRecoverEvent)
+			sseEvt = SSEEvent{Type: "plc-health-recover", Data: p}
 		case engine.EventPLCConnected:
 			p := evt.Payload.(engine.PLCEvent)
 			sseEvt = SSEEvent{Type: "plc-status", Data: map[string]interface{}{"plcName": p.PLCName, "connected": true}}

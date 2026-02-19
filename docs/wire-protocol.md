@@ -5,49 +5,37 @@
 
 ## Overview
 
-The Shingo wire protocol defines a JSON-based messaging format for communication between Shingo Core (central server / dispatch) and Shingo Edge (shop-floor client) nodes. Messages are transported over MQTT or Kafka. The protocol supports the full order lifecycle for material transport, plus a generic data channel for edge lifecycle management (registration, heartbeat) and future data exchange (inventory queries, production stats, scheduling).
+The Shingo wire protocol defines a JSON-based messaging format for communication between Shingo Core (central server / dispatch) and Shingo Edge (shop-floor client) nodes. Messages are transported over Kafka. The protocol supports the full order lifecycle for material transport, plus a generic data channel for edge lifecycle management (registration, heartbeat) and future data exchange (inventory queries, production stats, scheduling).
 
 This document specifies everything needed to implement a compatible producer or consumer in any language or system.
 
 ## Transport
 
-### Broker Support
+### Broker
 
 | Broker | Edge -> Core Topic | Core -> Edge Topic |
 |--------|-------------------|--------------------|
-| MQTT   | `shingo/orders`   | `shingo/dispatch`  |
-| Kafka  | `shingo/orders`   | `shingo/dispatch`  |
-
-Both transports carry identical JSON payloads. The protocol is transport-agnostic; only the topic names and delivery semantics differ.
+| Kafka  | `shingo.orders`   | `shingo.dispatch`  |
 
 ### Topic Architecture
 
 The protocol uses **two topics** for strict separation of traffic direction:
 
-- **`shingo/orders`** -- Edge -> Core. Carries order-related requests and data channel messages (registration, heartbeats) from edge nodes upstream to the core server. Core subscribes to this topic. Edges publish to it.
+- **`shingo.orders`** -- Edge -> Core. Carries order-related requests and data channel messages (registration, heartbeats) from edge nodes upstream to the core server. Core subscribes to this topic. Edges publish to it.
 
-- **`shingo/dispatch`** -- Core -> Edge. Carries order replies and data channel responses (registration acks, heartbeat acks) from the core server downstream to edge nodes. Edges subscribe to this topic. Core publishes to it.
+- **`shingo.dispatch`** -- Core -> Edge. Carries order replies and data channel responses (registration acks, heartbeat acks) from the core server downstream to edge nodes. Edges subscribe to this topic. Core publishes to it.
 
 Edges never see each other's order traffic. Core never sees its own replies echoed back.
-
-### MQTT Configuration
-
-| Parameter | Value |
-|-----------|-------|
-| QoS | 1 (at-least-once) |
-| Retained | No |
-| CleanSession | `false` for edges (broker queues messages during disconnect) |
-| Reconnect | Re-send `edge.register` (via data channel) on every MQTT reconnect |
 
 ### Kafka Configuration
 
 | Parameter | Value |
 |-----------|-------|
-| Consumer group (Core) | `shingo-core` on `shingo/orders` |
-| Consumer group (Edge) | `shingo-edge-{node_id}` on `shingo/dispatch` |
+| Consumer group (Core) | `shingo-core` on `shingo.orders` |
+| Consumer group (Edge) | `shingo-edge-{station_id}` on `shingo.dispatch` |
 | Start offset (new consumers) | Latest (no replay of stale backlog on first join) |
-| Message key (orders topic) | `src.node` (ordering per edge's messages) |
-| Message key (dispatch topic) | `dst.node` (ordering per edge's replies) |
+| Message key (orders topic) | `src.station` (ordering per edge's messages) |
+| Message key (dispatch topic) | `dst.station` (ordering per edge's replies) |
 | Topic retention | 24 hours (configurable server-side) |
 
 ---
@@ -61,8 +49,8 @@ Every message on both topics is a single JSON object with the following structur
   "v":    1,
   "type": "order.request",
   "id":   "550e8400-e29b-41d4-a716-446655440000",
-  "src":  {"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"},
-  "dst":  {"role": "core", "node": "",               "factory": ""},
+  "src":  {"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"},
+  "dst":  {"role": "core", "station": "",               "factory": ""},
   "ts":   "2026-02-18T10:00:00Z",
   "exp":  "2026-02-18T10:10:00Z",
   "cor":  "previous-message-id",
@@ -87,13 +75,13 @@ Every message on both topics is a single JSON object with the following structur
 ### Address Object
 
 ```json
-{"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"}
+{"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"}
 ```
 
 | Field   | JSON Key  | Type   | Description |
 |---------|-----------|--------|-------------|
 | Role    | `role`    | string | `"edge"` or `"core"`. Identifies the sender/receiver class. |
-| Node    | `node`    | string | Node identifier. For edges, this is typically `"{namespace}.{line_id}"` (e.g., `"plant-a.line-1"`). For core, this is the configured node ID (e.g., `"core"`). For broadcast dispatch messages, this is `"*"`. Empty string is valid for core destinations (core is a singleton). |
+| Station | `station` | string | Station identifier. For edges, this is typically `"{namespace}.{line_id}"` (e.g., `"plant-a.line-1"`). For core, this is the configured station ID (e.g., `"core"`). For broadcast dispatch messages, this is `"*"`. Empty string is valid for core destinations (core is a singleton). |
 | Factory | `factory` | string | Factory/plant identifier (e.g., `"plant-a"`). Used for multi-site deployments. Empty string is valid when not applicable. |
 
 ---
@@ -111,7 +99,7 @@ Parse only the routing fields needed for filtering and expiry checks. In the ref
   "v":    1,
   "type": "order.request",
   "id":   "550e8400-...",
-  "dst":  {"role": "core", "node": "", "factory": ""},
+  "dst":  {"role": "core", "station": "", "factory": ""},
   "exp":  "2026-02-18T10:10:00Z"
 }
 ```
@@ -134,18 +122,18 @@ For `data` type messages, this involves a **two-level decode**: first into the `
 
 ### Filtering
 
-**Core (subscribed to `shingo/orders`):**
-Core accepts all messages on the orders topic. No filtering needed -- every message on `shingo/orders` is intended for core.
+**Core (subscribed to `shingo.orders`):**
+Core accepts all messages on the orders topic. No filtering needed -- every message on `shingo.orders` is intended for core.
 
-**Edge (subscribed to `shingo/dispatch`):**
+**Edge (subscribed to `shingo.dispatch`):**
 Each edge filters by destination node:
 
 ```
-accept if dst.node == self_node_id OR dst.node == "*"
+accept if dst.station == self_station_id OR dst.station == "*"
 reject otherwise
 ```
 
-Since edges only subscribe to `shingo/dispatch`, all messages are already `dst.role == "edge"`. The filter only checks `dst.node`.
+Since edges only subscribe to `shingo.dispatch`, all messages are already `dst.role == "edge"`. The filter only checks `dst.station`.
 
 ---
 
@@ -163,17 +151,17 @@ Type strings use dotted notation: `{category}.{action}`. Two categories exist fo
 | Type String | Topic | Direction | Payload Type | Description |
 |---|---|---|---|---|
 | `data` | Both | Both | [Data](#data-channel) | Generic data exchange (registration, heartbeat, queries, etc.). Subject-based dispatch. |
-| `order.request` | `shingo/orders` | Edge -> Core | [OrderRequest](#orderrequest) | New transport order submission |
-| `order.cancel` | `shingo/orders` | Edge -> Core | [OrderCancel](#ordercancel) | Request to cancel an existing order |
-| `order.receipt` | `shingo/orders` | Edge -> Core | [OrderReceipt](#orderreceipt) | Delivery confirmation from operator |
-| `order.redirect` | `shingo/orders` | Edge -> Core | [OrderRedirect](#orderredirect) | Change delivery destination mid-flight |
-| `order.storage_waybill` | `shingo/orders` | Edge -> Core | [OrderStorageWaybill](#orderstoragewaybill) | Store order submission (return to warehouse) |
-| `order.ack` | `shingo/dispatch` | Core -> Edge | [OrderAck](#orderack) | Order accepted, source material located |
-| `order.waybill` | `shingo/dispatch` | Core -> Edge | [OrderWaybill](#orderwaybill) | Robot assigned and dispatched |
-| `order.update` | `shingo/dispatch` | Core -> Edge | [OrderUpdate](#orderupdate) | Status change or ETA update |
-| `order.delivered` | `shingo/dispatch` | Core -> Edge | [OrderDelivered](#orderdelivered) | Fleet reports delivery complete |
-| `order.error` | `shingo/dispatch` | Core -> Edge | [OrderError](#ordererror) | Order processing failed |
-| `order.cancelled` | `shingo/dispatch` | Core -> Edge | [OrderCancelled](#ordercancelled) | Order cancellation confirmed |
+| `order.request` | `shingo.orders` | Edge -> Core | [OrderRequest](#orderrequest) | New transport order submission |
+| `order.cancel` | `shingo.orders` | Edge -> Core | [OrderCancel](#ordercancel) | Request to cancel an existing order |
+| `order.receipt` | `shingo.orders` | Edge -> Core | [OrderReceipt](#orderreceipt) | Delivery confirmation from operator |
+| `order.redirect` | `shingo.orders` | Edge -> Core | [OrderRedirect](#orderredirect) | Change delivery destination mid-flight |
+| `order.storage_waybill` | `shingo.orders` | Edge -> Core | [OrderStorageWaybill](#orderstoragewaybill) | Store order submission (return to warehouse) |
+| `order.ack` | `shingo.dispatch` | Core -> Edge | [OrderAck](#orderack) | Order accepted, source material located |
+| `order.waybill` | `shingo.dispatch` | Core -> Edge | [OrderWaybill](#orderwaybill) | Robot assigned and dispatched |
+| `order.update` | `shingo.dispatch` | Core -> Edge | [OrderUpdate](#orderupdate) | Status change or ETA update |
+| `order.delivered` | `shingo.dispatch` | Core -> Edge | [OrderDelivered](#orderdelivered) | Fleet reports delivery complete |
+| `order.error` | `shingo.dispatch` | Core -> Edge | [OrderError](#ordererror) | Order processing failed |
+| `order.cancelled` | `shingo.dispatch` | Core -> Edge | [OrderCancelled](#ordercancelled) | Order cancellation confirmed |
 
 ---
 
@@ -188,13 +176,13 @@ The `data` message type provides a generic, extensible channel for non-order com
   "v": 1,
   "type": "data",
   "id": "...",
-  "src": {"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"},
-  "dst": {"role": "core", "node": "", "factory": ""},
+  "src": {"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"},
+  "dst": {"role": "core", "station": "", "factory": ""},
   "ts": "2026-02-18T10:01:00Z",
   "exp": "2026-02-18T10:02:30Z",
   "p": {
     "subject": "edge.heartbeat",
-    "data": {"node_id": "plant-a.line-1", "uptime_s": 3600, "active_orders": 2}
+    "data": {"station_id": "plant-a.line-1", "uptime_s": 3600, "active_orders": 2}
   }
 }
 ```
@@ -268,7 +256,7 @@ These are the TTLs applied by the sender when creating a message. The `exp` fiel
 
 ### Why Absolute Timestamps
 
-Relative TTLs (durations) are ambiguous when messages sit in a Kafka partition or MQTT broker queue during edge reconnection. Absolute timestamps make expiry calculation trivial for any consumer: compare `exp` to your current UTC clock. No need to know when the message was enqueued or how long it sat in transit.
+Relative TTLs (durations) are ambiguous when messages sit in a Kafka partition during edge reconnection. Absolute timestamps make expiry calculation trivial for any consumer: compare `exp` to your current UTC clock. No need to know when the message was enqueued or how long it sat in transit.
 
 ---
 
@@ -282,11 +270,11 @@ These schemas are used as the `data` field inside `data`-type messages. See [Dat
 
 #### EdgeRegister
 
-Sent by an edge node on startup and on every MQTT reconnect via `data` message with subject `edge.register`. Triggers an upsert in core's edge registry.
+Sent by an edge node on startup and on every reconnect via `data` message with subject `edge.register`. Triggers an upsert in core's edge registry.
 
 ```json
 {
-  "node_id":  "plant-a.line-1",
+  "station_id":  "plant-a.line-1",
   "factory":  "plant-a",
   "hostname": "edge-01.local",
   "version":  "1.2.0",
@@ -296,7 +284,7 @@ Sent by an edge node on startup and on every MQTT reconnect via `data` message w
 
 | Field | JSON Key | Type | Required | Description |
 |---|---|---|---|---|
-| Node ID | `node_id` | string | Yes | Unique edge identifier. Convention: `"{namespace}.{line_id}"`. |
+| Station ID | `station_id` | string | Yes | Unique edge station identifier. Convention: `"{namespace}.{line_id}"`. |
 | Factory | `factory` | string | Yes | Factory/plant this edge belongs to. |
 | Hostname | `hostname` | string | No | OS hostname of the edge machine. Informational. |
 | Version | `version` | string | No | Software version of the edge application. |
@@ -308,7 +296,7 @@ Sent every 60 seconds by each edge node via `data` message with subject `edge.he
 
 ```json
 {
-  "node_id":       "plant-a.line-1",
+  "station_id":       "plant-a.line-1",
   "uptime_s":      3600,
   "active_orders": 2
 }
@@ -316,7 +304,7 @@ Sent every 60 seconds by each edge node via `data` message with subject `edge.he
 
 | Field | JSON Key | Type | Required | Description |
 |---|---|---|---|---|
-| Node ID | `node_id` | string | Yes | Edge identifier (must match registration). |
+| Station ID | `station_id` | string | Yes | Edge station identifier (must match registration). |
 | Uptime | `uptime_s` | integer | No | Seconds since edge process started. |
 | Active Orders | `active_orders` | integer | No | Number of currently active (non-terminal) orders. |
 
@@ -326,14 +314,14 @@ Acknowledges a successful edge registration via `data` message with subject `edg
 
 ```json
 {
-  "node_id": "plant-a.line-1",
+  "station_id": "plant-a.line-1",
   "message": "registered"
 }
 ```
 
 | Field | JSON Key | Type | Required | Description |
 |---|---|---|---|---|
-| Node ID | `node_id` | string | Yes | The registered edge node ID (echo back). |
+| Station ID | `station_id` | string | Yes | The registered edge station ID (echo back). |
 | Message | `message` | string | No | Human-readable status message. |
 
 #### EdgeHeartbeatAck
@@ -342,14 +330,14 @@ Acknowledges a heartbeat via `data` message with subject `edge.heartbeat_ack`. P
 
 ```json
 {
-  "node_id":   "plant-a.line-1",
+  "station_id":   "plant-a.line-1",
   "server_ts": 1739876400
 }
 ```
 
 | Field | JSON Key | Type | Required | Description |
 |---|---|---|---|---|
-| Node ID | `node_id` | string | Yes | The heartbeating edge node ID (echo back). |
+| Station ID | `station_id` | string | Yes | The heartbeating edge station ID (echo back). |
 | Server Timestamp | `server_ts` | integer | Yes | Core's current time as Unix epoch seconds. Edges can compare with their own clock to detect drift. |
 
 ### Order Payloads: Edge -> Core
@@ -643,17 +631,17 @@ pending -> sourcing -> dispatched -> in_transit -> delivered -> confirmed -> com
 ```
 Edge                          Broker                         Core
  |                              |                              |
- |-- order.request ----------->|-- shingo/orders ------------>|
+ |-- order.request ----------->|-- shingo.orders ------------>|
  |                              |                              | (create order, find source,
  |                              |                              |  claim payload, dispatch to fleet)
- |<- order.ack ----------------|<- shingo/dispatch ---------- |
+ |<- order.ack ----------------|<- shingo.dispatch ---------- |
  |                              |                              | (fleet assigns robot)
- |<- order.waybill ------------|<- shingo/dispatch ---------- |
+ |<- order.waybill ------------|<- shingo.dispatch ---------- |
  |                              |                              | (fleet poller: robot arrives)
- |<- order.delivered ----------|<- shingo/dispatch ---------- |
+ |<- order.delivered ----------|<- shingo.dispatch ---------- |
  |                              |                              |
  | (operator confirms receipt)  |                              |
- |-- order.receipt ----------->|-- shingo/orders ------------>|
+ |-- order.receipt ----------->|-- shingo.orders ------------>|
  |                              |                              | (mark confirmed -> completed)
 ```
 
@@ -665,17 +653,17 @@ Edge registration and heartbeat messages are sent via the [Data Channel](#data-c
 
 ### Registration Flow
 
-1. Edge starts (or reconnects to MQTT).
-2. Edge publishes `data` message with subject `edge.register` on `shingo/orders`.
+1. Edge starts (or reconnects).
+2. Edge publishes `data` message with subject `edge.register` on `shingo.orders`.
 3. Core upserts the edge in `edge_registry` table, sets status to `"active"`.
-4. Core publishes `data` message with subject `edge.registered` on `shingo/dispatch` (with `cor` linking to the original message).
+4. Core publishes `data` message with subject `edge.registered` on `shingo.dispatch` (with `cor` linking to the original message).
 5. Edge receives acknowledgement.
 
 ### Heartbeat Flow
 
-1. Edge publishes `data` message with subject `edge.heartbeat` every **60 seconds** on `shingo/orders`.
+1. Edge publishes `data` message with subject `edge.heartbeat` every **60 seconds** on `shingo.orders`.
 2. Core updates `last_heartbeat` timestamp in `edge_registry`.
-3. Core publishes `data` message with subject `edge.heartbeat_ack` on `shingo/dispatch` (with server timestamp for clock sync).
+3. Core publishes `data` message with subject `edge.heartbeat_ack` on `shingo.dispatch` (with server timestamp for clock sync).
 
 ### Stale Edge Detection
 
@@ -690,7 +678,7 @@ The core maintains an `edge_registry` table:
 | Column | Type | Description |
 |---|---|---|
 | `id` | integer (auto) | Primary key |
-| `node_id` | string (unique) | Edge node identifier |
+| `station_id` | string (unique) | Edge station identifier |
 | `factory_id` | string | Factory this edge belongs to |
 | `hostname` | string | OS hostname |
 | `version` | string | Software version |
@@ -729,7 +717,7 @@ The core maintains an `edge_registry` table:
 ### Minimal Consumer Algorithm (any language)
 
 ```
-subscribe to topic ("shingo/orders" or "shingo/dispatch")
+subscribe to topic ("shingo.orders" or "shingo.dispatch")
 
 on_message(raw_bytes):
     # Phase 1: header parse
@@ -761,14 +749,14 @@ on_message(raw_bytes):
 
 ### Filter Implementation
 
-**For core (listening on `shingo/orders`):**
+**For core (listening on `shingo.orders`):**
 ```
 passes_filter(dst) = true  # accept everything
 ```
 
-**For edge (listening on `shingo/dispatch`):**
+**For edge (listening on `shingo.dispatch`):**
 ```
-passes_filter(dst) = (dst.node == MY_NODE_ID) or (dst.node == "*")
+passes_filter(dst) = (dst.station == MY_STATION_ID) or (dst.station == "*")
 ```
 
 ### Implementing a Producer
@@ -779,8 +767,8 @@ envelope = {
     "v":    1,
     "type": message_type,
     "id":   generate_uuid_v4(),
-    "src":  {"role": my_role, "node": my_node_id, "factory": my_factory},
-    "dst":  {"role": target_role, "node": target_node, "factory": target_factory},
+    "src":  {"role": my_role, "node": my_station_id, "factory": my_factory},
+    "dst":  {"role": target_role, "node": target_station, "factory": target_factory},
     "ts":   now_utc_iso8601(),
     "exp":  now_utc_iso8601() + ttl_for(message_type),
     "p":    payload_object
@@ -791,8 +779,8 @@ envelope = {
     "v":    1,
     "type": "data",
     "id":   generate_uuid_v4(),
-    "src":  {"role": my_role, "node": my_node_id, "factory": my_factory},
-    "dst":  {"role": target_role, "node": target_node, "factory": target_factory},
+    "src":  {"role": my_role, "node": my_station_id, "factory": my_factory},
+    "dst":  {"role": target_role, "node": target_station, "factory": target_factory},
     "ts":   now_utc_iso8601(),
     "exp":  now_utc_iso8601() + data_ttl_for(subject),
     "p":    {"subject": subject, "data": body_object}
@@ -813,9 +801,9 @@ publish(topic, json_serialize(envelope))
 
 An analytics system can subscribe to one or both topics to build a complete picture:
 
-- **`shingo/orders`** -- See all edge activity: order submissions, cancellations, receipts, redirects, and edge health (data channel: registration/heartbeat). Good for measuring order throughput, edge uptime, and operator behavior.
+- **`shingo.orders`** -- See all edge activity: order submissions, cancellations, receipts, redirects, and edge health (data channel: registration/heartbeat). Good for measuring order throughput, edge uptime, and operator behavior.
 
-- **`shingo/dispatch`** -- See all core decisions: acknowledgements, robot assignments, delivery notifications, errors. Good for measuring fulfillment latency, error rates, and fleet utilization.
+- **`shingo.dispatch`** -- See all core decisions: acknowledgements, robot assignments, delivery notifications, errors. Good for measuring fulfillment latency, error rates, and fleet utilization.
 
 - **Both topics** -- Complete end-to-end visibility. Correlate requests with responses using `order_uuid` (in payloads) and `cor` (in envelope). Calculate round-trip times by comparing `ts` fields.
 
@@ -828,9 +816,9 @@ An analytics system can subscribe to one or both topics to build a complete pict
 | Acknowledgement time | Time between `order.request` `ts` and `order.ack` `ts` (use `cor` or match `order_uuid`) |
 | Error rate | Count `order.error` / count `order.request` per time window |
 | Error breakdown | Group `order.error` by `error_code` |
-| Edge uptime | Track `data` messages with subject `edge.heartbeat` gaps per `node_id`; any gap > 180s = downtime period |
-| Active edges | Count distinct `node_id` from `data` messages with subject `edge.heartbeat` in last 180s |
-| Orders per edge | Group `order.request` by `src.node` |
+| Edge uptime | Track `data` messages with subject `edge.heartbeat` gaps per `station_id`; any gap > 180s = downtime period |
+| Active edges | Count distinct `station_id` from `data` messages with subject `edge.heartbeat` in last 180s |
+| Orders per edge | Group `order.request` by `src.station` |
 | Orders per factory | Group `order.request` by `src.factory` |
 | Material demand | Group `order.request` by `payload_type_code` and `delivery_node` |
 | Robot utilization | Track `waybill_id` and `robot_id` from `order.waybill` messages |
@@ -849,7 +837,7 @@ The envelope `cor` (correlation ID) links a reply to the specific request that t
 ```
                                     +--> order_throughput (count per window)
                                     |
-shingo/orders ---+--> filter(type="order.request") --+--> demand_by_material (group by payload_type_code)
+shingo.orders ---+--> filter(type="order.request") --+--> demand_by_material (group by payload_type_code)
                  |                                    |
                  +--> filter(type="data", subject="edge.heartbeat") --+--> edge_uptime (gap detection)
                  |
@@ -857,7 +845,7 @@ shingo/orders ---+--> filter(type="order.request") --+--> demand_by_material (gr
 
                                     +--> fulfillment_latency (join request + delivered on order_uuid)
                                     |
-shingo/dispatch -+--> filter(type="order.delivered") -+--> deliveries_per_hour
+shingo.dispatch -+--> filter(type="order.delivered") -+--> deliveries_per_hour
                  |
                  +--> filter(type="order.error") -----+--> error_rate, error_breakdown
                  |
@@ -875,14 +863,14 @@ shingo/dispatch -+--> filter(type="order.delivered") -+--> deliveries_per_hour
   "v": 1,
   "type": "data",
   "id": "f2b0ffe2-420b-42ee-849c-cb7434233cbb",
-  "src": {"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"},
-  "dst": {"role": "core", "node": "", "factory": ""},
+  "src": {"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"},
+  "dst": {"role": "core", "station": "", "factory": ""},
   "ts": "2026-02-18T10:00:00Z",
   "exp": "2026-02-18T10:05:00Z",
   "p": {
     "subject": "edge.register",
     "data": {
-      "node_id": "plant-a.line-1",
+      "station_id": "plant-a.line-1",
       "factory": "plant-a",
       "hostname": "edge-01.local",
       "version": "1.2.0",
@@ -899,15 +887,15 @@ shingo/dispatch -+--> filter(type="order.delivered") -+--> deliveries_per_hour
   "v": 1,
   "type": "data",
   "id": "a9c3d8f1-1234-5678-abcd-ef0123456789",
-  "src": {"role": "core", "node": "core", "factory": "plant-a"},
-  "dst": {"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"},
+  "src": {"role": "core", "station": "core", "factory": "plant-a"},
+  "dst": {"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"},
   "ts": "2026-02-18T10:00:01Z",
   "exp": "2026-02-18T10:05:01Z",
   "cor": "f2b0ffe2-420b-42ee-849c-cb7434233cbb",
   "p": {
     "subject": "edge.registered",
     "data": {
-      "node_id": "plant-a.line-1",
+      "station_id": "plant-a.line-1",
       "message": "registered"
     }
   }
@@ -921,14 +909,14 @@ shingo/dispatch -+--> filter(type="order.delivered") -+--> deliveries_per_hour
   "v": 1,
   "type": "data",
   "id": "b7d4e5f6-7890-1234-abcd-567890abcdef",
-  "src": {"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"},
-  "dst": {"role": "core", "node": "", "factory": ""},
+  "src": {"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"},
+  "dst": {"role": "core", "station": "", "factory": ""},
   "ts": "2026-02-18T10:01:00Z",
   "exp": "2026-02-18T10:02:30Z",
   "p": {
     "subject": "edge.heartbeat",
     "data": {
-      "node_id": "plant-a.line-1",
+      "station_id": "plant-a.line-1",
       "uptime_s": 60,
       "active_orders": 1
     }
@@ -943,8 +931,8 @@ shingo/dispatch -+--> filter(type="order.delivered") -+--> deliveries_per_hour
   "v": 1,
   "type": "order.request",
   "id": "c8e5f6a7-8901-2345-bcde-678901abcdef",
-  "src": {"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"},
-  "dst": {"role": "core", "node": "", "factory": ""},
+  "src": {"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"},
+  "dst": {"role": "core", "station": "", "factory": ""},
   "ts": "2026-02-18T10:05:00Z",
   "exp": "2026-02-18T10:15:00Z",
   "p": {
@@ -965,8 +953,8 @@ shingo/dispatch -+--> filter(type="order.delivered") -+--> deliveries_per_hour
   "v": 1,
   "type": "order.ack",
   "id": "d9f6a7b8-9012-3456-cdef-789012abcdef",
-  "src": {"role": "core", "node": "core", "factory": "plant-a"},
-  "dst": {"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"},
+  "src": {"role": "core", "station": "core", "factory": "plant-a"},
+  "dst": {"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"},
   "ts": "2026-02-18T10:05:02Z",
   "exp": "2026-02-18T10:15:02Z",
   "cor": "c8e5f6a7-8901-2345-bcde-678901abcdef",
@@ -985,8 +973,8 @@ shingo/dispatch -+--> filter(type="order.delivered") -+--> deliveries_per_hour
   "v": 1,
   "type": "order.error",
   "id": "e0a7b8c9-0123-4567-def0-890123abcdef",
-  "src": {"role": "core", "node": "core", "factory": "plant-a"},
-  "dst": {"role": "edge", "node": "plant-a.line-1", "factory": "plant-a"},
+  "src": {"role": "core", "station": "core", "factory": "plant-a"},
+  "dst": {"role": "edge", "station": "plant-a.line-1", "factory": "plant-a"},
   "ts": "2026-02-18T10:05:01Z",
   "exp": "2026-02-18T10:35:01Z",
   "cor": "c8e5f6a7-8901-2345-bcde-678901abcdef",
@@ -1038,10 +1026,10 @@ The `v` field in the envelope is an integer protocol version. The current versio
   "$defs": {
     "address": {
       "type": "object",
-      "required": ["role", "node", "factory"],
+      "required": ["role", "station", "factory"],
       "properties": {
         "role":    {"type": "string", "enum": ["edge", "core"]},
-        "node":    {"type": "string"},
+        "station": {"type": "string"},
         "factory": {"type": "string"}
       }
     }

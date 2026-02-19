@@ -1,9 +1,12 @@
 package www
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -57,7 +60,6 @@ func (h *Handlers) apiCreateRetrieveOrder(w http.ResponseWriter, r *http.Request
 		DeliveryNode  string  `json:"delivery_node"`
 		StagingNode   string  `json:"staging_node"`
 		LoadType      string  `json:"load_type"`
-		TemplateID    int64   `json:"template_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -79,15 +81,10 @@ func (h *Handlers) apiCreateRetrieveOrder(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	var tmplID *int64
-	if req.TemplateID > 0 {
-		tmplID = &req.TemplateID
-	}
-
 	order, err := h.engine.OrderManager().CreateRetrieveOrder(
 		payloadID, req.RetrieveEmpty,
 		req.Quantity, req.DeliveryNode, req.StagingNode, req.LoadType,
-		tmplID, h.engine.AppConfig().Web.AutoConfirm,
+		h.engine.AppConfig().Web.AutoConfirm,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -101,7 +98,6 @@ func (h *Handlers) apiCreateStoreOrder(w http.ResponseWriter, r *http.Request) {
 		PayloadID  int64   `json:"payload_id"`
 		Quantity   float64 `json:"quantity"`
 		PickupNode string  `json:"pickup_node"`
-		TemplateID int64   `json:"template_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -118,13 +114,8 @@ func (h *Handlers) apiCreateStoreOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var tmplID *int64
-	if req.TemplateID > 0 {
-		tmplID = &req.TemplateID
-	}
-
 	order, err := h.engine.OrderManager().CreateStoreOrder(
-		payloadID, req.Quantity, req.PickupNode, tmplID,
+		payloadID, req.Quantity, req.PickupNode,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -139,7 +130,6 @@ func (h *Handlers) apiCreateMoveOrder(w http.ResponseWriter, r *http.Request) {
 		Quantity     float64 `json:"quantity"`
 		PickupNode   string  `json:"pickup_node"`
 		DeliveryNode string  `json:"delivery_node"`
-		TemplateID   int64   `json:"template_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -156,13 +146,8 @@ func (h *Handlers) apiCreateMoveOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var tmplID *int64
-	if req.TemplateID > 0 {
-		tmplID = &req.TemplateID
-	}
-
 	order, err := h.engine.OrderManager().CreateMoveOrder(
-		payloadID, req.Quantity, req.PickupNode, req.DeliveryNode, tmplID,
+		payloadID, req.Quantity, req.PickupNode, req.DeliveryNode,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -434,29 +419,45 @@ func (h *Handlers) apiWarLinkStatus(w http.ResponseWriter, r *http.Request) {
 	if err := mgr.WarLinkError(); err != nil {
 		errStr = err.Error()
 	}
+	mode := cfg.WarLink.Mode
+	if mode == "" {
+		mode = "sse"
+	}
 	writeJSON(w, map[string]interface{}{
 		"connected": mgr.IsWarLinkConnected(),
-		"url":       cfg.WarLink.URL,
+		"host":      cfg.WarLink.Host,
+		"port":      cfg.WarLink.Port,
 		"enabled":   cfg.WarLink.Enabled,
+		"mode":      mode,
 		"error":     errStr,
 	})
 }
 
 func (h *Handlers) apiUpdateWarLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL      string `json:"url"`
+		Host     string `json:"host"`
+		Port     int    `json:"port"`
 		PollRate string `json:"poll_rate"`
 		Enabled  bool   `json:"enabled"`
+		Mode     string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
+	if req.Mode != "" && req.Mode != "poll" && req.Mode != "sse" {
+		writeError(w, http.StatusBadRequest, "mode must be \"poll\" or \"sse\"")
+		return
+	}
+
 	cfg := h.engine.AppConfig()
 	cfg.Lock()
-	if req.URL != "" {
-		cfg.WarLink.URL = req.URL
+	if req.Host != "" {
+		cfg.WarLink.Host = req.Host
+	}
+	if req.Port > 0 {
+		cfg.WarLink.Port = req.Port
 	}
 	if req.PollRate != "" {
 		d, err := time.ParseDuration(req.PollRate)
@@ -468,6 +469,9 @@ func (h *Handlers) apiUpdateWarLink(w http.ResponseWriter, r *http.Request) {
 		cfg.WarLink.PollRate = d
 	}
 	cfg.WarLink.Enabled = req.Enabled
+	if req.Mode != "" {
+		cfg.WarLink.Mode = req.Mode
+	}
 	cfg.Unlock()
 
 	if err := cfg.Save(h.engine.ConfigPath()); err != nil {
@@ -483,6 +487,18 @@ func (h *Handlers) apiUpdateWarLink(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) apiPLCTags(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	tags, err := h.engine.PLCManager().DiscoverTags(name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, tags)
+}
+
+func (h *Handlers) apiPLCAllTags(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	tags, err := h.engine.PLCManager().FetchAllTags(ctx, name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -523,17 +539,29 @@ func (h *Handlers) apiCreateReportingPoint(w http.ResponseWriter, r *http.Reques
 		PLCName    string `json:"plc_name"`
 		TagName    string `json:"tag_name"`
 		JobStyleID int64  `json:"job_style_id"`
-		LineID     *int64 `json:"line_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	id, err := h.engine.DB().CreateReportingPoint(req.PLCName, req.TagName, req.JobStyleID, req.LineID)
+	id, err := h.engine.DB().CreateReportingPoint(req.PLCName, req.TagName, req.JobStyleID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Auto-enable tag in WarLink if not already published
+	mgr := h.engine.PLCManager()
+	if !mgr.IsTagPublished(req.PLCName, req.TagName) {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := mgr.EnableTagPublishing(ctx, req.PLCName, req.TagName); err != nil {
+			log.Printf("warlink: auto-enable %s/%s failed (RP %d created): %v", req.PLCName, req.TagName, id, err)
+		} else {
+			h.engine.DB().SetReportingPointManaged(id, true)
+		}
+	}
+
 	writeJSON(w, map[string]int64{"id": id})
 }
 
@@ -548,16 +576,46 @@ func (h *Handlers) apiUpdateReportingPoint(w http.ResponseWriter, r *http.Reques
 		TagName    string `json:"tag_name"`
 		JobStyleID int64  `json:"job_style_id"`
 		Enabled    bool   `json:"enabled"`
-		LineID     *int64 `json:"line_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.engine.DB().UpdateReportingPoint(id, req.PLCName, req.TagName, req.JobStyleID, req.Enabled, req.LineID); err != nil {
+
+	// Read old RP to detect tag changes
+	oldRP, _ := h.engine.DB().GetReportingPoint(id)
+
+	if err := h.engine.DB().UpdateReportingPoint(id, req.PLCName, req.TagName, req.JobStyleID, req.Enabled); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Handle WarLink tag management on tag change
+	if oldRP != nil && (oldRP.PLCName != req.PLCName || oldRP.TagName != req.TagName) {
+		mgr := h.engine.PLCManager()
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		// Disable old tag if we managed it
+		if oldRP.WarlinkManaged {
+			if err := mgr.DisableTagPublishing(ctx, oldRP.PLCName, oldRP.TagName); err != nil {
+				log.Printf("warlink: auto-disable old %s/%s failed: %v", oldRP.PLCName, oldRP.TagName, err)
+			}
+		}
+
+		// Enable new tag if not already published
+		if !mgr.IsTagPublished(req.PLCName, req.TagName) {
+			if err := mgr.EnableTagPublishing(ctx, req.PLCName, req.TagName); err != nil {
+				log.Printf("warlink: auto-enable new %s/%s failed: %v", req.PLCName, req.TagName, err)
+				h.engine.DB().SetReportingPointManaged(id, false)
+			} else {
+				h.engine.DB().SetReportingPointManaged(id, true)
+			}
+		} else {
+			h.engine.DB().SetReportingPointManaged(id, false)
+		}
+	}
+
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -567,10 +625,24 @@ func (h *Handlers) apiDeleteReportingPoint(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid ID")
 		return
 	}
+
+	// Read RP before deleting so we know if we need to disable the tag
+	rp, _ := h.engine.DB().GetReportingPoint(id)
+
 	if err := h.engine.DB().DeleteReportingPoint(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Auto-disable tag in WarLink if we were the ones that enabled it
+	if rp != nil && rp.WarlinkManaged {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := h.engine.PLCManager().DisableTagPublishing(ctx, rp.PLCName, rp.TagName); err != nil {
+			log.Printf("warlink: auto-disable %s/%s failed: %v", rp.PLCName, rp.TagName, err)
+		}
+	}
+
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -587,9 +659,13 @@ func (h *Handlers) apiListJobStyles(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) apiCreateJobStyle(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		LineID      int64  `json:"line_id"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		CatIDs      []string `json:"cat_ids"`
+		LineID      int64    `json:"line_id"`
+		RPPLCName   string   `json:"rp_plc_name"`
+		RPTagName   string   `json:"rp_tag_name"`
+		RPEnabled   bool     `json:"rp_enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -599,11 +675,35 @@ func (h *Handlers) apiCreateJobStyle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "line_id is required")
 		return
 	}
-	id, err := h.engine.DB().CreateJobStyle(req.Name, req.Description, req.LineID)
+	id, err := h.engine.DB().CreateJobStyle(req.Name, req.Description, req.CatIDs, req.LineID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Create reporting point if RP fields provided
+	if req.RPPLCName != "" && req.RPTagName != "" {
+		rpID, rpErr := h.engine.DB().CreateReportingPoint(req.RPPLCName, req.RPTagName, id)
+		if rpErr != nil {
+			log.Printf("failed to create RP for style %d: %v", id, rpErr)
+		} else {
+			if !req.RPEnabled {
+				h.engine.DB().UpdateReportingPoint(rpID, req.RPPLCName, req.RPTagName, id, false)
+			}
+			// Auto-enable tag in WarLink
+			mgr := h.engine.PLCManager()
+			if !mgr.IsTagPublished(req.RPPLCName, req.RPTagName) {
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+				if err := mgr.EnableTagPublishing(ctx, req.RPPLCName, req.RPTagName); err != nil {
+					log.Printf("warlink: auto-enable %s/%s failed (RP %d): %v", req.RPPLCName, req.RPTagName, rpID, err)
+				} else {
+					h.engine.DB().SetReportingPointManaged(rpID, true)
+				}
+			}
+		}
+	}
+
 	writeJSON(w, map[string]int64{"id": id})
 }
 
@@ -614,9 +714,13 @@ func (h *Handlers) apiUpdateJobStyle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		LineID      int64  `json:"line_id"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		CatIDs      []string `json:"cat_ids"`
+		LineID      int64    `json:"line_id"`
+		RPPLCName   string   `json:"rp_plc_name"`
+		RPTagName   string   `json:"rp_tag_name"`
+		RPEnabled   bool     `json:"rp_enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -626,10 +730,65 @@ func (h *Handlers) apiUpdateJobStyle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "line_id is required")
 		return
 	}
-	if err := h.engine.DB().UpdateJobStyle(id, req.Name, req.Description, req.LineID); err != nil {
+	if err := h.engine.DB().UpdateJobStyle(id, req.Name, req.Description, req.CatIDs, req.LineID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Manage reporting point lifecycle
+	existingRP, _ := h.engine.DB().GetReportingPointByStyleID(id)
+
+	if req.RPPLCName != "" && req.RPTagName != "" {
+		if existingRP != nil {
+			// Update existing RP
+			oldPLC, oldTag := existingRP.PLCName, existingRP.TagName
+			h.engine.DB().UpdateReportingPoint(existingRP.ID, req.RPPLCName, req.RPTagName, id, req.RPEnabled)
+
+			// Handle WarLink tag management on tag change
+			if oldPLC != req.RPPLCName || oldTag != req.RPTagName {
+				mgr := h.engine.PLCManager()
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+				if existingRP.WarlinkManaged {
+					mgr.DisableTagPublishing(ctx, oldPLC, oldTag)
+				}
+				if !mgr.IsTagPublished(req.RPPLCName, req.RPTagName) {
+					if err := mgr.EnableTagPublishing(ctx, req.RPPLCName, req.RPTagName); err != nil {
+						h.engine.DB().SetReportingPointManaged(existingRP.ID, false)
+					} else {
+						h.engine.DB().SetReportingPointManaged(existingRP.ID, true)
+					}
+				}
+			}
+		} else {
+			// Create new RP
+			rpID, rpErr := h.engine.DB().CreateReportingPoint(req.RPPLCName, req.RPTagName, id)
+			if rpErr == nil {
+				if !req.RPEnabled {
+					h.engine.DB().UpdateReportingPoint(rpID, req.RPPLCName, req.RPTagName, id, false)
+				}
+				mgr := h.engine.PLCManager()
+				if !mgr.IsTagPublished(req.RPPLCName, req.RPTagName) {
+					ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+					defer cancel()
+					if err := mgr.EnableTagPublishing(ctx, req.RPPLCName, req.RPTagName); err != nil {
+						h.engine.DB().SetReportingPointManaged(rpID, false)
+					} else {
+						h.engine.DB().SetReportingPointManaged(rpID, true)
+					}
+				}
+			}
+		}
+	} else if existingRP != nil {
+		// RP fields empty + RP exists → delete RP
+		if existingRP.WarlinkManaged {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			h.engine.PLCManager().DisableTagPublishing(ctx, existingRP.PLCName, existingRP.TagName)
+		}
+		h.engine.DB().DeleteReportingPoint(existingRP.ID)
+	}
+
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -809,75 +968,6 @@ func (h *Handlers) apiPayloadCount(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Kanban Templates Admin ---
-
-func (h *Handlers) apiListKanbanTemplates(w http.ResponseWriter, r *http.Request) {
-	templates, err := h.engine.DB().ListKanbanTemplates()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, templates)
-}
-
-func (h *Handlers) apiCreateKanbanTemplate(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name        string `json:"name"`
-		OrderType   string `json:"order_type"`
-		Payload     string `json:"payload"`
-		Description string `json:"description"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.Payload == "" {
-		req.Payload = "{}"
-	}
-	id, err := h.engine.DB().CreateKanbanTemplate(req.Name, req.OrderType, req.Payload, req.Description)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]int64{"id": id})
-}
-
-func (h *Handlers) apiUpdateKanbanTemplate(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid ID")
-		return
-	}
-	var req struct {
-		Name        string `json:"name"`
-		OrderType   string `json:"order_type"`
-		Payload     string `json:"payload"`
-		Description string `json:"description"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := h.engine.DB().UpdateKanbanTemplate(id, req.Name, req.OrderType, req.Payload, req.Description); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]string{"status": "ok"})
-}
-
-func (h *Handlers) apiDeleteKanbanTemplate(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid ID")
-		return
-	}
-	if err := h.engine.DB().DeleteKanbanTemplate(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]string{"status": "ok"})
-}
-
 // --- Location Nodes Admin ---
 
 func (h *Handlers) apiListLocationNodes(w http.ResponseWriter, r *http.Request) {
@@ -889,10 +979,24 @@ func (h *Handlers) apiListLocationNodes(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, nodes)
 }
 
+func (h *Handlers) apiListLineLocationNodes(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid ID")
+		return
+	}
+	nodes, err := h.engine.DB().ListLocationNodesByLine(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, nodes)
+}
+
 func (h *Handlers) apiCreateLocationNode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NodeID      string `json:"node_id"`
-		Process     string `json:"process"`
+		LineID      int64  `json:"line_id"`
 		Description string `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -903,7 +1007,11 @@ func (h *Handlers) apiCreateLocationNode(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "node_id is required")
 		return
 	}
-	id, err := h.engine.DB().CreateLocationNode(req.NodeID, req.Process, req.Description)
+	if req.LineID == 0 {
+		writeError(w, http.StatusBadRequest, "line_id is required")
+		return
+	}
+	id, err := h.engine.DB().CreateLocationNode(req.NodeID, req.LineID, req.Description)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -919,14 +1027,18 @@ func (h *Handlers) apiUpdateLocationNode(w http.ResponseWriter, r *http.Request)
 	}
 	var req struct {
 		NodeID      string `json:"node_id"`
-		Process     string `json:"process"`
+		LineID      int64  `json:"line_id"`
 		Description string `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.engine.DB().UpdateLocationNode(id, req.NodeID, req.Process, req.Description); err != nil {
+	if req.LineID == 0 {
+		writeError(w, http.StatusBadRequest, "line_id is required")
+		return
+	}
+	if err := h.engine.DB().UpdateLocationNode(id, req.NodeID, req.LineID, req.Description); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1046,17 +1158,25 @@ func (h *Handlers) apiListLineJobStyles(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, styles)
 }
 
+func (h *Handlers) apiGetStyleReportingPoint(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid ID")
+		return
+	}
+	rp, err := h.engine.DB().GetReportingPointByStyleID(id)
+	if err != nil {
+		writeJSON(w, nil)
+		return
+	}
+	writeJSON(w, rp)
+}
+
 // --- Config Admin ---
 
 func (h *Handlers) apiUpdateMessaging(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Backend      string   `json:"backend"`
-		MQTTBroker   string   `json:"mqtt_broker"`
-		MQTTPort     int      `json:"mqtt_port"`
-		MQTTClientID string   `json:"mqtt_client_id"`
 		KafkaBrokers []string `json:"kafka_brokers"`
-		OrderTopic   string   `json:"order_topic"`
-		InboundTopic string   `json:"inbound_topic"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -1065,13 +1185,7 @@ func (h *Handlers) apiUpdateMessaging(w http.ResponseWriter, r *http.Request) {
 
 	cfg := h.engine.AppConfig()
 	cfg.Lock()
-	cfg.Messaging.Backend = req.Backend
-	cfg.Messaging.MQTT.Broker = req.MQTTBroker
-	cfg.Messaging.MQTT.Port = req.MQTTPort
-	cfg.Messaging.MQTT.ClientID = req.MQTTClientID
 	cfg.Messaging.Kafka.Brokers = req.KafkaBrokers
-	cfg.Messaging.OrderTopic = req.OrderTopic
-	cfg.Messaging.InboundTopic = req.InboundTopic
 	cfg.Unlock()
 
 	if err := cfg.Save(h.engine.ConfigPath()); err != nil {
@@ -1079,6 +1193,44 @@ func (h *Handlers) apiUpdateMessaging(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (h *Handlers) apiUpdateStationID(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		StationID string `json:"station_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	cfg := h.engine.AppConfig()
+	cfg.Lock()
+	cfg.Messaging.StationID = req.StationID
+	cfg.Unlock()
+
+	if err := cfg.Save(h.engine.ConfigPath()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (h *Handlers) apiTestKafka(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Broker string `json:"broker"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Broker == "" {
+		writeError(w, http.StatusBadRequest, "broker address required")
+		return
+	}
+	conn, err := net.DialTimeout("tcp", req.Broker, 5*time.Second)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"connected": false, "error": err.Error()})
+		return
+	}
+	conn.Close()
+	writeJSON(w, map[string]interface{}{"connected": true})
 }
 
 func (h *Handlers) apiUpdateAutoConfirm(w http.ResponseWriter, r *http.Request) {

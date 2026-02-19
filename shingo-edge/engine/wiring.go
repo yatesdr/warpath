@@ -89,7 +89,6 @@ func (e *Engine) handlePayloadReorder(reorder PayloadReorderEvent) {
 		reorder.Location,
 		reorder.StagingNode,
 		"standard",
-		nil,
 		e.cfg.Web.AutoConfirm,
 	)
 	if err != nil {
@@ -127,8 +126,8 @@ func (e *Engine) handleOrderCompleted(completed OrderCompletedEvent) {
 	// Determine lineID from the job style
 	var lineID int64
 	js, err := e.db.GetJobStyle(payload.JobStyleID)
-	if err == nil && js.LineID != nil {
-		lineID = *js.LineID
+	if err == nil {
+		lineID = js.LineID
 	}
 
 	e.Events.Emit(Event{Type: EventPayloadUpdated, Payload: PayloadUpdatedEvent{

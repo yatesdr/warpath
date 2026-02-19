@@ -5,14 +5,14 @@ import (
 )
 
 type AuditEntry struct {
-	ID         int64
-	EntityType string
-	EntityID   int64
-	Action     string
-	OldValue   string
-	NewValue   string
-	Actor      string
-	CreatedAt  time.Time
+	ID         int64     `json:"id"`
+	EntityType string    `json:"entity_type"`
+	EntityID   int64     `json:"entity_id"`
+	Action     string    `json:"action"`
+	OldValue   string    `json:"old_value"`
+	NewValue   string    `json:"new_value"`
+	Actor      string    `json:"actor"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 func (db *DB) AppendAudit(entityType string, entityID int64, action, oldValue, newValue, actor string) error {
@@ -30,11 +30,11 @@ func (db *DB) ListAuditLog(limit int) ([]*AuditEntry, error) {
 	var entries []*AuditEntry
 	for rows.Next() {
 		var e AuditEntry
-		var createdAt string
+		var createdAt any
 		if err := rows.Scan(&e.ID, &e.EntityType, &e.EntityID, &e.Action, &e.OldValue, &e.NewValue, &e.Actor, &createdAt); err != nil {
 			return nil, err
 		}
-		e.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		e.CreatedAt = parseTime(createdAt)
 		entries = append(entries, &e)
 	}
 	return entries, rows.Err()
@@ -49,11 +49,11 @@ func (db *DB) ListEntityAudit(entityType string, entityID int64) ([]*AuditEntry,
 	var entries []*AuditEntry
 	for rows.Next() {
 		var e AuditEntry
-		var createdAt string
+		var createdAt any
 		if err := rows.Scan(&e.ID, &e.EntityType, &e.EntityID, &e.Action, &e.OldValue, &e.NewValue, &e.Actor, &createdAt); err != nil {
 			return nil, err
 		}
-		e.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		e.CreatedAt = parseTime(createdAt)
 		entries = append(entries, &e)
 	}
 	return entries, rows.Err()

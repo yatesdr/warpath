@@ -9,9 +9,8 @@ import (
 )
 
 type Config struct {
-	mu sync.Mutex `yaml:"-"`
+	mu sync.RWMutex `yaml:"-"`
 
-	FactoryID string         `yaml:"factory_id"`
 	Database  DatabaseConfig `yaml:"database"`
 	Redis     RedisConfig    `yaml:"redis"`
 	RDS       RDSConfig      `yaml:"rds"`
@@ -57,29 +56,20 @@ type WebConfig struct {
 }
 
 type MessagingConfig struct {
-	Backend             string      `yaml:"backend"`
-	MQTT                MQTTConfig  `yaml:"mqtt"`
-	Kafka               KafkaConfig `yaml:"kafka"`
-	OrdersTopic         string      `yaml:"orders_topic"`
-	DispatchTopicPrefix string      `yaml:"dispatch_topic_prefix"`
-	DispatchTopic       string      `yaml:"dispatch_topic"`
+	Kafka               KafkaConfig   `yaml:"kafka"`
+	OrdersTopic         string        `yaml:"orders_topic"`
+	DispatchTopic       string        `yaml:"dispatch_topic"`
 	OutboxDrainInterval time.Duration `yaml:"outbox_drain_interval"`
-	NodeID              string      `yaml:"node_id"`
-}
-
-type MQTTConfig struct {
-	Broker   string `yaml:"broker"`
-	Port     int    `yaml:"port"`
-	ClientID string `yaml:"client_id"`
+	StationID           string        `yaml:"station_id"`
 }
 
 type KafkaConfig struct {
 	Brokers []string `yaml:"brokers"`
+	GroupID string   `yaml:"group_id"`
 }
 
 func Defaults() *Config {
 	return &Config{
-		FactoryID: "plant-alpha",
 		Database: DatabaseConfig{
 			Driver: "sqlite",
 			SQLite: SQLiteConfig{Path: "shingocore.db"},
@@ -108,20 +98,14 @@ func Defaults() *Config {
 			SessionSecret: "change-me-in-production",
 		},
 		Messaging: MessagingConfig{
-			Backend: "mqtt",
-			MQTT: MQTTConfig{
-				Broker:   "localhost",
-				Port:     1883,
-				ClientID: "shingocore",
-			},
 			Kafka: KafkaConfig{
-				Brokers: []string{},
+				Brokers: []string{"localhost:9092"},
+				GroupID: "shingocore",
 			},
-			OrdersTopic:         "shingocore/orders",
-			DispatchTopicPrefix: "shingocore/dispatch",
-			DispatchTopic:       "shingo/dispatch",
+			OrdersTopic:         "shingo.orders",
+			DispatchTopic:       "shingo.dispatch",
 			OutboxDrainInterval: 5 * time.Second,
-			NodeID:              "core",
+			StationID:           "core",
 		},
 	}
 }

@@ -13,12 +13,12 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"shingo/protocol"
 	"shingocore/config"
 	"shingocore/engine"
 	"shingocore/fleet/seerrds"
 	"shingocore/messaging"
 	"shingocore/nodestate"
-	"shingo/protocol"
 	"shingocore/store"
 	"shingocore/www"
 )
@@ -66,7 +66,9 @@ func main() {
 	// Node state manager
 	redisStore := nodestate.NewRedisStore(redisClient)
 	nodeStateMgr := nodestate.NewManager(db, redisStore)
-	nodeStateMgr.SyncRedisFromSQL()
+	if err := nodeStateMgr.SyncRedisFromSQL(); err != nil {
+		log.Printf("shingocore: redis sync from SQL: %v", err)
+	}
 
 	// Fleet backend (Seer RDS adapter)
 	fleetAdapter := seerrds.New(seerrds.Config{
@@ -85,7 +87,7 @@ func main() {
 	if err := msgClient.Connect(); err != nil {
 		log.Printf("shingocore: messaging connect failed (%v)", err)
 	} else {
-		log.Printf("shingocore: messaging connected (%s)", cfg.Messaging.Backend)
+		log.Printf("shingocore: messaging connected (kafka)")
 	}
 	defer msgClient.Close()
 
@@ -101,23 +103,17 @@ func main() {
 	eng.Start()
 	defer eng.Stop()
 
-	// Messaging consumer (inbound from ShinGo Edge — old protocol)
-	consumer := messaging.NewConsumer(msgClient, cfg.Messaging.OrdersTopic, eng.Dispatcher())
-	if err := consumer.Start(); err != nil {
-		log.Printf("shingocore: consumer start failed: %v", err)
-	}
-
-	// Protocol ingestor (new unified protocol — runs alongside old consumer during transition)
-	coreHandler := messaging.NewCoreHandler(db, msgClient, cfg.FactoryID, cfg.Messaging.NodeID, cfg.Messaging.DispatchTopic)
+	// Protocol ingestor (inbound from ShinGo Edge)
+	coreHandler := messaging.NewCoreHandler(db, msgClient, cfg.Messaging.StationID, cfg.Messaging.DispatchTopic, eng.Dispatcher())
 	coreHandler.Start()
 	defer coreHandler.Stop()
 	ingestor := protocol.NewIngestor(coreHandler, func(_ *protocol.RawHeader) bool { return true })
-	if err := msgClient.Subscribe("shingo/orders", func(_ string, data []byte) {
+	if err := msgClient.Subscribe(cfg.Messaging.OrdersTopic, func(_ string, data []byte) {
 		ingestor.HandleRaw(data)
 	}); err != nil {
 		log.Printf("shingocore: protocol ingestor subscribe failed: %v", err)
 	} else {
-		log.Printf("shingocore: protocol ingestor listening on shingo/orders")
+		log.Printf("shingocore: protocol ingestor listening on %s", cfg.Messaging.OrdersTopic)
 	}
 
 	// Outbox drainer (outbound to ShinGo Edge)

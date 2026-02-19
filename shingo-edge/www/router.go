@@ -34,8 +34,7 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 	}
 
 	funcMap := template.FuncMap{
-		"lower": func(s string) string { return s },
-		"join":  strings.Join,
+		"join": strings.Join,
 		"truncate": func(s string, n int) string {
 			if len(s) <= n {
 				return s
@@ -54,8 +53,32 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 			}
 			return *p
 		},
-		"buildVer":  func() string { return buildVer },
+		"brokerHost": func(s string) string {
+			if i := strings.LastIndex(s, ":"); i >= 0 {
+				return s[:i]
+			}
+			return s
+		},
+		"brokerPort": func(s string) string {
+			if i := strings.LastIndex(s, ":"); i >= 0 {
+				return s[i+1:]
+			}
+			return ""
+		},
+		"buildVer": func() string { return buildVer },
 		"cacheBust": func() string { return fmt.Sprintf("%x", time.Now().UnixNano()) },
+		"formatTime": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Format("2006-01-02 15:04:05")
+		},
+		"formatTimePtr": func(t *time.Time) string {
+			if t == nil {
+				return ""
+			}
+			return t.Format("2006-01-02 15:04:05")
+		},
 	}
 	h.tmpl = template.Must(template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html", "templates/partials/*.html"))
 
@@ -130,6 +153,7 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 			// PLCs / WarLink
 			r.Get("/plcs", h.apiListPLCs)
 			r.Get("/plcs/tags/{name}", h.apiPLCTags)
+			r.Get("/plcs/all-tags/{name}", h.apiPLCAllTags)
 			r.Post("/plcs/read-tag", h.apiReadTag)
 			r.Get("/warlink/status", h.apiWarLinkStatus)
 			r.Put("/config/warlink", h.apiUpdateWarLink)
@@ -147,12 +171,14 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 			r.Delete("/lines/{id}", h.apiDeleteLine)
 			r.Put("/lines/{id}/active-style", h.apiSetActiveStyle)
 			r.Get("/lines/{id}/job-styles", h.apiListLineJobStyles)
+			r.Get("/lines/{id}/location-nodes", h.apiListLineLocationNodes)
 
 			// Job styles
 			r.Get("/job-styles", h.apiListJobStyles)
 			r.Post("/job-styles", h.apiCreateJobStyle)
 			r.Put("/job-styles/{id}", h.apiUpdateJobStyle)
 			r.Delete("/job-styles/{id}", h.apiDeleteJobStyle)
+			r.Get("/job-styles/{id}/reporting-point", h.apiGetStyleReportingPoint)
 
 			// Payloads
 			r.Get("/payloads", h.apiListPayloads)
@@ -160,12 +186,6 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 			r.Get("/payloads/job-style/{jobStyleID}", h.apiListPayloadsByJobStyle)
 			r.Put("/payloads/{id}", h.apiUpdatePayload)
 			r.Delete("/payloads/{id}", h.apiDeletePayload)
-
-			// Kanban templates
-			r.Get("/kanban-templates", h.apiListKanbanTemplates)
-			r.Post("/kanban-templates", h.apiCreateKanbanTemplate)
-			r.Put("/kanban-templates/{id}", h.apiUpdateKanbanTemplate)
-			r.Delete("/kanban-templates/{id}", h.apiDeleteKanbanTemplate)
 
 			// Location nodes
 			r.Get("/location-nodes", h.apiListLocationNodes)
@@ -175,6 +195,8 @@ func NewRouter(eng *engine.Engine) (http.Handler, func()) {
 
 			// Config
 			r.Put("/config/messaging", h.apiUpdateMessaging)
+			r.Put("/config/station-id", h.apiUpdateStationID)
+			r.Post("/config/kafka/test", h.apiTestKafka)
 			r.Put("/config/auto-confirm", h.apiUpdateAutoConfirm)
 			r.Post("/config/password", h.apiChangePassword)
 		})

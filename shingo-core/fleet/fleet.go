@@ -1,5 +1,7 @@
 package fleet
 
+import "time"
+
 // Backend is the vendor-neutral interface for fleet management systems.
 // Implementations wrap vendor-specific APIs (Seer RDS, MiR, Locus, etc.).
 type Backend interface {
@@ -25,7 +27,13 @@ type Backend interface {
 	IsTerminalState(vendorState string) bool
 
 	// Reconfigure applies configuration changes at runtime.
-	Reconfigure(cfg map[string]any)
+	Reconfigure(cfg ReconfigureParams)
+}
+
+// ReconfigureParams holds typed configuration for fleet runtime reconfiguration.
+type ReconfigureParams struct {
+	BaseURL string
+	Timeout time.Duration
 }
 
 // TransportOrderRequest contains vendor-neutral parameters for creating a transport order.

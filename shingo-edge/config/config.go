@@ -10,7 +10,7 @@ import (
 
 // Config is the top-level application configuration.
 type Config struct {
-	mu sync.Mutex `yaml:"-"`
+	mu sync.RWMutex `yaml:"-"`
 
 	Namespace    string        `yaml:"namespace"`
 	LineID       string        `yaml:"line_id"`
@@ -25,9 +25,11 @@ type Config struct {
 
 // WarLinkConfig defines the WarLink connection.
 type WarLinkConfig struct {
-	URL      string        `yaml:"url"        json:"url"`
+	Host     string        `yaml:"host"        json:"host"`
+	Port     int           `yaml:"port"        json:"port"`
 	PollRate time.Duration `yaml:"poll_rate"   json:"poll_rate"`
 	Enabled  bool          `yaml:"enabled"     json:"enabled"`
+	Mode     string        `yaml:"mode"        json:"mode"` // "sse" (default) or "poll"
 }
 
 // WebConfig defines the web server settings.
@@ -40,27 +42,17 @@ type WebConfig struct {
 
 // MessagingConfig defines the messaging backend.
 type MessagingConfig struct {
-	Backend            string        `yaml:"backend"` // "mqtt" or "kafka"
-	MQTT               MQTTConfig    `yaml:"mqtt"`
 	Kafka              KafkaConfig   `yaml:"kafka"`
-	OrderTopic         string        `yaml:"order_topic"`
-	InboundTopic       string        `yaml:"inbound_topic"`
 	DispatchTopic      string        `yaml:"dispatch_topic"`
 	OrdersTopic        string        `yaml:"orders_topic"`
 	OutboxDrainInterval time.Duration `yaml:"outbox_drain_interval"`
-	NodeID             string        `yaml:"node_id"`
-}
-
-// MQTTConfig defines MQTT broker settings.
-type MQTTConfig struct {
-	Broker   string `yaml:"broker"`
-	Port     int    `yaml:"port"`
-	ClientID string `yaml:"client_id"`
+	StationID          string        `yaml:"station_id"`
 }
 
 // KafkaConfig defines Kafka broker settings.
 type KafkaConfig struct {
 	Brokers []string `yaml:"brokers"`
+	GroupID string   `yaml:"group_id"`
 }
 
 // CounterConfig defines counter anomaly thresholds.
@@ -76,24 +68,22 @@ func Defaults() *Config {
 		DatabasePath: "shingoedge.db",
 		PollRate:     time.Second,
 		WarLink: WarLinkConfig{
-			URL:      "http://localhost:8080/api",
+			Host:     "localhost",
+			Port:     8080,
 			PollRate: 2 * time.Second,
 			Enabled:  true,
+			Mode:     "sse",
 		},
 		Web: WebConfig{
 			Host: "0.0.0.0",
 			Port: 8081,
 		},
 		Messaging: MessagingConfig{
-			Backend:            "mqtt",
-			OrderTopic:         "shingoedge/orders",
-			InboundTopic:       "shingoedge/dispatch",
-			DispatchTopic:      "shingo/dispatch",
-			OrdersTopic:        "shingo/orders",
+			DispatchTopic:      "shingo.dispatch",
+			OrdersTopic:        "shingo.orders",
 			OutboxDrainInterval: 5 * time.Second,
-			MQTT: MQTTConfig{
-				Broker: "localhost",
-				Port:   1883,
+			Kafka: KafkaConfig{
+				Brokers: []string{},
 			},
 		},
 		Counter: CounterConfig{
@@ -129,12 +119,31 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// NodeID returns the configured node ID, or derives one from namespace.line_id.
-func (c *Config) NodeID() string {
-	if c.Messaging.NodeID != "" {
-		return c.Messaging.NodeID
+// stationID returns the station ID without locking (for internal use).
+func (c *Config) stationID() string {
+	if c.Messaging.StationID != "" {
+		return c.Messaging.StationID
 	}
 	return c.Namespace + "." + c.LineID
+}
+
+// StationID returns the configured station ID, or derives one from namespace.line_id.
+func (c *Config) StationID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.stationID()
+}
+
+// KafkaGroupID returns the Kafka consumer group ID for this edge.
+// If not explicitly configured, derives a unique group from the station ID
+// so that each edge receives all messages on its subscribed topics.
+func (c *Config) KafkaGroupID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Messaging.Kafka.GroupID != "" {
+		return c.Messaging.Kafka.GroupID
+	}
+	return "shingo-edge-" + c.stationID()
 }
 
 // Lock acquires the config mutex for multi-step mutations.

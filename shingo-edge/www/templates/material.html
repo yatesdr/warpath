@@ -8,8 +8,8 @@
         {{end}}
     </select>
     {{end}}
-    <span style="margin-left:auto;font-size:0.85rem;color:var(--color-text-muted)">
-        {{if .ActiveJobStyle}}Job Style: <strong>{{.ActiveJobStyle}}</strong>{{else}}No active job style{{end}}
+    <span style="margin-left:auto;font-size:0.85rem;color:var(--text-muted)">
+        {{if .ActiveJobStyle}}Style: <strong>{{.ActiveJobStyle}}</strong>{{else}}No active style{{end}}
     </span>
 </div>
 
@@ -38,12 +38,12 @@
                     <td>
                         {{if .HasDescription}}
                             {{if ne .HasDescription .Description}}
-                                <span style="color:var(--color-danger);font-weight:600">{{.HasDescription}}</span>
+                                <span style="color:var(--danger);font-weight:600">{{.HasDescription}}</span>
                             {{else}}
                                 {{.HasDescription}}
                             {{end}}
                         {{else}}
-                            <span style="color:var(--color-text-muted)">--</span>
+                            <span style="color:var(--text-muted)">--</span>
                         {{end}}
                     </td>
                     <td>{{.ProductionUnits}}</td>
@@ -80,10 +80,10 @@
 <div class="modal" id="piece-count" style="display:none">
     <div class="modal-content">
         <div class="card">
-            <div class="modal-header">Piece Count <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('piece-count')">&times;</button></div>
+            <div class="modal-header">Piece Count <button class="btn btn-sm" onclick="ShingoEdge.hideModal('piece-count')">&times;</button></div>
             <div class="card-body">
                 <p><strong id="pc-desc"></strong> at <span class="mono" id="pc-loc"></span></p>
-                <p style="font-size:0.85rem;color:var(--color-text-muted)">Multiplier: <span id="pc-mult"></span> pieces/assembly</p>
+                <p style="font-size:0.85rem;color:var(--text-muted)">Multiplier: <span id="pc-mult"></span> pieces/assembly</p>
                 <div class="form-group">
                     <label>Physical Piece Count</label>
                     <input type="number" id="pc-pieces" class="form-input" min="0" oninput="previewProdUnits()">
@@ -93,7 +93,7 @@
                 <input type="hidden" id="pc-multiplier">
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="ShinGoEdge.hideModal('piece-count')">Cancel</button>
+                <button class="btn" onclick="ShingoEdge.hideModal('piece-count')">Cancel</button>
                 <button class="btn btn-primary" onclick="submitPieceCount()">Submit</button>
             </div>
         </div>
@@ -109,7 +109,7 @@ function openPieceCount(id, desc, loc, multiplier, remaining, total) {
     document.getElementById('pc-multiplier').value = multiplier;
     document.getElementById('pc-pieces').value = Math.round(remaining * multiplier);
     previewProdUnits();
-    ShinGoEdge.showModal('piece-count');
+    ShingoEdge.showModal('piece-count');
 }
 
 function previewProdUnits() {
@@ -122,11 +122,11 @@ async function submitPieceCount() {
     var id = document.getElementById('pc-id').value;
     var pieces = parseFloat(document.getElementById('pc-pieces').value) || 0;
     try {
-        await ShinGoEdge.api.put('/api/payloads/' + id + '/count', { piece_count: pieces });
-        ShinGoEdge.toast('Count updated', 'success');
-        ShinGoEdge.hideModal('piece-count');
+        await ShingoEdge.api.put('/api/payloads/' + id + '/count', { piece_count: pieces });
+        ShingoEdge.toast('Count updated', 'success');
+        ShingoEdge.hideModal('piece-count');
         location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 function editReorderPoint(el, id, currentVal) {
@@ -164,20 +164,20 @@ function editReorderPoint(el, id, currentVal) {
 
 async function saveReorderPoint(id, val) {
     try {
-        await ShinGoEdge.api.put('/api/payloads/' + id + '/reorder-point', { reorder_point: val });
-        ShinGoEdge.toast('Reorder point updated', 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await ShingoEdge.api.put('/api/payloads/' + id + '/reorder-point', { reorder_point: val });
+        ShingoEdge.toast('Reorder point updated', 'success');
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function toggleAutoReorder(id, enabled) {
     try {
-        await ShinGoEdge.api.put('/api/payloads/' + id + '/auto-reorder', { enabled: enabled });
-        ShinGoEdge.toast('Auto-reorder ' + (enabled ? 'enabled' : 'disabled'), 'success');
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+        await ShingoEdge.api.put('/api/payloads/' + id + '/auto-reorder', { enabled: enabled });
+        ShingoEdge.toast('Auto-reorder ' + (enabled ? 'enabled' : 'disabled'), 'success');
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 // SSE: real-time payload updates
-ShinGoEdge.createSSE('/events', {
+ShingoEdge.createSSE('/events', {
     onPayloadUpdate: function(data) {
         var row = document.querySelector('tr[data-payload-id="' + data.payload_id + '"]');
         if (!row) return;

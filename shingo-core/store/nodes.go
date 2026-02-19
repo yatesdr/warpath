@@ -7,15 +7,15 @@ import (
 )
 
 type Node struct {
-	ID             int64
-	Name           string
-	VendorLocation string
-	NodeType       string
-	Zone           string
-	Capacity       int
-	Enabled        bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID             int64     `json:"id"`
+	Name           string    `json:"name"`
+	VendorLocation string    `json:"vendor_location"`
+	NodeType       string    `json:"node_type"`
+	Zone           string    `json:"zone"`
+	Capacity       int       `json:"capacity"`
+	Enabled        bool      `json:"enabled"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 const nodeSelectCols = `id, name, vendor_location, node_type, zone, capacity, enabled, created_at, updated_at`
@@ -23,14 +23,14 @@ const nodeSelectCols = `id, name, vendor_location, node_type, zone, capacity, en
 func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	var n Node
 	var enabled int
-	var createdAt, updatedAt string
+	var createdAt, updatedAt any
 	err := row.Scan(&n.ID, &n.Name, &n.VendorLocation, &n.NodeType, &n.Zone, &n.Capacity, &enabled, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
 	n.Enabled = enabled != 0
-	n.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-	n.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	n.CreatedAt = parseTime(createdAt)
+	n.UpdatedAt = parseTime(updatedAt)
 	return &n, nil
 }
 
@@ -90,7 +90,7 @@ func (db *DB) GetNodeByVendorLocation(vendorLoc string) (*Node, error) {
 }
 
 func (db *DB) ListNodes() ([]*Node, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM nodes ORDER BY name`, nodeSelectCols))
+	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s FROM nodes ORDER BY name`, nodeSelectCols)))
 	if err != nil {
 		return nil, err
 	}

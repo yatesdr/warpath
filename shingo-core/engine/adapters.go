@@ -5,11 +5,11 @@ type dispatchEmitter struct {
 	bus *EventBus
 }
 
-func (e *dispatchEmitter) EmitOrderReceived(orderID int64, edgeUUID, clientID, orderType, payloadTypeCode, deliveryNode string) {
+func (e *dispatchEmitter) EmitOrderReceived(orderID int64, edgeUUID, stationID, orderType, payloadTypeCode, deliveryNode string) {
 	e.bus.Emit(Event{Type: EventOrderReceived, Payload: OrderReceivedEvent{
 		OrderID:         orderID,
 		EdgeUUID:        edgeUUID,
-		ClientID:        clientID,
+		StationID:        stationID,
 		OrderType:       orderType,
 		PayloadTypeCode: payloadTypeCode,
 		DeliveryNode:    deliveryNode,
@@ -25,30 +25,30 @@ func (e *dispatchEmitter) EmitOrderDispatched(orderID int64, vendorOrderID, sour
 	}})
 }
 
-func (e *dispatchEmitter) EmitOrderFailed(orderID int64, edgeUUID, clientID, errorCode, detail string) {
+func (e *dispatchEmitter) EmitOrderFailed(orderID int64, edgeUUID, stationID, errorCode, detail string) {
 	e.bus.Emit(Event{Type: EventOrderFailed, Payload: OrderFailedEvent{
 		OrderID:   orderID,
 		EdgeUUID:  edgeUUID,
-		ClientID:  clientID,
+		StationID:  stationID,
 		ErrorCode: errorCode,
 		Detail:    detail,
 	}})
 }
 
-func (e *dispatchEmitter) EmitOrderCancelled(orderID int64, edgeUUID, clientID, reason string) {
+func (e *dispatchEmitter) EmitOrderCancelled(orderID int64, edgeUUID, stationID, reason string) {
 	e.bus.Emit(Event{Type: EventOrderCancelled, Payload: OrderCancelledEvent{
 		OrderID:  orderID,
 		EdgeUUID: edgeUUID,
-		ClientID: clientID,
+		StationID: stationID,
 		Reason:   reason,
 	}})
 }
 
-func (e *dispatchEmitter) EmitOrderCompleted(orderID int64, edgeUUID, clientID string) {
+func (e *dispatchEmitter) EmitOrderCompleted(orderID int64, edgeUUID, stationID string) {
 	e.bus.Emit(Event{Type: EventOrderCompleted, Payload: OrderCompletedEvent{
 		OrderID:  orderID,
 		EdgeUUID: edgeUUID,
-		ClientID: clientID,
+		StationID: stationID,
 	}})
 }
 

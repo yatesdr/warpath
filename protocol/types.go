@@ -27,6 +27,8 @@ const (
 	SubjectEdgeRegistered  = "edge.registered"
 	SubjectEdgeHeartbeat   = "edge.heartbeat"
 	SubjectEdgeHeartbeatAck = "edge.heartbeat_ack"
+
+	SubjectProductionReport = "production.report"
 )
 
 // Roles for Address.Role.
@@ -35,5 +37,22 @@ const (
 	RoleCore = "core"
 )
 
+// StationBroadcast is the wildcard station value that matches all edge instances.
+const StationBroadcast = "*"
+
 // Protocol version.
 const Version = 1
+
+// Canonical order status constants shared by core and edge.
+const (
+	StatusPending      = "pending"
+	StatusSourcing     = "sourcing"
+	StatusSubmitted    = "submitted"
+	StatusDispatched   = "dispatched"
+	StatusAcknowledged = "acknowledged"
+	StatusInTransit    = "in_transit"
+	StatusDelivered    = "delivered"
+	StatusConfirmed    = "confirmed"
+	StatusFailed       = "failed"
+	StatusCancelled    = "cancelled"
+)

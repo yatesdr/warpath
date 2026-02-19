@@ -17,9 +17,9 @@
         <!-- Active changeover -->
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem">
             <div>
-                <span style="font-size:0.85rem;color:var(--color-text-muted)">Changing from</span>
+                <span style="font-size:0.85rem;color:var(--text-muted)">Changing from</span>
                 <strong>{{.Changeover.FromJobStyle}}</strong>
-                <span style="font-size:0.85rem;color:var(--color-text-muted)">to</span>
+                <span style="font-size:0.85rem;color:var(--text-muted)">to</span>
                 <strong>{{.Changeover.ToJobStyle}}</strong>
             </div>
             <button class="btn btn-sm btn-danger" onclick="cancelChangeover()">Cancel Changeover</button>
@@ -40,7 +40,7 @@
         <div style="display:flex;align-items:flex-end;gap:1rem;flex-wrap:wrap">
             <div class="form-group" style="margin-bottom:0">
                 <label>From</label>
-                <input type="text" id="co-from" class="form-input" value="{{.ActiveJobStyle}}" readonly style="background:var(--color-bg-muted);width:14rem">
+                <input type="text" id="co-from" class="form-input" value="{{.ActiveJobStyle}}" readonly style="background:var(--bg-muted);width:14rem">
             </div>
             <div class="form-group" style="margin-bottom:0">
                 <label>To</label>
@@ -82,11 +82,11 @@
             <tbody>
                 {{range .ChangeoverLog}}
                 <tr>
-                    <td style="white-space:nowrap;font-size:0.8rem">{{.CreatedAt}}</td>
+                    <td style="white-space:nowrap;font-size:0.8rem">{{formatTime .CreatedAt}}</td>
                     <td>{{.FromJobStyle}}</td>
                     <td>{{.ToJobStyle}}</td>
                     <td><span class="status-badge">{{.State}}</span></td>
-                    <td style="font-size:0.85rem;color:var(--color-text-muted)">{{if .Detail}}{{.Detail}}{{else}}--{{end}}</td>
+                    <td style="font-size:0.85rem;color:var(--text-muted)">{{if .Detail}}{{.Detail}}{{else}}--{{end}}</td>
                 </tr>
                 {{end}}
             </tbody>
@@ -98,7 +98,7 @@
 {{else}}
 <div class="card">
     <div class="card-body">
-        <p class="empty-cell">No production lines configured</p>
+        <p class="empty-cell">No processes configured</p>
     </div>
 </div>
 {{end}}
@@ -111,32 +111,32 @@
     flex-wrap: wrap;
 }
 .co-arrow {
-    color: var(--color-text-muted);
+    color: var(--text-muted);
     font-size: 1.1rem;
     user-select: none;
 }
 .co-step {
     padding: 0.5rem 1.25rem;
-    border: 2px solid var(--color-border);
+    border: 2px solid var(--border);
     border-radius: 6px;
-    background: var(--color-bg);
-    color: var(--color-text-muted);
+    background: var(--bg);
+    color: var(--text-muted);
     font-size: 0.85rem;
     font-weight: 500;
     cursor: default;
     transition: all 0.15s;
 }
 .co-step.co-done {
-    border-color: var(--color-success);
-    background: var(--color-success);
+    border-color: var(--success);
+    background: var(--success);
     color: #fff;
 }
 .co-step.co-active {
-    border-color: var(--color-primary);
-    background: var(--color-primary);
+    border-color: var(--primary);
+    background: var(--primary);
     color: #fff;
     cursor: pointer;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
 }
 .co-step.co-active:hover {
     filter: brightness(1.1);
@@ -196,41 +196,41 @@ async function startChangeover() {
     var toVal = document.getElementById('co-to').value;
     if (!toVal) return;
     try {
-        await ShinGoEdge.api.post('/api/changeover/start', {
+        await ShingoEdge.api.post('/api/changeover/start', {
             line_id: activeLineID,
             from_job_style: fromVal,
             to_job_style: toVal,
             operator: ''
         });
-        ShinGoEdge.toast('Changeover started', 'success');
+        ShingoEdge.toast('Changeover started', 'success');
         location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function advanceChangeover() {
     try {
-        await ShinGoEdge.api.post('/api/changeover/advance', {
+        await ShingoEdge.api.post('/api/changeover/advance', {
             line_id: activeLineID,
             operator: ''
         });
-        ShinGoEdge.toast('Changeover advanced', 'success');
+        ShingoEdge.toast('Changeover advanced', 'success');
         location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
 async function cancelChangeover() {
-    var ok = await ShinGoEdge.confirm('Cancel this changeover? The line will return to its current state.');
+    var ok = await ShingoEdge.confirm('Cancel this changeover? The line will return to its current state.');
     if (!ok) return;
     try {
-        await ShinGoEdge.api.post('/api/changeover/cancel', {
+        await ShingoEdge.api.post('/api/changeover/cancel', {
             line_id: activeLineID
         });
-        ShinGoEdge.toast('Changeover cancelled', 'success');
+        ShingoEdge.toast('Changeover cancelled', 'success');
         location.reload();
-    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+    } catch (e) { ShingoEdge.toast('Error: ' + e, 'error'); }
 }
 
-ShinGoEdge.createSSE('/events', {
+ShingoEdge.createSSE('/events', {
     onChangeoverUpdate: function() { location.reload(); },
     onCounterAnomaly: function() { location.reload(); }
 });

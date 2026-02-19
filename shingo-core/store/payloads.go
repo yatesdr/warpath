@@ -7,19 +7,19 @@ import (
 )
 
 type Payload struct {
-	ID            int64
-	PayloadTypeID int64
-	NodeID        *int64
-	Status        string
-	ClaimedBy     *int64
-	DeliveredAt   time.Time
-	Notes         string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID            int64     `json:"id"`
+	PayloadTypeID int64     `json:"payload_type_id"`
+	NodeID        *int64    `json:"node_id,omitempty"`
+	Status        string    `json:"status"`
+	ClaimedBy     *int64    `json:"claimed_by,omitempty"`
+	DeliveredAt   time.Time `json:"delivered_at"`
+	Notes         string    `json:"notes"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 	// Joined fields
-	PayloadTypeName string
-	FormFactor      string
-	NodeName        string
+	PayloadTypeName string `json:"payload_type_name"`
+	FormFactor      string `json:"form_factor"`
+	NodeName        string `json:"node_name"`
 }
 
 const payloadSelectCols = `p.id, p.payload_type_id, p.node_id, p.status, p.claimed_by, p.delivered_at, p.notes, p.created_at, p.updated_at`
@@ -33,7 +33,7 @@ const payloadJoinQuery = `SELECT p.id, p.payload_type_id, p.node_id, p.status, p
 func scanPayload(row interface{ Scan(...any) error }, withJoins bool) (*Payload, error) {
 	var p Payload
 	var nodeID, claimedBy sql.NullInt64
-	var deliveredAt, createdAt, updatedAt string
+	var deliveredAt, createdAt, updatedAt any
 
 	if withJoins {
 		err := row.Scan(&p.ID, &p.PayloadTypeID, &nodeID, &p.Status, &claimedBy, &deliveredAt, &p.Notes, &createdAt, &updatedAt,
@@ -54,9 +54,9 @@ func scanPayload(row interface{ Scan(...any) error }, withJoins bool) (*Payload,
 	if claimedBy.Valid {
 		p.ClaimedBy = &claimedBy.Int64
 	}
-	p.DeliveredAt, _ = time.Parse("2006-01-02 15:04:05", deliveredAt)
-	p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-	p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	p.DeliveredAt = parseTime(deliveredAt)
+	p.CreatedAt = parseTime(createdAt)
+	p.UpdatedAt = parseTime(updatedAt)
 	return &p, nil
 }
 

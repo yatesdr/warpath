@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS materials (
 CREATE TABLE IF NOT EXISTS orders (
     id              BIGSERIAL PRIMARY KEY,
     edge_uuid    TEXT NOT NULL,
-    client_id       TEXT NOT NULL DEFAULT '',
+    station_id      TEXT NOT NULL DEFAULT '',
     factory_id      TEXT NOT NULL DEFAULT '',
     order_type      TEXT NOT NULL DEFAULT 'retrieve',
     status          TEXT NOT NULL DEFAULT 'pending',
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     topic       TEXT NOT NULL,
     payload     BYTEA NOT NULL,
     msg_type    TEXT NOT NULL DEFAULT '',
-    client_id   TEXT NOT NULL DEFAULT '',
+    station_id  TEXT NOT NULL DEFAULT '',
     retries     INTEGER NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     sent_at     TIMESTAMPTZ
@@ -182,7 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_scene_points_area ON scene_points(area_name);
 
 CREATE TABLE IF NOT EXISTS edge_registry (
     id              BIGSERIAL PRIMARY KEY,
-    node_id         TEXT NOT NULL UNIQUE,
+    station_id      TEXT NOT NULL UNIQUE,
     factory_id      TEXT NOT NULL,
     hostname        TEXT NOT NULL DEFAULT '',
     version         TEXT NOT NULL DEFAULT '',
@@ -190,5 +190,38 @@ CREATE TABLE IF NOT EXISTS edge_registry (
     registered_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_heartbeat  TIMESTAMPTZ,
     status          TEXT NOT NULL DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS demands (
+    id           BIGSERIAL PRIMARY KEY,
+    cat_id       TEXT NOT NULL UNIQUE,
+    description  TEXT NOT NULL DEFAULT '',
+    demand_qty   DOUBLE PRECISION NOT NULL DEFAULT 0,
+    produced_qty DOUBLE PRECISION NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS production_log (
+    id          BIGSERIAL PRIMARY KEY,
+    cat_id      TEXT NOT NULL,
+    station_id  TEXT NOT NULL,
+    quantity    DOUBLE PRECISION NOT NULL,
+    reported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_production_log_cat ON production_log(cat_id);
+
+CREATE TABLE IF NOT EXISTS test_commands (
+    id              BIGSERIAL PRIMARY KEY,
+    command_type    TEXT NOT NULL,
+    robot_id        TEXT NOT NULL,
+    vendor_order_id TEXT NOT NULL DEFAULT '',
+    vendor_state    TEXT NOT NULL DEFAULT '',
+    location        TEXT NOT NULL DEFAULT '',
+    config_id       TEXT NOT NULL DEFAULT '',
+    detail          TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ
 );
 `

@@ -7,14 +7,14 @@ import (
 )
 
 type ManifestItem struct {
-	ID             int64
-	PayloadID      int64
-	PartNumber     string
-	Quantity       float64
-	ProductionDate string
-	LotCode        string
-	Notes          string
-	CreatedAt      time.Time
+	ID             int64     `json:"id"`
+	PayloadID      int64     `json:"payload_id"`
+	PartNumber     string    `json:"part_number"`
+	Quantity       float64   `json:"quantity"`
+	ProductionDate string    `json:"production_date,omitempty"`
+	LotCode        string    `json:"lot_code,omitempty"`
+	Notes          string    `json:"notes"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 const manifestItemSelectCols = `id, payload_id, part_number, quantity, production_date, lot_code, notes, created_at`
@@ -22,7 +22,7 @@ const manifestItemSelectCols = `id, payload_id, part_number, quantity, productio
 func scanManifestItem(row interface{ Scan(...any) error }) (*ManifestItem, error) {
 	var m ManifestItem
 	var prodDate, lotCode sql.NullString
-	var createdAt string
+	var createdAt any
 	err := row.Scan(&m.ID, &m.PayloadID, &m.PartNumber, &m.Quantity, &prodDate, &lotCode, &m.Notes, &createdAt)
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func scanManifestItem(row interface{ Scan(...any) error }) (*ManifestItem, error
 	if lotCode.Valid {
 		m.LotCode = lotCode.String
 	}
-	m.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	m.CreatedAt = parseTime(createdAt)
 	return &m, nil
 }
 

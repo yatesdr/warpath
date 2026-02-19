@@ -4,7 +4,6 @@ package shingocore
 
 // Force module dependencies for packages used across the project.
 import (
-	_ "github.com/eclipse/paho.mqtt.golang"
 	_ "github.com/go-chi/chi/v5"
 	_ "github.com/google/uuid"
 	_ "github.com/gorilla/sessions"
