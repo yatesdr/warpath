@@ -5,21 +5,27 @@
 *.dylib
 shingocore
 shingoedge
+build/
 
 # Database files
 *.db
+*.db-journal
 *.db-wal
 *.db-shm
 
 # Config files (may contain secrets)
 shingocore.yaml
 shingoedge.yaml
+*.env
+.env
+.env.*
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
@@ -29,7 +35,25 @@ Thumbs.db
 *.test
 *.out
 coverage.txt
+coverage.html
 
-# Temp files
+# Temp / scratch files
 scene.json
 scene.txt
+
+# Go workspace (if using multi-module workspaces locally)
+go.work
+go.work.sum
+
+# Vendor (dependencies fetched by go mod)
+vendor/
+
+# API reference docs (scraped, not source)
+seer-docs/
+
+# Python artifacts (for any utility scripts)
+__pycache__/
+*.pyc
+
+# Personal notes
+*.notes.md
