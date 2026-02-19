@@ -1,0 +1,513 @@
+{{define "content"}}
+<div data-sse="nodes">
+  <div class="flex flex-between mb-2">
+    <h1>Nodes</h1>
+    {{if .Authenticated}}
+    <div class="flex gap-1">
+      <form method="POST" action="/nodes/sync-fleet" style="display:inline" onsubmit="return confirm('Sync all nodes and scene data from fleet?')">
+        <button type="submit" class="btn btn-primary">Sync from Fleet</button>
+      </form>
+      <button class="btn" onclick="checkOccupancy()">Check Occupancy</button>
+    </div>
+    {{end}}
+  </div>
+
+  <div class="filter-bar">
+    <input type="text" id="node-search" placeholder="Filter by name or location..." oninput="filterNodes()">
+    <select id="node-type-filter" onchange="filterNodes()">
+      <option value="">All Types</option>
+      <option value="storage">Storage</option>
+      <option value="line_side">Line Side</option>
+      <option value="staging">Staging</option>
+      <option value="charging">Charging</option>
+    </select>
+    <select id="node-zone-filter" onchange="filterNodes()">
+      <option value="">All Zones</option>
+      {{range .Zones}}<option value="{{.}}">{{.}}</option>{{end}}
+    </select>
+    <span class="text-muted" style="font-size:0.8rem" id="node-count">{{len .Nodes}} nodes</span>
+  </div>
+
+  {{if .Nodes}}
+  <div class="tile-grid" id="tile-grid">
+    {{range .Nodes}}
+    {{$count := index $.Counts .ID}}
+    <div class="node-tile{{if not .Enabled}} tile-disabled{{end}}"
+         style="{{nodeColor $count .Capacity}}"
+         data-id="{{.ID}}"
+         data-name="{{.Name}}"
+         data-vendor-loc="{{.VendorLocation}}"
+         data-type="{{.NodeType}}"
+         data-zone="{{.Zone}}"
+         data-cap="{{.Capacity}}"
+         data-enabled="{{.Enabled}}"
+         data-count="{{$count}}"
+         data-label="{{index $.NodeLabels .VendorLocation}}"
+         {{with index $.NodeInfo .VendorLocation}}data-point-name="{{.PointName}}" data-node-tasks="{{.Tasks}}" data-bound-map="{{.BoundMap}}"{{end}}
+         onclick="openNodeModal(this)"
+         title="{{.Name}} ({{$count}}/{{.Capacity}})">
+      <div>
+        <span class="tile-loc">{{if .VendorLocation}}{{.VendorLocation}}{{else}}{{.Name}}{{end}}</span>
+        {{with index $.NodeLabels .VendorLocation}}
+        <span class="tile-label">{{.}}</span>
+        {{end}}
+      </div>
+      {{if not .Enabled}}<span class="tile-off">OFF</span>{{end}}
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="card">
+    <p class="text-muted">No nodes configured.{{if .Authenticated}} Click "Sync from Fleet" to import node locations.{{else}} <a href="/login">Login</a> to manage nodes.{{end}}</p>
+  </div>
+  {{end}}
+
+  {{if .MapGroups}}
+  <div class="mt-2 mb-1">
+    <h3 class="section-subhead">Map Infrastructure</h3>
+  </div>
+  {{range .MapClassOrder}}
+    {{$points := index $.MapGroups .}}
+    {{if $points}}
+    <div class="accordion mb-1" id="acc-{{.}}">
+      <button class="accordion-toggle" onclick="toggleAccordion('acc-{{.}}')">
+        {{.}} <span class="text-muted">({{len $points}})</span>
+      </button>
+      <div class="accordion-body">
+        <table style="font-size:0.8rem">
+          <thead><tr><th>Name</th><th>Area</th><th>Label</th><th>Position</th></tr></thead>
+          <tbody>
+          {{range $points}}
+          <tr>
+            <td><strong>{{.InstanceName}}</strong></td>
+            <td>{{.AreaName}}</td>
+            <td>{{.Label}}</td>
+            <td class="text-muted">{{printf "%.2f" .PosX}}, {{printf "%.2f" .PosY}}</td>
+          </tr>
+          {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {{end}}
+  {{end}}
+  {{end}}
+</div>
+
+<!-- Node Detail Modal -->
+<div id="node-modal" class="modal-overlay" onclick="if(event.target===this)closeNodeModal()">
+  <div class="modal">
+    <div class="modal-header flex flex-between">
+      <h2 id="modal-title">Node</h2>
+      <button class="modal-close" onclick="closeNodeModal()">&times;</button>
+    </div>
+
+    <!-- Scene detail section -->
+    <div id="modal-scene-detail" style="display:none" class="mb-2">
+      <div class="grid grid-2" style="font-size:0.85rem">
+        <div><strong>Point Name:</strong> <span id="sd-point"></span></div>
+        <div><strong>Area:</strong> <span id="sd-area"></span></div>
+        <div><strong>Tasks:</strong> <span id="sd-tasks"></span></div>
+        <div><strong>Assigned Map:</strong> <span id="sd-map"></span></div>
+      </div>
+    </div>
+
+    <!-- Payloads section -->
+    <div id="modal-inventory" style="display:none" class="mb-2">
+      <div class="flex flex-between mb-1">
+        <strong style="font-size:0.85rem">Payloads</strong>
+        <span class="text-muted" style="font-size:0.8rem"><span id="inv-count">0</span> / <span id="inv-cap">0</span></span>
+      </div>
+      <div id="inv-list"></div>
+      <div id="inv-manifest" style="display:none; margin-top:0.5rem; border-top:1px solid var(--border); padding-top:0.5rem">
+        <div class="flex flex-between mb-1">
+          <strong style="font-size:0.8rem">Manifest — Payload #<span id="inv-manifest-pid"></span></strong>
+          <button class="btn btn-sm" onclick="closeManifestExpand()" style="font-size:0.7rem">&times; Close</button>
+        </div>
+        <div id="inv-manifest-list" style="font-size:0.8rem"></div>
+        {{if .Authenticated}}
+        <div style="margin-top:0.5rem; border-top:1px solid #e9ecef; padding-top:0.5rem">
+          <strong style="font-size:0.75rem">Add Item (Correction)</strong>
+          <div class="grid grid-2" style="font-size:0.8rem;gap:0.3rem;margin-top:0.3rem">
+            <input type="text" id="nc-part" placeholder="Part Number" style="font-size:0.8rem;padding:0.25rem">
+            <input type="number" id="nc-qty" placeholder="Qty" step="0.01" value="1" style="font-size:0.8rem;padding:0.25rem">
+          </div>
+          <input type="text" id="nc-reason" placeholder="Reason for correction" style="font-size:0.8rem;padding:0.25rem;width:100%;margin-top:0.3rem">
+          <button class="btn btn-sm btn-primary" onclick="addCorrectionItem()" style="margin-top:0.3rem">Add Item</button>
+        </div>
+        {{end}}
+      </div>
+      {{if .Authenticated}}
+      <div id="inv-corrections" style="display:none; margin-top:0.75rem; border-top:1px solid var(--border); padding-top:0.5rem">
+        <strong style="font-size:0.8rem">Recent Corrections</strong>
+        <div id="inv-corrections-list" style="font-size:0.8rem; margin-top:0.3rem"></div>
+      </div>
+      {{end}}
+    </div>
+
+    {{if .Authenticated}}
+    <form id="node-form" method="POST" action="/nodes/update">
+      <input type="hidden" name="id" id="nf-id">
+      <input type="hidden" name="name" id="nf-name">
+      <input type="hidden" name="vendor_location" id="nf-vendor-loc">
+      <input type="hidden" name="node_type" id="nf-type">
+      <input type="hidden" name="zone" id="nf-zone">
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label>Capacity</label>
+          <input type="number" name="capacity" id="nf-cap" value="1">
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <label><input type="checkbox" name="enabled" id="nf-enabled" checked> Enabled</label>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+    <div class="mt-2" id="modal-test-order" style="border-top:1px solid var(--border); padding-top:0.75rem">
+      <strong style="font-size:0.85rem">Send Robot Here</strong>
+      <div class="flex gap-1 mt-1">
+        <select id="to-dest" style="flex:1; font-size:0.85rem">
+          {{range .Nodes}}
+          <option value="{{.ID}}" data-name="{{.Name}}">{{.Name}}</option>
+          {{end}}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="sendTestOrder()">Send</button>
+      </div>
+      <div id="test-order-result" class="mt-1" style="font-size:0.8rem"></div>
+    </div>
+    {{else}}
+    <div id="node-detail-ro">
+      <div class="grid grid-2" style="font-size:0.85rem">
+        <div><strong>Capacity:</strong> <span id="ro-cap"></span></div>
+        <div><strong>Enabled:</strong> <span id="ro-enabled"></span></div>
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+
+<script>
+var isAuth = {{if .Authenticated}}true{{else}}false{{end}};
+
+function toggleAccordion(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+
+function filterNodes() {
+  var q = document.getElementById('node-search').value.toLowerCase();
+  var t = document.getElementById('node-type-filter').value;
+  var z = document.getElementById('node-zone-filter').value;
+  var tiles = document.querySelectorAll('.node-tile');
+  var shown = 0;
+  tiles.forEach(function(tile) {
+    var matchName = !q || tile.dataset.name.toLowerCase().indexOf(q) >= 0 || tile.dataset.vendorLoc.toLowerCase().indexOf(q) >= 0 || (tile.dataset.label && tile.dataset.label.toLowerCase().indexOf(q) >= 0);
+    var matchType = !t || tile.dataset.type === t;
+    var matchZone = !z || tile.dataset.zone === z;
+    var vis = matchName && matchType && matchZone;
+    tile.style.display = vis ? '' : 'none';
+    if (vis) shown++;
+  });
+  document.getElementById('node-count').textContent = shown + ' nodes';
+}
+
+function openNodeModal(el) {
+  if (!el || !el.dataset) return;
+  var m = document.getElementById('node-modal');
+  var inv = document.getElementById('modal-inventory');
+  var sceneDetail = document.getElementById('modal-scene-detail');
+
+  var d = el.dataset;
+  document.getElementById('modal-title').textContent = d.vendorLoc || d.name;
+
+  // Scene detail section
+  var pointName = d.pointName || '';
+  var nodeTasks = d.nodeTasks || '';
+  var boundMap = d.boundMap || '';
+  if (pointName || nodeTasks || boundMap) {
+    document.getElementById('sd-point').textContent = pointName;
+    document.getElementById('sd-area').textContent = d.zone;
+    document.getElementById('sd-tasks').textContent = nodeTasks;
+    document.getElementById('sd-map').textContent = boundMap;
+    sceneDetail.style.display = '';
+  } else {
+    sceneDetail.style.display = 'none';
+  }
+
+  // Inventory
+  inv.style.display = '';
+  document.getElementById('inv-count').textContent = d.count;
+  document.getElementById('inv-cap').textContent = d.cap;
+  loadInventory(d.id);
+
+  if (isAuth) {
+    document.getElementById('nf-id').value = d.id;
+    document.getElementById('nf-name').value = d.name;
+    document.getElementById('nf-vendor-loc').value = d.vendorLoc;
+    document.getElementById('nf-type').value = d.type;
+    document.getElementById('nf-zone').value = d.zone;
+    document.getElementById('nf-cap').value = d.cap;
+    document.getElementById('nf-enabled').checked = d.enabled === 'true';
+    var destSelect = document.getElementById('to-dest');
+    if (destSelect) {
+      for (var i = 0; i < destSelect.options.length; i++) {
+        destSelect.options[i].style.display = destSelect.options[i].value === d.id ? 'none' : '';
+      }
+      if (destSelect.value === d.id && destSelect.options.length > 1) {
+        for (var i = 0; i < destSelect.options.length; i++) {
+          if (destSelect.options[i].value !== d.id) { destSelect.value = destSelect.options[i].value; break; }
+        }
+      }
+    }
+    document.getElementById('test-order-result').innerHTML = '';
+  } else {
+    document.getElementById('ro-cap').textContent = d.cap;
+    document.getElementById('ro-enabled').textContent = d.enabled === 'true' ? 'Yes' : 'No';
+  }
+
+  m.classList.add('active');
+}
+
+function closeNodeModal() {
+  document.getElementById('node-modal').classList.remove('active');
+}
+
+var currentNodeID = 0;
+var expandedPayloadID = 0;
+
+function loadInventory(nodeID) {
+  currentNodeID = parseInt(nodeID);
+  expandedPayloadID = 0;
+  document.getElementById('inv-manifest').style.display = 'none';
+  var corrDiv = document.getElementById('inv-corrections');
+  if (corrDiv) corrDiv.style.display = 'none';
+
+  var list = document.getElementById('inv-list');
+  list.innerHTML = '<span class="text-muted" style="font-size:0.8rem">Loading...</span>';
+  fetch('/api/nodes/inventory?id=' + nodeID)
+    .then(function(r) { return r.json(); })
+    .then(function(items) {
+      if (!items || items.length === 0) {
+        list.innerHTML = '<span class="text-muted" style="font-size:0.8rem">Empty</span>';
+        loadNodeCorrections(nodeID);
+        return;
+      }
+      var html = '<table style="font-size:0.8rem"><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Age</th></tr></thead><tbody>';
+      items.forEach(function(item) {
+        var age = timeAgo(item.DeliveredAt);
+        html += '<tr style="cursor:pointer" onclick="expandPayloadManifest(' + item.ID + ')"><td>#' + item.ID + '</td><td>' + esc(item.PayloadTypeName) + '</td><td>' + esc(item.Status) + '</td><td>' + age + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      list.innerHTML = html;
+      loadNodeCorrections(nodeID);
+    })
+    .catch(function() {
+      list.innerHTML = '<span class="text-muted" style="font-size:0.8rem">Error loading</span>';
+    });
+}
+
+function expandPayloadManifest(payloadID) {
+  expandedPayloadID = payloadID;
+  var sec = document.getElementById('inv-manifest');
+  document.getElementById('inv-manifest-pid').textContent = payloadID;
+  sec.style.display = '';
+  var list = document.getElementById('inv-manifest-list');
+  list.innerHTML = '<span class="text-muted">Loading...</span>';
+  fetch('/api/payloads/manifest?id=' + payloadID)
+    .then(function(r) { return r.json(); })
+    .then(function(items) {
+      if (!items || items.length === 0) {
+        list.innerHTML = '<span class="text-muted">No manifest items</span>';
+        return;
+      }
+      var html = '<table><thead><tr><th>Part#</th><th>Qty</th><th>Notes</th>';
+      if (isAuth) html += '<th></th>';
+      html += '</tr></thead><tbody>';
+      items.forEach(function(item) {
+        html += '<tr><td>' + esc(item.PartNumber) + '</td><td>' + item.Quantity + '</td><td>' + esc(item.Notes) + '</td>';
+        if (isAuth) html += '<td><button class="btn btn-danger btn-sm" style="font-size:0.7rem;padding:0.1rem 0.3rem" onclick="removeCorrectionItem(' + item.ID + ',\'' + esc(item.PartNumber) + '\')">X</button></td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      list.innerHTML = html;
+    })
+    .catch(function() { list.innerHTML = '<span class="text-muted">Error</span>'; });
+}
+
+function closeManifestExpand() {
+  document.getElementById('inv-manifest').style.display = 'none';
+  expandedPayloadID = 0;
+}
+
+function addCorrectionItem() {
+  if (!expandedPayloadID) return;
+  var part = document.getElementById('nc-part').value;
+  var qty = parseFloat(document.getElementById('nc-qty').value) || 1;
+  var reason = document.getElementById('nc-reason').value;
+  if (!part || !reason) { alert('Part number and reason are required'); return; }
+  fetch('/api/corrections/create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      correction_type: 'add_item',
+      node_id: currentNodeID,
+      payload_id: expandedPayloadID,
+      cat_id: part,
+      quantity: qty,
+      reason: reason
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert(data.error); return; }
+    document.getElementById('nc-part').value = '';
+    document.getElementById('nc-qty').value = '1';
+    document.getElementById('nc-reason').value = '';
+    expandPayloadManifest(expandedPayloadID);
+    loadNodeCorrections(currentNodeID);
+  });
+}
+
+function removeCorrectionItem(manifestItemID, partNumber) {
+  var reason = prompt('Reason for removing ' + partNumber + '?');
+  if (!reason) return;
+  fetch('/api/corrections/create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      correction_type: 'remove_item',
+      node_id: currentNodeID,
+      payload_id: expandedPayloadID,
+      cat_id: partNumber,
+      manifest_item_id: manifestItemID,
+      quantity: 0,
+      reason: reason
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert(data.error); return; }
+    expandPayloadManifest(expandedPayloadID);
+    loadNodeCorrections(currentNodeID);
+  });
+}
+
+function loadNodeCorrections(nodeID) {
+  var sec = document.getElementById('inv-corrections');
+  if (!sec) return;
+  sec.style.display = '';
+  var list = document.getElementById('inv-corrections-list');
+  list.innerHTML = '<span class="text-muted">Loading...</span>';
+  fetch('/api/corrections?node_id=' + nodeID)
+    .then(function(r) { return r.json(); })
+    .then(function(items) {
+      if (!items || items.length === 0) {
+        list.innerHTML = '<span class="text-muted">No corrections for this node</span>';
+        return;
+      }
+      var html = '<table><thead><tr><th>Type</th><th>Part</th><th>Qty</th><th>Reason</th><th>Actor</th><th>Date</th></tr></thead><tbody>';
+      items.forEach(function(c) {
+        html += '<tr><td>' + esc(c.CorrectionType) + '</td><td>' + esc(c.CatID) + '</td><td>' + c.Quantity + '</td><td>' + esc(c.Reason) + '</td><td>' + esc(c.Actor) + '</td><td>' + timeAgo(c.CreatedAt) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      list.innerHTML = html;
+    })
+    .catch(function() { list.innerHTML = '<span class="text-muted">Error loading corrections</span>'; });
+}
+
+function timeAgo(ts) {
+  if (!ts) return '-';
+  var d = Date.now() - new Date(ts).getTime();
+  if (d < 60000) return 'just now';
+  if (d < 3600000) return Math.floor(d / 60000) + 'm ago';
+  if (d < 86400000) return Math.floor(d / 3600000) + 'h ago';
+  return Math.floor(d / 86400000) + 'd ago';
+}
+
+function esc(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function sendTestOrder() {
+  var fromID = document.getElementById('nf-id').value;
+  var toSel = document.getElementById('to-dest');
+  var toID = toSel.value;
+  if (fromID === toID) {
+    document.getElementById('test-order-result').innerHTML =
+      '<span style="color:var(--danger)">Source and destination must be different</span>';
+    return;
+  }
+  var resultEl = document.getElementById('test-order-result');
+  resultEl.innerHTML = '<span class="text-muted">Dispatching...</span>';
+  fetch('/api/nodes/test-order', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from_node_id: parseInt(fromID), to_node_id: parseInt(toID)})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) {
+      resultEl.innerHTML = '<span style="color:var(--danger)">' + esc(data.error) + '</span>';
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--success)">Order #' + data.order_id +
+        ' dispatched (' + esc(data.from) + ' \u2192 ' + esc(data.to) + ')</span>';
+    }
+  })
+  .catch(function() {
+    resultEl.innerHTML = '<span style="color:var(--danger)">Request failed</span>';
+  });
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') { closeNodeModal(); closeOccupancyModal(); }
+});
+</script>
+
+<!-- Node Occupancy Modal -->
+<div id="occupancy-modal" class="modal-overlay" onclick="if(event.target===this)closeOccupancyModal()">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header flex flex-between">
+      <h2>Node Occupancy</h2>
+      <button class="modal-close" onclick="closeOccupancyModal()">&times;</button>
+    </div>
+    <div id="occupancy-modal-content">
+      <span class="text-muted">Loading...</span>
+    </div>
+  </div>
+</div>
+
+<script>
+function checkOccupancy() {
+  document.getElementById('occupancy-modal').classList.add('active');
+  document.getElementById('occupancy-modal-content').innerHTML = '<span class="text-muted">Loading...</span>';
+  fetch('/api/nodes/occupancy')
+    .then(function(r) { return r.json(); })
+    .then(function(items) {
+      if (!items || items.length === 0) {
+        document.getElementById('occupancy-modal-content').innerHTML = '<span class="text-muted">No locations found</span>';
+        return;
+      }
+      var html = '<table style="font-size:0.8rem"><thead><tr><th>Location</th><th>Node</th><th>Fleet Occupied</th><th>In ShinGo</th><th>Status</th></tr></thead><tbody>';
+      items.forEach(function(item) {
+        var cls = '';
+        var status = 'OK';
+        if (item.discrepancy === 'fleet_only') { cls = ' style="background:#fff3cd"'; status = 'Fleet Only'; }
+        else if (item.discrepancy === 'shingo_only') { cls = ' style="background:#f8d7da"'; status = 'ShinGo Only'; }
+        var occupied = item.fleet_occupied === null ? '-' : (item.fleet_occupied ? 'Yes' : 'No');
+        html += '<tr' + cls + '><td>' + esc(item.location_id) + '</td><td>' + esc(item.node_name || '-') + '</td><td>' + occupied + '</td><td>' + (item.in_shingo ? 'Yes' : 'No') + '</td><td>' + status + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('occupancy-modal-content').innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('occupancy-modal-content').innerHTML = '<span class="text-muted">Error loading occupancy</span>';
+    });
+}
+
+function closeOccupancyModal() {
+  document.getElementById('occupancy-modal').classList.remove('active');
+}
+</script>
+{{end}}

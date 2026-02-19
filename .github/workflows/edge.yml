@@ -1,0 +1,29 @@
+name: Edge
+
+on:
+  push:
+    paths:
+      - 'shingo-edge/**'
+      - 'protocol/**'
+  pull_request:
+    paths:
+      - 'shingo-edge/**'
+      - 'protocol/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build
+        working-directory: shingo-edge
+        run: go build ./...
+
+      - name: Test
+        working-directory: shingo-edge
+        run: go test ./...

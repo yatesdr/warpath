@@ -1,0 +1,113 @@
+package www
+
+import (
+	"net/http"
+)
+
+func (h *Handlers) handleSetup(w http.ResponseWriter, r *http.Request) {
+	db := h.engine.DB()
+	cfg := h.engine.AppConfig()
+	mgr := h.engine.PLCManager()
+
+	lines, _ := db.ListProductionLines()
+	jobStyles, _ := db.ListJobStyles()
+	payloads, _ := db.ListPayloads()
+	reportingPoints, _ := db.ListReportingPoints()
+	templates, _ := db.ListKanbanTemplates()
+
+	// Build JobStyleMap (ID -> Name) for display
+	jobStyleMap := make(map[int64]string)
+	for _, js := range jobStyles {
+		jobStyleMap[js.ID] = js.Name
+	}
+
+	// Build LineMap (ID -> Name) for display
+	lineMap := make(map[int64]string)
+	for _, l := range lines {
+		lineMap[l.ID] = l.Name
+	}
+
+	// Build PLCNames list and connection status from WarLink discovery
+	plcNames := mgr.PLCNames()
+	plcStatus := make(map[string]bool)
+	plcStatuses := mgr.PLCStatuses()
+	for _, name := range plcNames {
+		plcStatus[name] = plcStatuses[name] == "Connected"
+	}
+
+	locationNodes, _ := db.ListLocationNodes()
+	anomalies, rpMap := loadAnomalyData(h)
+
+	data := map[string]interface{}{
+		"Page":              "setup",
+		"PLCStatus":         plcStatus,
+		"PLCStatuses":       plcStatuses,
+		"Lines":             lines,
+		"JobStyles":         jobStyles,
+		"Payloads":          payloads,
+		"ReportingPoints":   reportingPoints,
+		"Templates":         templates,
+		"Config":            cfg,
+		"JobStyleMap":       jobStyleMap,
+		"LineMap":           lineMap,
+		"PLCNames":          plcNames,
+		"LocationNodes":     locationNodes,
+		"Anomalies":         anomalies,
+		"ReportingPointMap": rpMap,
+		"WarLinkConnected":  mgr.IsWarLinkConnected(),
+	}
+
+	h.renderTemplate(w, "setup.html", data)
+}
+
+func (h *Handlers) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	// If already logged in, redirect to setup
+	if username, ok := h.sessions.getUser(r); ok && username != "" {
+		http.Redirect(w, r, "/setup", http.StatusSeeOther)
+		return
+	}
+	h.renderTemplate(w, "login.html", map[string]interface{}{
+		"Page": "login",
+	})
+}
+
+func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+
+	db := h.engine.DB()
+
+	// Check if any admin user exists; if not, create one
+	exists, _ := db.AdminUserExists()
+	if !exists {
+		hash, err := hashPassword(password)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if _, err := db.CreateAdminUser(username, hash); err != nil {
+			http.Error(w, "failed to create admin user", http.StatusInternalServerError)
+			return
+		}
+		h.sessions.setUser(w, r, username)
+		http.Redirect(w, r, "/setup", http.StatusSeeOther)
+		return
+	}
+
+	user, err := db.GetAdminUser(username)
+	if err != nil || !checkPassword(password, user.PasswordHash) {
+		h.renderTemplate(w, "login.html", map[string]interface{}{
+			"Page":  "login",
+			"Error": "Invalid username or password",
+		})
+		return
+	}
+
+	h.sessions.setUser(w, r, username)
+	http.Redirect(w, r, "/setup", http.StatusSeeOther)
+}
+
+func (h *Handlers) handleLogout(w http.ResponseWriter, r *http.Request) {
+	h.sessions.clear(w, r)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}

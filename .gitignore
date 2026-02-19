@@ -1,0 +1,35 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+shingocore
+shingoedge
+
+# Database files
+*.db
+*.db-wal
+*.db-shm
+
+# Config files (may contain secrets)
+shingocore.yaml
+shingoedge.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+
+# Temp files
+scene.json
+scene.txt

@@ -1,0 +1,139 @@
+{{define "content"}}
+<div data-sse="orders">
+  {{if .Order}}
+  {{/* Order detail view */}}
+  <div class="flex flex-between mb-2">
+    <h1>Order #{{.Order.ID}}</h1>
+    <a href="/orders">Back to list</a>
+  </div>
+
+  <div class="grid grid-2 mb-2">
+    <div class="card">
+      <h3>Details</h3>
+      <table>
+        <tr><td><strong>UUID</strong></td><td>{{.Order.EdgeUUID}}</td></tr>
+        <tr><td><strong>Client</strong></td><td>{{.Order.ClientID}}</td></tr>
+        <tr><td><strong>Type</strong></td><td>{{.Order.OrderType}}</td></tr>
+        <tr><td><strong>Payload Type</strong></td><td>{{if .Order.PayloadTypeID}}PT#{{deref .Order.PayloadTypeID}}{{else}}{{.Order.MaterialCode}}{{end}}</td></tr>
+        <tr><td><strong>Quantity</strong></td><td>{{.Order.Quantity}}</td></tr>
+        <tr><td><strong>Status</strong></td><td><span class="badge badge-{{.Order.Status}}">{{.Order.Status}}</span></td></tr>
+        <tr><td><strong>Vendor Order</strong></td><td>{{.Order.VendorOrderID}}</td></tr>
+        <tr><td><strong>Robot</strong></td><td>{{.Order.RobotID}}</td></tr>
+        <tr><td><strong>Priority</strong></td><td>{{.Order.Priority}}</td></tr>
+        <tr><td><strong>Created</strong></td><td>{{formatTime .Order.CreatedAt}}</td></tr>
+        <tr><td><strong>Updated</strong></td><td>{{formatTime .Order.UpdatedAt}}</td></tr>
+        <tr><td><strong>Completed</strong></td><td>{{formatTimePtr .Order.CompletedAt}}</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Timeline</h3>
+      {{if .History}}
+      <div class="timeline">
+        {{range .History}}
+        <div class="timeline-item">
+          <div><span class="badge badge-{{.Status}}">{{.Status}}</span></div>
+          <div>{{.Detail}}</div>
+          <div class="time">{{formatTime .CreatedAt}}</div>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <p class="text-muted">No history</p>
+      {{end}}
+    </div>
+  </div>
+
+  {{if .Authenticated}}
+  <div class="card mb-2">
+    <h3>Controls</h3>
+    <div id="order-status-msg" style="font-size:0.85rem;margin-bottom:0.5rem;min-height:1.2em" class="text-muted"></div>
+    <div class="flex gap-1" style="align-items:center;flex-wrap:wrap">
+      {{if and (ne .Order.Status "completed") (ne .Order.Status "cancelled") (ne .Order.Status "failed")}}
+      <button class="btn btn-danger btn-sm" onclick="terminateOrder({{.Order.ID}})">Terminate Order</button>
+      {{end}}
+      <label style="font-size:0.85rem;margin-left:1rem">Priority:</label>
+      <input type="number" id="order-priority" value="{{.Order.Priority}}" style="width:5rem">
+      <button class="btn btn-sm" onclick="setOrderPriority({{.Order.ID}})">Set Priority</button>
+    </div>
+  </div>
+  {{end}}
+
+  {{else}}
+  {{/* Order list view */}}
+  <div class="flex flex-between mb-2">
+    <h1>Orders</h1>
+    <div class="flex gap-1">
+      <a href="/orders" class="btn btn-sm {{if not .FilterStatus}}btn-primary{{end}}">All</a>
+      <a href="/orders?status=pending" class="btn btn-sm {{if eq .FilterStatus "pending"}}btn-primary{{end}}">Pending</a>
+      <a href="/orders?status=dispatched" class="btn btn-sm {{if eq .FilterStatus "dispatched"}}btn-primary{{end}}">Dispatched</a>
+      <a href="/orders?status=in_transit" class="btn btn-sm {{if eq .FilterStatus "in_transit"}}btn-primary{{end}}">In Transit</a>
+      <a href="/orders?status=completed" class="btn btn-sm {{if eq .FilterStatus "completed"}}btn-primary{{end}}">Completed</a>
+      <a href="/orders?status=failed" class="btn btn-sm {{if eq .FilterStatus "failed"}}btn-primary{{end}}">Failed</a>
+    </div>
+  </div>
+
+  <div class="card">
+    {{if .Orders}}
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>UUID</th>
+          <th>Client</th>
+          <th>Type</th>
+          <th>Payload Type</th>
+          <th>Status</th>
+          <th>Robot</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Orders}}
+        <tr>
+          <td><a href="/orders/detail?id={{.ID}}">{{.ID}}</a></td>
+          <td style="font-family:monospace;font-size:0.8rem">{{.EdgeUUID}}</td>
+          <td>{{.ClientID}}</td>
+          <td>{{.OrderType}}</td>
+          <td>{{if .PayloadTypeID}}PT#{{deref .PayloadTypeID}}{{else}}{{.MaterialCode}}{{end}}</td>
+          <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+          <td>{{.RobotID}}</td>
+          <td>{{formatTime .CreatedAt}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="text-muted">No orders found.</p>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+
+<script>
+function orderControlPost(url, body) {
+  var msg = document.getElementById('order-status-msg');
+  if (msg) msg.textContent = 'Sending...';
+  fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(function(r) { return r.json().then(function(d) { return {ok:r.ok, data:d}; }); })
+    .then(function(r) {
+      if (msg) msg.textContent = r.ok ? 'OK - reloading...' : (r.data.error || 'Error');
+      if (r.ok) setTimeout(function() { location.reload(); }, 800);
+    })
+    .catch(function(e) {
+      if (msg) msg.textContent = 'Network error';
+    });
+}
+
+function terminateOrder(id) {
+  if (!confirm('Terminate order #' + id + '? This cannot be undone.')) return;
+  orderControlPost('/api/orders/terminate', {order_id: id});
+}
+
+function setOrderPriority(id) {
+  var p = parseInt(document.getElementById('order-priority').value, 10);
+  if (isNaN(p)) return;
+  orderControlPost('/api/orders/priority', {order_id: id, priority: p});
+}
+</script>
+{{end}}

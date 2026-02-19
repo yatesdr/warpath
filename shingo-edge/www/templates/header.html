@@ -1,0 +1,112 @@
+{{define "header"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>ShinGo Edge</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{cacheBust}}">
+    <script>
+    (function(){var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'}document.documentElement.dataset.theme=t})();
+    </script>
+    <link rel="stylesheet" href="/static/css/shingoedge.css">
+    <script src="/static/js/shingoedge.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="/">ShinGo Edge</a>
+        </div>
+        <div class="nav-links">
+            <a href="/material" class="{{if eq .Page "material"}}active{{end}}">Status</a>
+            <a href="/kanbans" class="{{if eq .Page "kanbans"}}active{{end}}">Open Orders</a>
+            <a href="/changeover" class="{{if eq .Page "changeover"}}active{{end}}">Changeover</a>
+            <a href="/manual-order" class="{{if eq .Page "manual-order"}}active{{end}}">Manual Order</a>
+            <span class="nav-divider"></span>
+            <a href="/setup" class="{{if eq .Page "setup"}}active{{end}}">Setup</a>
+        </div>
+        <div class="nav-user">
+            {{if .Anomalies}}
+            <div class="anomaly-bell-wrap" style="position:relative">
+                <button class="anomaly-bell" onclick="toggleAnomalyPopover()" title="Counter anomalies">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span class="anomaly-badge" id="anomaly-count">{{len .Anomalies}}</span>
+                </button>
+                <div class="anomaly-popover" id="anomaly-popover" style="display:none">
+                    <div class="anomaly-popover-header">Counter Anomalies</div>
+                    <div class="anomaly-popover-body" id="anomaly-list">
+                        {{range .Anomalies}}
+                        <div class="anomaly-item" id="anomaly-{{.ID}}">
+                            <div class="anomaly-detail">
+                                {{$rp := index $.ReportingPointMap .ReportingPointID}}
+                                {{if $rp}}<strong>{{index $rp "PLCName"}}</strong> / <span class="mono">{{index $rp "TagName"}}</span>: {{end}}
+                                Count jumped to {{.CountValue}} (delta: {{.Delta}})
+                            </div>
+                            <div class="anomaly-actions">
+                                <button class="btn btn-sm btn-primary" onclick="confirmAnomaly({{.ID}})">Confirm</button>
+                                <button class="btn btn-sm" onclick="dismissAnomaly({{.ID}})">Dismiss</button>
+                            </div>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+            {{else}}
+            <div class="anomaly-bell-wrap" style="position:relative">
+                <button class="anomaly-bell anomaly-bell-clear" title="No anomalies" disabled>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </button>
+            </div>
+            {{end}}
+            <button class="theme-toggle" onclick="ShinGoEdge.toggleTheme()" title="Toggle theme"></button>
+        </div>
+    </nav>
+    <main class="container">
+
+<script>
+function toggleAnomalyPopover() {
+    var pop = document.getElementById('anomaly-popover');
+    if (pop) pop.style.display = pop.style.display === 'none' ? 'block' : 'none';
+}
+
+// Close popover on outside click
+document.addEventListener('click', function(e) {
+    var wrap = document.querySelector('.anomaly-bell-wrap');
+    var pop = document.getElementById('anomaly-popover');
+    if (wrap && pop && !wrap.contains(e.target)) {
+        pop.style.display = 'none';
+    }
+});
+
+async function confirmAnomaly(id) {
+    try {
+        await ShinGoEdge.api.post('/api/confirm-anomaly/' + id, {});
+        var el = document.getElementById('anomaly-' + id);
+        if (el) el.remove();
+        updateAnomalyBadge();
+        ShinGoEdge.toast('Anomaly confirmed', 'success');
+    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+}
+
+async function dismissAnomaly(id) {
+    try {
+        await ShinGoEdge.api.post('/api/dismiss-anomaly/' + id, {});
+        var el = document.getElementById('anomaly-' + id);
+        if (el) el.remove();
+        updateAnomalyBadge();
+        ShinGoEdge.toast('Anomaly dismissed', 'success');
+    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+}
+
+function updateAnomalyBadge() {
+    var items = document.querySelectorAll('.anomaly-item');
+    var badge = document.getElementById('anomaly-count');
+    if (badge) badge.textContent = items.length;
+    if (items.length === 0) {
+        var pop = document.getElementById('anomaly-popover');
+        if (pop) pop.style.display = 'none';
+    }
+}
+</script>
+{{end}}

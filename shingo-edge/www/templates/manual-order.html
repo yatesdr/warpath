@@ -1,0 +1,109 @@
+{{template "header" .}}
+
+<div class="page-header">
+    <h1>Manual Order</h1>
+</div>
+
+<div class="card" style="max-width:600px">
+    <div class="card-header"><strong>Manual Order</strong></div>
+    <div class="card-body">
+        <div class="form-group">
+            <label>Order Type</label>
+            <select id="mo-type" class="form-input" onchange="updateOrderForm()">
+                <option value="retrieve">Retrieve</option>
+                <option value="store">Store</option>
+                <option value="move">Move</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Payload</label>
+            <select id="mo-payload" class="form-input" onchange="autofillPayloadNodes()">
+                <option value="">-- Select --</option>
+                {{range .Payloads}}
+                <option value="{{.ID}}" data-location="{{.Location}}" data-staging="{{.StagingNode}}" data-retrieve-empty="{{.RetrieveEmpty}}">{{.Description}} ({{.Location}})</option>
+                {{end}}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Quantity</label>
+            <input type="number" id="mo-qty" class="form-input" value="1" min="1">
+        </div>
+        <div class="form-group" id="mo-delivery-group">
+            <label>Delivery Node</label>
+            <input type="text" id="mo-delivery" class="form-input">
+        </div>
+        <div class="form-group" id="mo-staging-group">
+            <label>Staging Node</label>
+            <input type="text" id="mo-staging" class="form-input">
+        </div>
+        <div class="form-group" id="mo-pickup-group" style="display:none">
+            <label>Pickup Node</label>
+            <input type="text" id="mo-pickup" class="form-input">
+        </div>
+        <div class="form-group">
+            <label>Template</label>
+            <select id="mo-template" class="form-input">
+                <option value="">-- None --</option>
+                {{range .Templates}}
+                <option value="{{.ID}}">{{.Name}} ({{.OrderType}})</option>
+                {{end}}
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="createOrder()">Create Order</button>
+    </div>
+</div>
+
+<script>
+function updateOrderForm() {
+    var t = document.getElementById('mo-type').value;
+    document.getElementById('mo-delivery-group').style.display = (t === 'retrieve' || t === 'move') ? '' : 'none';
+    document.getElementById('mo-staging-group').style.display = (t === 'retrieve') ? '' : 'none';
+    document.getElementById('mo-pickup-group').style.display = (t === 'store' || t === 'move') ? '' : 'none';
+    autofillPayloadNodes();
+}
+
+function autofillPayloadNodes() {
+    var sel = document.getElementById('mo-payload');
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    var t = document.getElementById('mo-type').value;
+    if (t === 'retrieve') {
+        document.getElementById('mo-delivery').value = opt.dataset.location || '';
+        document.getElementById('mo-staging').value = opt.dataset.staging || '';
+    } else if (t === 'move') {
+        document.getElementById('mo-delivery').value = '';
+        document.getElementById('mo-pickup').value = opt.dataset.location || '';
+    } else if (t === 'store') {
+        document.getElementById('mo-pickup').value = opt.dataset.location || '';
+    }
+}
+
+async function createOrder() {
+    var t = document.getElementById('mo-type').value;
+    var payloadID = parseInt(document.getElementById('mo-payload').value) || 0;
+    var body = {
+        payload_id: payloadID || null,
+        quantity: parseFloat(document.getElementById('mo-qty').value),
+        delivery_node: document.getElementById('mo-delivery').value,
+        pickup_node: document.getElementById('mo-pickup').value,
+        staging_node: document.getElementById('mo-staging') ? document.getElementById('mo-staging').value : '',
+        template_id: parseInt(document.getElementById('mo-template').value) || 0
+    };
+    try {
+        await ShinGoEdge.api.post('/api/orders/' + t, body);
+        ShinGoEdge.toast('Order created', 'success');
+        // Reset form
+        document.getElementById('mo-payload').selectedIndex = 0;
+        document.getElementById('mo-qty').value = '1';
+        document.getElementById('mo-delivery').value = '';
+        document.getElementById('mo-pickup').value = '';
+        if (document.getElementById('mo-staging')) document.getElementById('mo-staging').value = '';
+    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+}
+
+ShinGoEdge.createSSE('/events', {
+    onCounterAnomaly: function() { location.reload(); }
+});
+</script>
+
+{{template "footer" .}}

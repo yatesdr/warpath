@@ -1,0 +1,194 @@
+{{template "header" .}}
+
+<div style="display:flex;align-items:center;margin-bottom:0.75rem;flex-wrap:wrap">
+    {{if .Lines}}
+    <select class="form-input" style="width:14rem" onchange="if(this.value)window.location='?line='+this.value">
+        {{range .Lines}}
+        <option value="{{.ID}}" {{if eq .ID $.ActiveLineID}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+    </select>
+    {{end}}
+    <span style="margin-left:auto;font-size:0.85rem;color:var(--color-text-muted)">
+        {{if .ActiveJobStyle}}Job Style: <strong>{{.ActiveJobStyle}}</strong>{{else}}No active job style{{end}}
+    </span>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>LSL Node</th>
+                    <th>Wants</th>
+                    <th>Has</th>
+                    <th>UOP Total</th>
+                    <th>Remaining</th>
+                    <th>Remaining %</th>
+                    <th>Reorder Pt</th>
+                    <th>Auto-Reorder</th>
+                </tr>
+            </thead>
+            <tbody id="payloads-body">
+                {{range .Payloads}}
+                <tr data-payload-id="{{.ID}}">
+                    <td>{{.Description}}</td>
+                    <td class="mono">{{.Location}}</td>
+                    <td>{{.Description}}</td>
+                    <td>
+                        {{if .HasDescription}}
+                            {{if ne .HasDescription .Description}}
+                                <span style="color:var(--color-danger);font-weight:600">{{.HasDescription}}</span>
+                            {{else}}
+                                {{.HasDescription}}
+                            {{end}}
+                        {{else}}
+                            <span style="color:var(--color-text-muted)">--</span>
+                        {{end}}
+                    </td>
+                    <td>{{.ProductionUnits}}</td>
+                    <td>
+                        <span class="cell-clickable payload-remaining" onclick="openPieceCount({{.ID}}, '{{.Description}}', '{{.Location}}', {{.Multiplier}}, {{.Remaining}}, {{.ProductionUnits}})">{{.Remaining}}</span>
+                    </td>
+                    <td>
+                        <div class="progress-bar-container">
+                            {{if gt .ProductionUnits 0}}
+                            <div class="progress-bar {{if eq .Status "empty"}}progress-danger{{else if eq .Status "replenishing"}}progress-warning{{else}}progress-success{{end}}" style="width:{{printf "%.0f" (divPercent .Remaining .ProductionUnits)}}%"></div>
+                            {{end}}
+                            <span class="progress-label">{{if gt .ProductionUnits 0}}{{printf "%.0f" (divPercent .Remaining .ProductionUnits)}}%{{else}}--{{end}}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="cell-clickable" onclick="editReorderPoint(this, {{.ID}}, {{.ReorderPoint}})">{{.ReorderPoint}}</span>
+                    </td>
+                    <td>
+                        <label class="toggle-switch">
+                            <input type="checkbox" {{if .AutoReorder}}checked{{end}} onchange="toggleAutoReorder({{.ID}}, this.checked)">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </td>
+                </tr>
+                {{else}}
+                <tr><td colspan="9" class="empty-cell">No payloads configured</td></tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Piece Count Modal -->
+<div class="modal" id="piece-count" style="display:none">
+    <div class="modal-content">
+        <div class="card">
+            <div class="modal-header">Piece Count <button class="btn btn-sm" onclick="ShinGoEdge.hideModal('piece-count')">&times;</button></div>
+            <div class="card-body">
+                <p><strong id="pc-desc"></strong> at <span class="mono" id="pc-loc"></span></p>
+                <p style="font-size:0.85rem;color:var(--color-text-muted)">Multiplier: <span id="pc-mult"></span> pieces/assembly</p>
+                <div class="form-group">
+                    <label>Physical Piece Count</label>
+                    <input type="number" id="pc-pieces" class="form-input" min="0" oninput="previewProdUnits()">
+                </div>
+                <p style="font-size:0.85rem">Production Units: <strong id="pc-preview">--</strong></p>
+                <input type="hidden" id="pc-id">
+                <input type="hidden" id="pc-multiplier">
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="ShinGoEdge.hideModal('piece-count')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitPieceCount()">Submit</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function openPieceCount(id, desc, loc, multiplier, remaining, total) {
+    document.getElementById('pc-id').value = id;
+    document.getElementById('pc-desc').textContent = desc;
+    document.getElementById('pc-loc').textContent = loc;
+    document.getElementById('pc-mult').textContent = multiplier;
+    document.getElementById('pc-multiplier').value = multiplier;
+    document.getElementById('pc-pieces').value = Math.round(remaining * multiplier);
+    previewProdUnits();
+    ShinGoEdge.showModal('piece-count');
+}
+
+function previewProdUnits() {
+    var pieces = parseFloat(document.getElementById('pc-pieces').value) || 0;
+    var mult = parseFloat(document.getElementById('pc-multiplier').value) || 1;
+    document.getElementById('pc-preview').textContent = Math.round(pieces / mult);
+}
+
+async function submitPieceCount() {
+    var id = document.getElementById('pc-id').value;
+    var pieces = parseFloat(document.getElementById('pc-pieces').value) || 0;
+    try {
+        await ShinGoEdge.api.put('/api/payloads/' + id + '/count', { piece_count: pieces });
+        ShinGoEdge.toast('Count updated', 'success');
+        ShinGoEdge.hideModal('piece-count');
+        location.reload();
+    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+}
+
+function editReorderPoint(el, id, currentVal) {
+    var input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'inline-edit-input';
+    input.value = currentVal;
+    input.min = 0;
+    input.dataset.id = id;
+    input.dataset.original = currentVal;
+
+    el.replaceWith(input);
+    input.focus();
+    input.select();
+
+    function commit() {
+        var newVal = parseInt(input.value);
+        if (isNaN(newVal) || newVal < 0) newVal = parseInt(input.dataset.original);
+        var span = document.createElement('span');
+        span.className = 'cell-clickable';
+        span.textContent = newVal;
+        span.onclick = function() { editReorderPoint(span, id, newVal); };
+        input.replaceWith(span);
+        if (newVal !== parseInt(input.dataset.original)) {
+            saveReorderPoint(id, newVal);
+        }
+    }
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = input.dataset.original; input.blur(); }
+    });
+}
+
+async function saveReorderPoint(id, val) {
+    try {
+        await ShinGoEdge.api.put('/api/payloads/' + id + '/reorder-point', { reorder_point: val });
+        ShinGoEdge.toast('Reorder point updated', 'success');
+    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+}
+
+async function toggleAutoReorder(id, enabled) {
+    try {
+        await ShinGoEdge.api.put('/api/payloads/' + id + '/auto-reorder', { enabled: enabled });
+        ShinGoEdge.toast('Auto-reorder ' + (enabled ? 'enabled' : 'disabled'), 'success');
+    } catch (e) { ShinGoEdge.toast('Error: ' + e, 'error'); }
+}
+
+// SSE: real-time payload updates
+ShinGoEdge.createSSE('/events', {
+    onPayloadUpdate: function(data) {
+        var row = document.querySelector('tr[data-payload-id="' + data.payload_id + '"]');
+        if (!row) return;
+        var remainCell = row.querySelector('.payload-remaining');
+        if (remainCell) remainCell.textContent = data.new_remaining;
+        location.reload();
+    },
+    onCounterAnomaly: function() { location.reload(); },
+    onOrderUpdate: function() {},
+    onPayloadReorder: function() {}
+});
+</script>
+
+{{template "footer" .}}
