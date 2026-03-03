@@ -50,6 +50,10 @@ func (h *Handlers) apiTestOrderSubmit(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "order_type is required", http.StatusBadRequest)
 		return
 	}
+	if req.PayloadTypeCode == "" {
+		h.jsonError(w, "payload_type is required", http.StatusBadRequest)
+		return
+	}
 	if req.Quantity <= 0 {
 		req.Quantity = 1
 	}
