@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -366,10 +368,12 @@ func (e *Engine) SceneSync() (int, int, int, error) {
 	return total, created, deleted, nil
 }
 
-// robotRefreshLoop polls robot status every 2 seconds and emits EventRobotsUpdated.
+// robotRefreshLoop polls robot status every 2 seconds and emits EventRobotsUpdated
+// only when the robot state has actually changed.
 func (e *Engine) robotRefreshLoop() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	var prevHash [sha256.Size]byte
 	for {
 		select {
 		case <-e.stopChan:
@@ -387,6 +391,12 @@ func (e *Engine) robotRefreshLoop() {
 				e.dbg("engine: robot refresh: %v", err)
 				continue
 			}
+			data, _ := json.Marshal(robots)
+			hash := sha256.Sum256(data)
+			if hash == prevHash {
+				continue
+			}
+			prevHash = hash
 			e.Events.Emit(Event{
 				Type:    EventRobotsUpdated,
 				Payload: RobotsUpdatedEvent{Robots: robots},

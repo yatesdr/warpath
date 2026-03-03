@@ -43,9 +43,6 @@ func (h *EventHub) Stop() {
 }
 
 func (h *EventHub) run() {
-	keepalive := time.NewTicker(30 * time.Second)
-	defer keepalive.Stop()
-
 	for {
 		select {
 		case <-h.stopChan:
@@ -56,16 +53,7 @@ func (h *EventHub) run() {
 				select {
 				case ch <- evt:
 				default:
-					// drop if full
-				}
-			}
-			h.mu.RUnlock()
-		case <-keepalive.C:
-			h.mu.RLock()
-			for ch := range h.clients {
-				select {
-				case ch <- SSEEvent{Event: "keepalive", Data: "ping"}:
-				default:
+					log.Printf("sse: dropped %s event for slow client", evt.Event)
 				}
 			}
 			h.mu.RUnlock()
@@ -77,6 +65,7 @@ func (h *EventHub) Broadcast(event, data string) {
 	select {
 	case h.broadcast <- SSEEvent{Event: event, Data: data}:
 	default:
+		log.Printf("sse: broadcast buffer full, dropped %s event", event)
 	}
 }
 
@@ -243,9 +232,13 @@ func (h *EventHub) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	ch := h.AddClient()
 	defer h.RemoveClient(ch)
+
+	keepalive := time.NewTicker(30 * time.Second)
+	defer keepalive.Stop()
 
 	for {
 		select {
@@ -254,6 +247,12 @@ func (h *EventHub) SSEHandler(w http.ResponseWriter, r *http.Request) {
 		case evt := <-ch:
 			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Event, evt.Data); err != nil {
 				log.Printf("sse: write error: %v", err)
+				return
+			}
+			flusher.Flush()
+		case <-keepalive.C:
+			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+				log.Printf("sse: keepalive write error: %v", err)
 				return
 			}
 			flusher.Flush()

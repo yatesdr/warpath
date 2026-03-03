@@ -57,7 +57,7 @@ func (h *EventHub) Broadcast(evt SSEEvent) {
 	select {
 	case h.broadcast <- evt:
 	default:
-		// Drop if broadcast buffer is full
+		log.Printf("sse: broadcast buffer full, dropped %s event", evt.Type)
 	}
 }
 
@@ -85,7 +85,7 @@ func (h *EventHub) run() {
 				select {
 				case c.events <- evt:
 				default:
-					// Client buffer full, drop event
+					log.Printf("sse: dropped %s event for slow client", evt.Type)
 				}
 			}
 			h.mu.RUnlock()
