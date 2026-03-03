@@ -111,19 +111,43 @@
         <div>
           <label class="to-label">Command Type</label>
           <select id="c-cmd-type" class="to-input" onchange="updateCmdFields()">
-            <option value="move">Move</option>
-            <option value="jack">Jack</option>
-            <option value="unjack">UnJack</option>
-            <option value="charge">Charge</option>
+            <optgroup label="Orders">
+              <option value="move">Move</option>
+              <option value="jack">Jack</option>
+              <option value="unjack">UnJack</option>
+              <option value="charge">Charge</option>
+            </optgroup>
+            <optgroup label="Navigation">
+              <option value="pause">Pause</option>
+              <option value="resume">Resume</option>
+            </optgroup>
+            <optgroup label="Robot Control">
+              <option value="dispatchable">Set Dispatchable</option>
+              <option value="redo_failed">Redo Failed</option>
+              <option value="manual_finish">Manual Finish</option>
+              <option value="preempt">Preempt Control</option>
+              <option value="release">Release Control</option>
+              <option value="confirm_reloc">Confirm Reloc</option>
+            </optgroup>
+            <optgroup label="Containers">
+              <option value="bind_goods">Bind Goods</option>
+              <option value="unbind_goods">Unbind Goods</option>
+              <option value="unbind_container">Unbind Container</option>
+              <option value="clear_goods">Clear All Goods</option>
+            </optgroup>
+            <optgroup label="System">
+              <option value="switch_map">Switch Map</option>
+              <option value="terminate">Terminate Order</option>
+            </optgroup>
           </select>
         </div>
-        <div>
+        <div id="c-robot-wrap">
           <label class="to-label">Robot</label>
           <select id="c-robot" class="to-input">
             <option value="">Loading...</option>
           </select>
         </div>
-        <div>
+        <div id="c-location-wrap">
           <label class="to-label">Location</label>
           <select id="c-location" class="to-input">
             <option value="">Loading...</option>
@@ -132,6 +156,30 @@
         <div id="c-config-wrap">
           <label class="to-label">Config ID</label>
           <input type="text" id="c-config-id" class="to-input" placeholder="PostAction configId">
+        </div>
+        <div id="c-dispatch-wrap" style="display:none">
+          <label class="to-label">Dispatch Type</label>
+          <select id="c-dispatch-type" class="to-input">
+            <option value="dispatchable">Dispatchable</option>
+            <option value="undispatchable_unignore">Undispatchable (unignore)</option>
+            <option value="undispatchable_ignore">Undispatchable (ignore)</option>
+          </select>
+        </div>
+        <div id="c-map-wrap" style="display:none">
+          <label class="to-label">Map Name</label>
+          <input type="text" id="c-map-name" class="to-input" placeholder="Map name">
+        </div>
+        <div id="c-orderid-wrap" style="display:none">
+          <label class="to-label">Order ID</label>
+          <input type="text" id="c-order-id" class="to-input" placeholder="RDS order ID to terminate">
+        </div>
+        <div id="c-container-wrap" style="display:none">
+          <label class="to-label">Container Name</label>
+          <input type="text" id="c-container-name" class="to-input" placeholder="Container name">
+        </div>
+        <div id="c-goods-wrap" style="display:none">
+          <label class="to-label">Goods ID</label>
+          <input type="text" id="c-goods-id" class="to-input" placeholder="Goods ID">
         </div>
       </div>
       <div style="margin-top:.75rem;">
@@ -278,8 +326,20 @@ var scenePoints = []; // cached scene data
 
 function updateCmdFields() {
   var t = document.getElementById('c-cmd-type').value;
+  var orderCmds = ['move','jack','unjack','charge'];
+  var needsLocation = orderCmds.indexOf(t) >= 0;
+  var needsRobot = t !== 'terminate';
+
+  document.getElementById('c-robot-wrap').style.display = needsRobot ? '' : 'none';
+  document.getElementById('c-location-wrap').style.display = needsLocation ? '' : 'none';
   document.getElementById('c-config-wrap').style.display = (t === 'jack' || t === 'unjack') ? '' : 'none';
-  populateLocationDropdown(t);
+  document.getElementById('c-dispatch-wrap').style.display = (t === 'dispatchable') ? '' : 'none';
+  document.getElementById('c-map-wrap').style.display = (t === 'switch_map') ? '' : 'none';
+  document.getElementById('c-orderid-wrap').style.display = (t === 'terminate') ? '' : 'none';
+  document.getElementById('c-container-wrap').style.display = (t === 'bind_goods' || t === 'unbind_container') ? '' : 'none';
+  document.getElementById('c-goods-wrap').style.display = (t === 'bind_goods' || t === 'unbind_goods') ? '' : 'none';
+
+  if (needsLocation) populateLocationDropdown(t);
 }
 
 function populateLocationDropdown(cmdType) {
@@ -500,18 +560,25 @@ async function submitDirectOrder() {
 
 // --- Robot command actions ---
 async function submitCommand() {
+  var cmdType = document.getElementById('c-cmd-type').value;
   var body = {
-    command_type: document.getElementById('c-cmd-type').value,
+    command_type: cmdType,
     robot_id: document.getElementById('c-robot').value,
     location: document.getElementById('c-location').value,
-    config_id: document.getElementById('c-config-id') ? document.getElementById('c-config-id').value : ''
+    config_id: document.getElementById('c-config-id') ? document.getElementById('c-config-id').value : '',
+    dispatch_type: document.getElementById('c-dispatch-type').value,
+    map_name: document.getElementById('c-map-name').value,
+    order_id: document.getElementById('c-order-id').value,
+    container_name: document.getElementById('c-container-name').value,
+    goods_id: document.getElementById('c-goods-id').value
   };
-  if (!body.robot_id) { alert('Select a robot'); return; }
+  if (cmdType !== 'terminate' && !body.robot_id) { alert('Select a robot'); return; }
   try {
     var res = await fetch('/api/test-commands/submit', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     var data = await res.json();
     if (!res.ok) { alert(data.error || 'Error'); return; }
-    alert('Command submitted: ' + data.vendor_order_id);
+    var msg = data.vendor_order_id ? 'Order created: ' + data.vendor_order_id : 'Command ' + (data.status || 'sent');
+    alert(msg);
     refreshCommands();
   } catch(e) { alert('Error: ' + e); }
 }

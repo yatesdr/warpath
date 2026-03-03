@@ -328,17 +328,139 @@ func (h *Handlers) apiTestCommandSubmit(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		CommandType string `json:"command_type"`
-		RobotID     string `json:"robot_id"`
-		Location    string `json:"location"`
-		ConfigID    string `json:"config_id"`
+		CommandType   string `json:"command_type"`
+		RobotID       string `json:"robot_id"`
+		Location      string `json:"location"`
+		ConfigID      string `json:"config_id"`
+		DispatchType  string `json:"dispatch_type"`
+		MapName       string `json:"map_name"`
+		OrderID       string `json:"order_id"`
+		ContainerName string `json:"container_name"`
+		GoodsID       string `json:"goods_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.jsonError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if req.CommandType == "" || req.RobotID == "" {
-		h.jsonError(w, "command_type and robot_id are required", http.StatusBadRequest)
+	if req.CommandType == "" {
+		h.jsonError(w, "command_type is required", http.StatusBadRequest)
+		return
+	}
+
+	client := adapter.RDSClient()
+
+	// Fire-and-forget commands: call RDS directly, record with immediate completion.
+	switch req.CommandType {
+	case "pause", "resume", "redo_failed", "manual_finish", "preempt", "release",
+		"confirm_reloc", "clear_goods", "dispatchable", "switch_map", "terminate",
+		"bind_goods", "unbind_goods", "unbind_container":
+
+		if req.CommandType != "terminate" && req.RobotID == "" {
+			h.jsonError(w, "robot_id is required", http.StatusBadRequest)
+			return
+		}
+
+		var rdsErr error
+		switch req.CommandType {
+		case "pause":
+			rdsErr = client.PauseNavigation([]string{req.RobotID})
+		case "resume":
+			rdsErr = client.ResumeNavigation([]string{req.RobotID})
+		case "redo_failed":
+			rdsErr = client.RedoFailed(&rds.RedoFailedRequest{Vehicles: []string{req.RobotID}})
+		case "manual_finish":
+			rdsErr = client.ManualFinish(&rds.ManualFinishRequest{Vehicles: []string{req.RobotID}})
+		case "preempt":
+			rdsErr = client.PreemptControl([]string{req.RobotID})
+		case "release":
+			rdsErr = client.ReleaseControl([]string{req.RobotID})
+		case "confirm_reloc":
+			rdsErr = client.ConfirmRelocalization([]string{req.RobotID})
+		case "clear_goods":
+			rdsErr = client.ClearAllContainerGoods(req.RobotID)
+		case "dispatchable":
+			if req.DispatchType == "" {
+				req.DispatchType = "dispatchable"
+			}
+			rdsErr = client.SetDispatchable(&rds.DispatchableRequest{
+				Vehicles: []string{req.RobotID},
+				Type:     req.DispatchType,
+			})
+		case "switch_map":
+			if req.MapName == "" {
+				h.jsonError(w, "map_name is required", http.StatusBadRequest)
+				return
+			}
+			rdsErr = client.SwitchMap(req.RobotID, req.MapName)
+		case "terminate":
+			if req.OrderID == "" {
+				h.jsonError(w, "order_id is required", http.StatusBadRequest)
+				return
+			}
+			rdsErr = client.TerminateOrder(&rds.TerminateRequest{ID: req.OrderID})
+		case "bind_goods":
+			if req.ContainerName == "" || req.GoodsID == "" {
+				h.jsonError(w, "container_name and goods_id are required", http.StatusBadRequest)
+				return
+			}
+			rdsErr = client.BindContainerGoods(&rds.BindGoodsRequest{
+				Vehicle:       req.RobotID,
+				ContainerName: req.ContainerName,
+				GoodsID:       req.GoodsID,
+			})
+		case "unbind_goods":
+			if req.GoodsID == "" {
+				h.jsonError(w, "goods_id is required", http.StatusBadRequest)
+				return
+			}
+			rdsErr = client.UnbindGoods(req.RobotID, req.GoodsID)
+		case "unbind_container":
+			if req.ContainerName == "" {
+				h.jsonError(w, "container_name is required", http.StatusBadRequest)
+				return
+			}
+			rdsErr = client.UnbindContainerGoods(req.RobotID, req.ContainerName)
+		}
+
+		state := "COMPLETED"
+		detail := ""
+		if rdsErr != nil {
+			state = "FAILED"
+			detail = rdsErr.Error()
+			log.Printf("test-commands: %s failed: %v", req.CommandType, rdsErr)
+		} else {
+			log.Printf("test-commands: %s succeeded: robot=%s", req.CommandType, req.RobotID)
+		}
+
+		tc := &store.TestCommand{
+			CommandType: req.CommandType,
+			RobotID:     req.RobotID,
+			VendorState: state,
+			Location:    req.Location,
+			Detail:      detail,
+		}
+		if err := h.engine.DB().CreateTestCommand(tc); err != nil {
+			log.Printf("test-commands: db save error: %v", err)
+		}
+		if state == "COMPLETED" {
+			h.engine.DB().CompleteTestCommand(tc.ID)
+		}
+
+		if rdsErr != nil {
+			h.jsonError(w, "RDS command failed: "+rdsErr.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		h.jsonOK(w, map[string]any{
+			"id":     tc.ID,
+			"status": state,
+		})
+		return
+	}
+
+	// Order-creating commands: move, jack, unjack, charge
+	if req.RobotID == "" {
+		h.jsonError(w, "robot_id is required", http.StatusBadRequest)
 		return
 	}
 
@@ -366,7 +488,7 @@ func (h *Handlers) apiTestCommandSubmit(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("test-commands: submitting %s to RDS: robot=%s loc=%s order=%s", req.CommandType, req.RobotID, req.Location, orderID)
 
-	if err := adapter.RDSClient().CreateOrder(rdsReq); err != nil {
+	if err := client.CreateOrder(rdsReq); err != nil {
 		log.Printf("test-commands: RDS error: %v", err)
 		h.jsonError(w, "RDS command failed: "+err.Error(), http.StatusInternalServerError)
 		return
