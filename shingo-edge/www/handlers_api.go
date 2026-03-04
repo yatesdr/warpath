@@ -1240,6 +1240,12 @@ func (h *Handlers) apiUpdateMessaging(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Reconnect Kafka writer to use the new broker addresses
+	if err := h.engine.ReconnectKafka(); err != nil {
+		log.Printf("kafka reconnect after config update: %v", err)
+	}
+
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 

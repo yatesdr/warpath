@@ -35,10 +35,11 @@ type Engine struct {
 
 	hourlyTracker *HourlyTracker
 
-	coreNodes   map[string]bool
-	coreNodesMu sync.RWMutex
-	nodeSyncFn  func()
-	sendFn      func(*protocol.Envelope) error
+	coreNodes      map[string]bool
+	coreNodesMu    sync.RWMutex
+	nodeSyncFn     func()
+	sendFn         func(*protocol.Envelope) error
+	kafkaReconnFn  func() error
 
 	Events   *EventBus
 	stopChan chan struct{}
@@ -229,6 +230,20 @@ func (e *Engine) RequestNodeSync() {
 // SetSendFunc sets the function used to publish protocol envelopes.
 func (e *Engine) SetSendFunc(fn func(*protocol.Envelope) error) {
 	e.sendFn = fn
+}
+
+// SetKafkaReconnectFunc sets the function to reconnect the Kafka client
+// after broker configuration changes at runtime.
+func (e *Engine) SetKafkaReconnectFunc(fn func() error) {
+	e.kafkaReconnFn = fn
+}
+
+// ReconnectKafka triggers a Kafka client reconnection using the current config.
+func (e *Engine) ReconnectKafka() error {
+	if e.kafkaReconnFn == nil {
+		return fmt.Errorf("kafka reconnect not configured")
+	}
+	return e.kafkaReconnFn()
 }
 
 // SendEnvelope publishes a protocol envelope via the configured send function.

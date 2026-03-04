@@ -73,6 +73,9 @@ func main() {
 			return msgClient.PublishEnvelope(cfg.Messaging.OrdersTopic, env)
 		})
 
+		// Wire reconnect so web config changes take effect without restart
+		eng.SetKafkaReconnectFunc(msgClient.Reconnect)
+
 		// Start outbox drainer
 		drainer := messaging.NewOutboxDrainer(db, msgClient, &cfg.Messaging)
 		drainer.Start()

@@ -47,6 +47,31 @@ func (c *Client) Connect() error {
 	return nil
 }
 
+// Reconnect closes the existing writer and creates a new one using the
+// current config values. This is needed after broker addresses are changed
+// at runtime because kafkago.TCP resolves the address at creation time.
+func (c *Client) Reconnect() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.cfg.Kafka.Brokers) == 0 {
+		return fmt.Errorf("no kafka brokers configured")
+	}
+
+	if c.kafkaW != nil {
+		c.kafkaW.Close()
+	}
+
+	c.kafkaW = &kafkago.Writer{
+		Addr:         kafkago.TCP(c.cfg.Kafka.Brokers...),
+		Balancer:     &kafkago.LeastBytes{},
+		RequiredAcks: kafkago.RequireOne,
+	}
+
+	log.Printf("kafka writer reconnected to %v", c.cfg.Kafka.Brokers)
+	return nil
+}
+
 // Publish sends a message to the given topic.
 func (c *Client) Publish(topic string, payload []byte) error {
 	c.mu.RLock()
