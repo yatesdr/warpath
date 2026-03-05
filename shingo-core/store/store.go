@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 
 	"shingocore/config"
 
@@ -12,6 +13,7 @@ import (
 )
 
 type DB struct {
+	mu sync.RWMutex
 	*sql.DB
 	driver string
 }
@@ -66,6 +68,27 @@ func openPostgres(cfg *config.PostgresConfig) (*DB, error) {
 }
 
 func (db *DB) Driver() string { return db.driver }
+
+// Reconnect swaps the underlying database connection in-place.
+// The old connection is closed after the swap. All holders of *DB
+// see the new connection immediately.
+func (db *DB) Reconnect(cfg *config.DatabaseConfig) error {
+	newDB, err := Open(cfg)
+	if err != nil {
+		return err
+	}
+	if err := newDB.Ping(); err != nil {
+		newDB.Close()
+		return fmt.Errorf("ping new db: %w", err)
+	}
+	db.mu.Lock()
+	old := db.DB
+	db.DB = newDB.DB
+	db.driver = newDB.driver
+	db.mu.Unlock()
+	old.Close()
+	return nil
+}
 
 // Q rewrites ? placeholders and datetime literals for PostgreSQL, passes through for SQLite.
 func (db *DB) Q(query string) string {

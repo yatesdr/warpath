@@ -28,12 +28,8 @@ type SupermarketCreateResult struct {
 
 // CreateSupermarket creates a full SMKT → LANE → Slot → SHUF hierarchy in a single transaction.
 func (db *DB) CreateSupermarket(setup SupermarketSetup) (*SupermarketCreateResult, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
+	// Look up node types before starting the transaction to avoid
+	// deadlocking on SQLite's single-connection pool.
 	supType, err := db.GetNodeTypeByCode("SMKT")
 	if err != nil {
 		return nil, fmt.Errorf("SMKT node type not found")
@@ -46,6 +42,12 @@ func (db *DB) CreateSupermarket(setup SupermarketSetup) (*SupermarketCreateResul
 	if err != nil {
 		return nil, fmt.Errorf("SHUF node type not found")
 	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
 
 	// Create SMKT node
 	supResult, err := tx.Exec(db.Q(`INSERT INTO nodes (name, node_type, node_type_id, zone, capacity, enabled) VALUES (?, 'storage', ?, ?, 0, 1)`),
@@ -181,24 +183,29 @@ func (db *DB) GetSupermarketLayout(supermarketID int64) (*SupermarketLayout, err
 
 // DeleteSupermarket recursively deletes a supermarket and all its children in a transaction.
 func (db *DB) DeleteSupermarket(supID int64) error {
+	// Collect all node IDs before starting the transaction to avoid
+	// deadlocking on SQLite's single-connection pool.
+	var deleteIDs []int64
+	children, _ := db.ListChildNodes(supID)
+	for _, child := range children {
+		grandchildren, _ := db.ListChildNodes(child.ID)
+		for _, gc := range grandchildren {
+			deleteIDs = append(deleteIDs, gc.ID)
+		}
+		deleteIDs = append(deleteIDs, child.ID)
+	}
+	deleteIDs = append(deleteIDs, supID)
+
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	children, _ := db.ListChildNodes(supID)
-	for _, child := range children {
-		grandchildren, _ := db.ListChildNodes(child.ID)
-		for _, gc := range grandchildren {
-			tx.Exec(db.Q(`DELETE FROM node_properties WHERE node_id=?`), gc.ID)
-			tx.Exec(db.Q(`DELETE FROM nodes WHERE id=?`), gc.ID)
-		}
-		tx.Exec(db.Q(`DELETE FROM node_properties WHERE node_id=?`), child.ID)
-		tx.Exec(db.Q(`DELETE FROM nodes WHERE id=?`), child.ID)
+	for _, id := range deleteIDs {
+		tx.Exec(db.Q(`DELETE FROM node_properties WHERE node_id=?`), id)
+		tx.Exec(db.Q(`DELETE FROM nodes WHERE id=?`), id)
 	}
-	tx.Exec(db.Q(`DELETE FROM node_properties WHERE node_id=?`), supID)
-	tx.Exec(db.Q(`DELETE FROM nodes WHERE id=?`), supID)
 
 	return tx.Commit()
 }

@@ -93,38 +93,82 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 	r.Get("/robots", h.handleRobots)
 	r.Get("/demand", h.handleDemand)
 
-	// --- Public API (read-only, no auth) ---
+	// --- API routes ---
 	r.Route("/api", func(r chi.Router) {
-		// Nodes
+		// Public (read-only, no auth)
 		r.Get("/nodes", h.apiListNodes)
 		r.Get("/nodes/inventory", h.apiNodePayloads)
 		r.Get("/nodes/occupancy", h.apiNodeOccupancy)
 		r.Get("/nodes/detail", h.apiNodeDetail)
 		r.Get("/nodestate", h.apiNodeState)
 		r.Get("/map/points", h.apiScenePoints)
-
-		// Orders
 		r.Get("/orders", h.apiListOrders)
 		r.Get("/orders/detail", h.apiGetOrder)
-
-		// Robots
 		r.Get("/robots", h.apiRobotsStatus)
-
-		// Payloads
 		r.Get("/payload-styles", h.apiListPayloadStyles)
 		r.Get("/instances", h.apiListInstances)
 		r.Get("/instances/detail", h.apiGetInstance)
 		r.Get("/instances/manifest", h.apiListManifest)
-
-		// Corrections
 		r.Get("/corrections", h.apiListNodeCorrections)
-
-		// Demands
 		r.Get("/demands", h.apiListDemands)
 		r.Get("/demands/{id}/log", h.apiDemandLog)
-
-		// Health
 		r.Get("/health", h.apiHealthCheck)
+
+		// Protected (auth required)
+		r.Group(func(r chi.Router) {
+			r.Use(h.requireAuth)
+
+			r.Post("/nodes/properties/set", h.apiNodePropertySet)
+			r.Post("/nodes/properties/delete", h.apiNodePropertyDelete)
+			r.Post("/nodes/test-order", h.apiNodeTestOrder)
+
+			r.Get("/test-orders", h.apiTestOrdersList)
+			r.Get("/test-orders/detail", h.apiTestOrderDetail)
+			r.Post("/test-orders/submit", h.apiTestOrderSubmit)
+			r.Post("/test-orders/cancel", h.apiTestOrderCancel)
+			r.Post("/test-orders/receipt", h.apiTestOrderReceipt)
+			r.Get("/test-orders/robots", h.apiTestRobots)
+			r.Get("/test-orders/scene-points", h.apiTestScenePoints)
+
+			r.Get("/test-orders/direct", h.apiDirectOrdersList)
+			r.Post("/test-orders/direct", h.apiDirectOrderSubmit)
+
+			r.Post("/test-commands/submit", h.apiTestCommandSubmit)
+			r.Get("/test-commands", h.apiTestCommandsList)
+			r.Get("/test-commands/status", h.apiTestCommandStatus)
+
+			r.Post("/payloads/manifest/create", h.apiCreateManifestItem)
+			r.Post("/payloads/manifest/update", h.apiUpdateManifestItem)
+			r.Post("/payloads/manifest/delete", h.apiDeleteManifestItem)
+
+			r.Post("/instances/action", h.apiInstanceAction)
+			r.Post("/instances/bulk-register", h.apiBulkRegisterInstances)
+			r.Get("/instances/events", h.apiListInstanceEvents)
+
+			r.Post("/supermarket/create", h.apiCreateSupermarket)
+			r.Get("/supermarket/layout", h.apiGetSupermarketLayout)
+			r.Post("/supermarket/delete", h.apiDeleteSupermarket)
+
+			r.Post("/corrections/create", h.apiCreateCorrection)
+
+			r.Post("/fleet/proxy", h.apiFleetProxy)
+
+			r.Post("/robots/availability", h.apiRobotSetAvailability)
+			r.Post("/robots/retry", h.apiRobotRetryFailed)
+			r.Post("/robots/force-complete", h.apiRobotForceComplete)
+
+			r.Post("/orders/terminate", h.apiTerminateOrder)
+			r.Post("/orders/priority", h.apiSetOrderPriority)
+
+			r.Post("/demands", h.apiCreateDemand)
+			r.Put("/demands/{id}", h.apiUpdateDemand)
+			r.Put("/demands/{id}/apply", h.apiApplyDemand)
+			r.Delete("/demands/{id}", h.apiDeleteDemand)
+			r.Post("/demands/apply-all", h.apiApplyAllDemands)
+			r.Put("/demands/{id}/produced", h.apiSetDemandProduced)
+			r.Post("/demands/{id}/clear", h.apiClearDemandProduced)
+			r.Post("/demands/clear-all", h.apiClearAllProduced)
+		})
 	})
 
 	// --- Protected routes (auth required) ---
@@ -141,100 +185,27 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		r.Get("/fleet-explorer", h.handleFleetExplorer)
 
 		// Node management
-		r.Route("/nodes", func(r chi.Router) {
-			r.Post("/create", h.handleNodeCreate)
-			r.Post("/update", h.handleNodeUpdate)
-			r.Post("/delete", h.handleNodeDelete)
-			r.Post("/sync-fleet", h.handleNodeSyncFleet)
-			r.Post("/sync-scene", h.handleSceneSync)
-		})
+		r.Post("/nodes/create", h.handleNodeCreate)
+		r.Post("/nodes/update", h.handleNodeUpdate)
+		r.Post("/nodes/delete", h.handleNodeDelete)
+		r.Post("/nodes/sync-fleet", h.handleNodeSyncFleet)
+		r.Post("/nodes/sync-scene", h.handleSceneSync)
 
 		// Node type management
-		r.Route("/node-types", func(r chi.Router) {
-			r.Post("/create", h.handleNodeTypeCreate)
-			r.Post("/update", h.handleNodeTypeUpdate)
-			r.Post("/delete", h.handleNodeTypeDelete)
-		})
+		r.Post("/node-types/create", h.handleNodeTypeCreate)
+		r.Post("/node-types/update", h.handleNodeTypeUpdate)
+		r.Post("/node-types/delete", h.handleNodeTypeDelete)
 
 		// Payload style management
-		r.Route("/payload-styles", func(r chi.Router) {
-			r.Post("/create", h.handlePayloadStyleCreate)
-			r.Post("/update", h.handlePayloadStyleUpdate)
-			r.Post("/delete", h.handlePayloadStyleDelete)
-		})
+		r.Post("/payload-styles/create", h.handlePayloadStyleCreate)
+		r.Post("/payload-styles/update", h.handlePayloadStyleUpdate)
+		r.Post("/payload-styles/delete", h.handlePayloadStyleDelete)
 
 		// Payload instance management
-		r.Route("/instances", func(r chi.Router) {
-			r.Post("/create", h.handleInstanceCreate)
-			r.Post("/update", h.handleInstanceUpdate)
-			r.Post("/delete", h.handleInstanceDelete)
-		})
+		r.Post("/instances/create", h.handleInstanceCreate)
+		r.Post("/instances/update", h.handleInstanceUpdate)
+		r.Post("/instances/delete", h.handleInstanceDelete)
 
-		// Protected API
-		r.Route("/api", func(r chi.Router) {
-			// Node properties
-			r.Post("/nodes/properties/set", h.apiNodePropertySet)
-			r.Post("/nodes/properties/delete", h.apiNodePropertyDelete)
-			r.Post("/nodes/test-order", h.apiNodeTestOrder)
-
-			// Kafka test orders
-			r.Get("/test-orders", h.apiTestOrdersList)
-			r.Get("/test-orders/detail", h.apiTestOrderDetail)
-			r.Post("/test-orders/submit", h.apiTestOrderSubmit)
-			r.Post("/test-orders/cancel", h.apiTestOrderCancel)
-			r.Post("/test-orders/receipt", h.apiTestOrderReceipt)
-			r.Get("/test-orders/robots", h.apiTestRobots)
-			r.Get("/test-orders/scene-points", h.apiTestScenePoints)
-
-			// Direct-to-fleet orders
-			r.Get("/test-orders/direct", h.apiDirectOrdersList)
-			r.Post("/test-orders/direct", h.apiDirectOrderSubmit)
-
-			// Direct RDS commands
-			r.Post("/test-commands/submit", h.apiTestCommandSubmit)
-			r.Get("/test-commands", h.apiTestCommandsList)
-			r.Get("/test-commands/status", h.apiTestCommandStatus)
-
-			// Payload manifest
-			r.Post("/payloads/manifest/create", h.apiCreateManifestItem)
-			r.Post("/payloads/manifest/update", h.apiUpdateManifestItem)
-			r.Post("/payloads/manifest/delete", h.apiDeleteManifestItem)
-
-			// Inventory instance actions
-			r.Post("/instances/action", h.apiInstanceAction)
-			r.Post("/instances/bulk-register", h.apiBulkRegisterInstances)
-			r.Get("/instances/events", h.apiListInstanceEvents)
-
-			// Supermarket management
-			r.Post("/supermarket/create", h.apiCreateSupermarket)
-			r.Get("/supermarket/layout", h.apiGetSupermarketLayout)
-			r.Post("/supermarket/delete", h.apiDeleteSupermarket)
-
-			// Corrections
-			r.Post("/corrections/create", h.apiCreateCorrection)
-
-			// Fleet proxy
-			r.Post("/fleet/proxy", h.apiFleetProxy)
-
-			// Robot management
-			r.Post("/robots/availability", h.apiRobotSetAvailability)
-			r.Post("/robots/retry", h.apiRobotRetryFailed)
-			r.Post("/robots/force-complete", h.apiRobotForceComplete)
-
-			// Order management
-			r.Post("/orders/terminate", h.apiTerminateOrder)
-			r.Post("/orders/priority", h.apiSetOrderPriority)
-
-			// Demand management
-			r.Post("/demands", h.apiCreateDemand)
-			r.Put("/demands/{id}", h.apiUpdateDemand)
-			r.Put("/demands/{id}/apply", h.apiApplyDemand)
-			r.Delete("/demands/{id}", h.apiDeleteDemand)
-			r.Post("/demands/apply-all", h.apiApplyAllDemands)
-			r.Put("/demands/{id}/produced", h.apiSetDemandProduced)
-			r.Post("/demands/{id}/clear", h.apiClearDemandProduced)
-			r.Post("/demands/clear-all", h.apiClearAllProduced)
-		})
 	})
 
 	stopFn := func() {

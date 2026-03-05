@@ -6,6 +6,64 @@
   <div class="alert alert-ok mb-2">Settings saved ({{.Saved}}).</div>
   {{end}}
 
+  <!-- Database -->
+  <div class="card mb-2">
+    <h3>Database</h3>
+    <form method="POST" action="/config/save">
+      <input type="hidden" name="section" value="database">
+      <div class="form-group mb-1">
+        <label>Driver</label>
+        <select name="db_driver" id="db-driver" onchange="toggleDbFields()">
+          <option value="sqlite" {{if eq .Config.Database.Driver "sqlite"}}selected{{end}}>SQLite</option>
+          <option value="postgres" {{if eq .Config.Database.Driver "postgres"}}selected{{end}}>PostgreSQL</option>
+        </select>
+      </div>
+
+      <div id="db-sqlite-fields" class="form-group mb-1">
+        <label>Database Path</label>
+        <input type="text" name="sqlite_path" value="{{.Config.Database.SQLite.Path}}" placeholder="shingocore.db">
+      </div>
+
+      <div id="db-postgres-fields">
+        <div class="grid grid-3">
+          <div class="form-group">
+            <label>Host</label>
+            <input type="text" name="pg_host" value="{{.Config.Database.Postgres.Host}}" placeholder="localhost">
+          </div>
+          <div class="form-group">
+            <label>Port</label>
+            <input type="number" name="pg_port" value="{{.Config.Database.Postgres.Port}}" placeholder="5432">
+          </div>
+          <div class="form-group">
+            <label>Database</label>
+            <input type="text" name="pg_database" value="{{.Config.Database.Postgres.Database}}" placeholder="shingocore">
+          </div>
+        </div>
+        <div class="grid grid-3">
+          <div class="form-group">
+            <label>User</label>
+            <input type="text" name="pg_user" value="{{.Config.Database.Postgres.User}}" placeholder="shingocore">
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" name="pg_password" value="{{.Config.Database.Postgres.Password}}" placeholder="">
+          </div>
+          <div class="form-group">
+            <label>SSL Mode</label>
+            <select name="pg_sslmode">
+              <option value="disable" {{if eq .Config.Database.Postgres.SSLMode "disable"}}selected{{end}}>disable</option>
+              <option value="require" {{if eq .Config.Database.Postgres.SSLMode "require"}}selected{{end}}>require</option>
+              <option value="verify-ca" {{if eq .Config.Database.Postgres.SSLMode "verify-ca"}}selected{{end}}>verify-ca</option>
+              <option value="verify-full" {{if eq .Config.Database.Postgres.SSLMode "verify-full"}}selected{{end}}>verify-full</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    </form>
+  </div>
+
   <!-- General (Server Identity + Fleet combined) -->
   <div class="card mb-2">
     <h3>General</h3>
@@ -90,5 +148,12 @@ function addKafkaBroker() {
 function removeKafkaBroker(btn) {
   btn.parentElement.remove();
 }
+
+function toggleDbFields() {
+  var driver = document.getElementById('db-driver').value;
+  document.getElementById('db-sqlite-fields').style.display = driver === 'sqlite' ? '' : 'none';
+  document.getElementById('db-postgres-fields').style.display = driver === 'postgres' ? '' : 'none';
+}
+toggleDbFields();
 </script>
 {{end}}

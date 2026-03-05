@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,6 +30,19 @@ func (h *Handlers) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 
 	cfg.Lock()
 	switch section {
+	case "database":
+		cfg.Database.Driver = r.FormValue("db_driver")
+		cfg.Database.SQLite.Path = r.FormValue("sqlite_path")
+		cfg.Database.Postgres.Host = r.FormValue("pg_host")
+		if p, err := strconv.Atoi(r.FormValue("pg_port")); err == nil {
+			cfg.Database.Postgres.Port = p
+		}
+		cfg.Database.Postgres.Database = r.FormValue("pg_database")
+		cfg.Database.Postgres.User = r.FormValue("pg_user")
+		if v := r.FormValue("pg_password"); v != "" {
+			cfg.Database.Postgres.Password = v
+		}
+		cfg.Database.Postgres.SSLMode = r.FormValue("pg_sslmode")
 	case "general", "fleet":
 		if v := r.FormValue("fleet_base_url"); v != "" || r.Form.Has("fleet_base_url") {
 			cfg.RDS.BaseURL = v
@@ -71,6 +85,8 @@ func (h *Handlers) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 
 	// Hot-reload the affected subsystem
 	switch section {
+	case "database":
+		h.engine.ReconfigureDatabase()
 	case "general", "fleet":
 		h.engine.ReconfigureFleet()
 	case "services", "messaging":

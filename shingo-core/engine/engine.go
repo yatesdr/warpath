@@ -220,6 +220,16 @@ func (e *Engine) loadActiveOrders() {
 	}
 }
 
+// ReconfigureDatabase reconnects the database with current config.
+func (e *Engine) ReconfigureDatabase() {
+	if err := e.db.Reconnect(&e.cfg.Database); err != nil {
+		e.logFn("engine: database reconfigure error: %v", err)
+	} else {
+		e.logFn("engine: database reconfigured (%s)", e.cfg.Database.Driver)
+	}
+	e.checkConnectionStatus()
+}
+
 // ReconfigureFleet applies fleet config changes live.
 func (e *Engine) ReconfigureFleet() {
 	e.fleet.Reconfigure(fleet.ReconfigureParams{
