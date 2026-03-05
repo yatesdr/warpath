@@ -57,5 +57,13 @@ seer-docs/
 __pycache__/
 *.pyc
 
+# Debug logs
+shingo-debug*.log
+**/shingo-debug*.log
+
 # Personal notes
 *.notes.md
+
+# Planning docs and reference PDFs
+payload-plan.md
+API_Docs.pdf
