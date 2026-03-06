@@ -32,9 +32,10 @@ a:hover { text-decoration: underline; }
 /* Nav */
 nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.75rem 0; }
 nav .container { display: flex; align-items: center; gap: 1.5rem; }
-nav .brand { font-weight: 700; font-size: 1.1rem; color: var(--text); }
+nav .brand { font-weight: 700; font-size: 1.1rem; color: var(--text); white-space: nowrap; }
 nav a { color: var(--text-muted); font-size: 0.9rem; }
 nav a:hover, nav a.active { color: var(--primary); text-decoration: none; }
+nav .nav-sep { width: 1px; height: 1.2rem; background: var(--border); flex-shrink: 0; }
 
 /* Cards */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; margin-bottom: 1rem; }
@@ -113,15 +114,21 @@ textarea { resize: vertical; min-height: 60px; }
 .node-tile {
   position: relative;
   border-radius: 6px;
-  padding: 0.5rem 0.35rem;
+  padding: 0.25rem 0.4rem;
   text-align: center;
   cursor: pointer;
   border: 1px solid rgba(0,0,0,0.08);
   transition: transform 0.1s, box-shadow 0.1s;
-  min-height: 52px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #e9ecef;
+  color: #495057;
+}
+.tile-occupied {
+  background: #7c3aed;
+  color: #fff;
 }
 .node-tile:hover {
   transform: scale(1.08);
@@ -130,9 +137,10 @@ textarea { resize: vertical; min-height: 60px; }
 }
 .tile-loc {
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: 0.7rem;
   letter-spacing: 0.02em;
   line-height: 1.2;
+  word-break: break-word;
 }
 .tile-disabled {
   opacity: 0.4;
@@ -452,7 +460,8 @@ textarea { resize: vertical; min-height: 60px; }
 
 [data-theme="dark"] .modal { box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
 [data-theme="dark"] .robot-battery { background: rgba(255,255,255,0.12); }
-[data-theme="dark"] .node-tile { border-color: rgba(255,255,255,0.08); }
+[data-theme="dark"] .node-tile { border-color: rgba(255,255,255,0.08); background: #2d333b; color: #adbac7; }
+[data-theme="dark"] .tile-occupied { background: #7c3aed; color: #fff; }
 
 /* Tooltip trigger */
 .tooltip-trigger {
@@ -480,3 +489,46 @@ textarea { resize: vertical; min-height: 60px; }
 .wizard-step { flex: 1; padding: 0.5rem; text-align: center; border-bottom: 3px solid var(--border); }
 .wizard-step.active { border-bottom-color: var(--primary); font-weight: 600; }
 .wizard-step.done { border-bottom-color: var(--success); }
+
+/* Chip picker */
+.chip-picker { position: relative; }
+.chip-picker .mode-select { margin-bottom: 0.4rem; }
+.chip-container {
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
+  padding: 0.3rem; min-height: 30px;
+  border: 1px solid var(--border); border-radius: 0.35rem;
+  background: var(--surface);
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  padding: 0.15rem 0.4rem; font-size: 0.8rem;
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: 0.25rem; white-space: nowrap;
+}
+.chip-remove {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); font-size: 0.9rem; line-height: 1;
+  padding: 0 0.1rem;
+}
+.chip-remove:hover { color: var(--danger); }
+.chip-filter {
+  width: 100%; padding: 0.3rem 0.5rem; font-size: 0.8rem;
+  border: 1px solid var(--border); border-radius: 0.35rem;
+  background: var(--surface); color: var(--text);
+  margin-top: 0.3rem;
+}
+.chip-dropdown {
+  max-height: 120px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 0.35rem;
+  background: var(--surface); margin-top: 0.15rem;
+}
+.chip-dropdown-item {
+  padding: 0.25rem 0.5rem; font-size: 0.8rem;
+  cursor: pointer;
+}
+.chip-dropdown-item:hover { background: color-mix(in srgb, var(--primary) 10%, var(--surface)); }
+.chip-dropdown-empty {
+  padding: 0.25rem 0.5rem; font-size: 0.8rem;
+  color: var(--text-muted); font-style: italic;
+}

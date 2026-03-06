@@ -52,7 +52,8 @@ func (db *DB) columnExists(table, column string) bool {
 }
 
 // migrateRenames idempotently renames old RDS-specific columns to vendor-neutral names,
-// and renames payload_types/payloads to payload_styles/payload_instances.
+// and renames payload_types/payloads to payload_styles/payload_instances (legacy),
+// then payload_styles/payload_instances to blueprints/payloads (current).
 func (db *DB) migrateRenames() error {
 	renames := []struct{ table, oldCol, newCol string }{
 		{"orders", "rds_order_id", "vendor_order_id"},
@@ -78,6 +79,7 @@ func (db *DB) migrateRenames() error {
 	db.Exec("UPDATE orders SET status='confirmed' WHERE status='completed'")
 
 	// Rename payload tables: payload_types -> payload_styles, payloads -> payload_instances
+	// (legacy rename for very old databases)
 	tableRenames := []struct{ oldTable, newTable string }{
 		{"payload_types", "payload_styles"},
 		{"payloads", "payload_instances"},
@@ -91,7 +93,7 @@ func (db *DB) migrateRenames() error {
 		}
 	}
 
-	// Rename columns in renamed tables
+	// Rename columns in renamed tables (legacy: payload_type_id -> style_id, payload_id -> instance_id)
 	colRenames := []struct{ table, oldCol, newCol string }{
 		{"payload_instances", "payload_type_id", "style_id"},
 		{"node_payload_styles", "payload_type_id", "style_id"},
@@ -130,9 +132,13 @@ func (db *DB) migrate() error {
 	}
 	db.migrateShallowLanes()
 	db.migratePayloadStyles()
+	db.migrateBinsBlueprints()
 	db.migrateVendorLocation()
 	db.migrateIsSynthetic()
+	db.migrateBlueprintDropName()
 	db.migrateLegacyCleanup()
+	db.migrateDropCapacity()
+	db.migrateDropNodeType()
 	return nil
 }
 
@@ -164,11 +170,58 @@ func (db *DB) migrateIsSynthetic() {
 	db.Exec(db.Q(`UPDATE nodes SET is_synthetic = 1 WHERE node_type_id IN (SELECT id FROM node_types WHERE is_synthetic = 1) AND is_synthetic = 0`))
 }
 
+// migrateBlueprintDropName copies blueprint name to code (where code is empty) and drops the name column.
+func (db *DB) migrateBlueprintDropName() {
+	if !db.tableExists("blueprints") || !db.columnExists("blueprints", "name") {
+		return
+	}
+	// Copy name into code where code is empty
+	db.Exec(db.Q(`UPDATE blueprints SET code = name WHERE code = '' OR code IS NULL`))
+	// Drop the name column
+	switch db.driver {
+	case "sqlite":
+		// ALTER TABLE DROP COLUMN requires SQLite 3.35.0+. Try it first,
+		// fall back to table recreation for older versions.
+		db.Exec(`ALTER TABLE blueprints DROP COLUMN name`)
+		if db.columnExists("blueprints", "name") {
+			// DROP COLUMN not supported — recreate the table without name
+			db.Exec(`CREATE TABLE IF NOT EXISTS blueprints_new (
+				id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+				code                  TEXT NOT NULL UNIQUE,
+				description           TEXT NOT NULL DEFAULT '',
+				uop_capacity          INTEGER NOT NULL DEFAULT 0,
+				default_manifest_json TEXT NOT NULL DEFAULT '{}',
+				created_at            TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+				updated_at            TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+			)`)
+			db.Exec(`INSERT INTO blueprints_new (id, code, description, uop_capacity, default_manifest_json, created_at, updated_at)
+				SELECT id, code, description, uop_capacity, COALESCE(default_manifest_json, '{}'), created_at, updated_at FROM blueprints`)
+			db.Exec(`DROP TABLE blueprints`)
+			db.Exec(`ALTER TABLE blueprints_new RENAME TO blueprints`)
+		}
+	case "postgres":
+		db.Exec(`ALTER TABLE blueprints DROP COLUMN IF EXISTS name`)
+	}
+}
+
 // migrateLegacyCleanup drops legacy tables and columns from existing databases.
 func (db *DB) migrateLegacyCleanup() {
 	// Drop legacy tables (safe: IF EXISTS)
 	db.Exec(`DROP TABLE IF EXISTS node_inventory`)
 	db.Exec(`DROP TABLE IF EXISTS materials`)
+
+	// Drop old table names that were renamed by migrateBinsBlueprints
+	// (only if the new tables exist — meaning migration completed successfully)
+	if db.tableExists("blueprints") {
+		db.Exec(`DROP TABLE IF EXISTS payload_style_manifest`)
+		db.Exec(`DROP TABLE IF EXISTS instance_events`)
+		// node_payload_styles and payload_instances/payload_styles are renamed,
+		// not dropped — they become the new tables. Only drop if old names linger.
+		if db.tableExists("payload_styles") && db.tableExists("blueprints") {
+			// payload_styles is the old name; blueprints is the new name.
+			// If both exist, payload_styles is a leftover (shouldn't happen, but be safe).
+		}
+	}
 }
 
 // migratePayloadStyles adds new columns to payload_styles and payload_instances
@@ -215,6 +268,256 @@ func (db *DB) migratePayloadStyles() {
 			if !db.columnExists("orders", c.name) {
 				db.Exec(fmt.Sprintf(`ALTER TABLE orders ADD COLUMN %s %s`, c.name, c.def))
 			}
+		}
+	}
+}
+
+// migrateBinsBlueprints renames payload_styles -> blueprints, payload_instances -> payloads,
+// and related tables/columns. Creates bin_types, bins, and blueprint_bin_types tables.
+// Migrates existing data (form_factor -> default bin_type, tag_id/node_id -> bins).
+func (db *DB) migrateBinsBlueprints() {
+	// ── Step 1: Rename tables ──────────────────────────────────────────
+	tableRenames := []struct{ oldTable, newTable string }{
+		{"payload_styles", "blueprints"},
+		{"payload_instances", "payloads"},
+		{"payload_style_manifest", "blueprint_manifest"},
+		{"instance_events", "payload_events"},
+		{"node_payload_styles", "node_blueprints"},
+	}
+	for _, r := range tableRenames {
+		if db.tableExists(r.oldTable) && !db.tableExists(r.newTable) {
+			db.Exec(fmt.Sprintf(`ALTER TABLE %s RENAME TO %s`, r.oldTable, r.newTable))
+		}
+	}
+
+	// ── Step 2: Rename columns ─────────────────────────────────────────
+	colRenames := []struct{ table, oldCol, newCol string }{
+		// style_id -> blueprint_id
+		{"blueprints", "style_id", "blueprint_id"},       // in case leftover from prior rename
+		{"payloads", "style_id", "blueprint_id"},          // payload_instances.style_id -> payloads.blueprint_id
+		{"blueprint_manifest", "style_id", "blueprint_id"},
+		{"orders", "style_id", "blueprint_id"},
+		{"node_blueprints", "style_id", "blueprint_id"},
+		// instance_id -> payload_id
+		{"orders", "instance_id", "payload_id"},
+		{"manifest_items", "instance_id", "payload_id"},
+		{"corrections", "instance_id", "payload_id"},
+		{"payload_events", "instance_id", "payload_id"},
+	}
+	for _, r := range colRenames {
+		if db.tableExists(r.table) && db.columnExists(r.table, r.oldCol) {
+			db.Exec(fmt.Sprintf(`ALTER TABLE %s RENAME COLUMN %s TO %s`, r.table, r.oldCol, r.newCol))
+		}
+	}
+
+	// ── Step 3: Create new tables ──────────────────────────────────────
+	if !db.tableExists("bin_types") {
+		switch db.driver {
+		case "sqlite":
+			db.Exec(`CREATE TABLE IF NOT EXISTS bin_types (
+				id          INTEGER PRIMARY KEY AUTOINCREMENT,
+				code        TEXT NOT NULL UNIQUE,
+				description TEXT NOT NULL DEFAULT '',
+				width_in    REAL NOT NULL DEFAULT 0,
+				height_in   REAL NOT NULL DEFAULT 0,
+				created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+				updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+			)`)
+		case "postgres":
+			db.Exec(`CREATE TABLE IF NOT EXISTS bin_types (
+				id          BIGSERIAL PRIMARY KEY,
+				code        TEXT NOT NULL UNIQUE,
+				description TEXT NOT NULL DEFAULT '',
+				width_in    DOUBLE PRECISION NOT NULL DEFAULT 0,
+				height_in   DOUBLE PRECISION NOT NULL DEFAULT 0,
+				created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			)`)
+		}
+	}
+
+	if !db.tableExists("bins") {
+		switch db.driver {
+		case "sqlite":
+			db.Exec(`CREATE TABLE IF NOT EXISTS bins (
+				id          INTEGER PRIMARY KEY AUTOINCREMENT,
+				bin_type_id INTEGER NOT NULL REFERENCES bin_types(id),
+				label       TEXT NOT NULL DEFAULT '',
+				description TEXT NOT NULL DEFAULT '',
+				node_id     INTEGER REFERENCES nodes(id),
+				status      TEXT NOT NULL DEFAULT 'available',
+				created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+				updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+			)`)
+			db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_type ON bins(bin_type_id)`)
+			db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_node ON bins(node_id)`)
+			db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_status ON bins(status)`)
+		case "postgres":
+			db.Exec(`CREATE TABLE IF NOT EXISTS bins (
+				id          BIGSERIAL PRIMARY KEY,
+				bin_type_id BIGINT NOT NULL REFERENCES bin_types(id),
+				label       TEXT NOT NULL DEFAULT '',
+				description TEXT NOT NULL DEFAULT '',
+				node_id     BIGINT REFERENCES nodes(id),
+				status      TEXT NOT NULL DEFAULT 'available',
+				created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			)`)
+			db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_type ON bins(bin_type_id)`)
+			db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_node ON bins(node_id)`)
+			db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_status ON bins(status)`)
+		}
+	}
+
+	if !db.tableExists("blueprint_bin_types") {
+		switch db.driver {
+		case "sqlite":
+			db.Exec(`CREATE TABLE IF NOT EXISTS blueprint_bin_types (
+				blueprint_id INTEGER NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+				bin_type_id  INTEGER NOT NULL REFERENCES bin_types(id) ON DELETE CASCADE,
+				PRIMARY KEY (blueprint_id, bin_type_id)
+			)`)
+		case "postgres":
+			db.Exec(`CREATE TABLE IF NOT EXISTS blueprint_bin_types (
+				blueprint_id BIGINT NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+				bin_type_id  BIGINT NOT NULL REFERENCES bin_types(id) ON DELETE CASCADE,
+				PRIMARY KEY (blueprint_id, bin_type_id)
+			)`)
+		}
+	}
+
+	// Add bin_id column to payloads if missing (for databases that were renamed rather than freshly created)
+	if db.tableExists("payloads") && !db.columnExists("payloads", "bin_id") {
+		switch db.driver {
+		case "sqlite":
+			db.Exec(`ALTER TABLE payloads ADD COLUMN bin_id INTEGER REFERENCES bins(id)`)
+		case "postgres":
+			db.Exec(`ALTER TABLE payloads ADD COLUMN bin_id BIGINT REFERENCES bins(id)`)
+		}
+	}
+
+	// ── Step 4: Data migration ─────────────────────────────────────────
+	// Create a DEFAULT bin type from existing form_factor values (if form_factor column still exists)
+	db.migrateBinsData()
+
+	// ── Step 5: Drop deprecated columns (silently skip on error) ───────
+	// payloads: drop node_id, tag_id, form_factor (moved to bins)
+	for _, col := range []string{"node_id", "tag_id", "form_factor"} {
+		if db.tableExists("payloads") && db.columnExists("payloads", col) {
+			switch db.driver {
+			case "sqlite":
+				db.Exec(fmt.Sprintf(`ALTER TABLE payloads DROP COLUMN %s`, col))
+			case "postgres":
+				db.Exec(fmt.Sprintf(`ALTER TABLE payloads DROP COLUMN IF EXISTS %s`, col))
+			}
+		}
+	}
+
+	// blueprints: drop form_factor, width_mm, height_mm, depth_mm, weight_kg (moved to bin_types)
+	for _, col := range []string{"form_factor", "width_mm", "height_mm", "depth_mm", "weight_kg"} {
+		if db.tableExists("blueprints") && db.columnExists("blueprints", col) {
+			switch db.driver {
+			case "sqlite":
+				db.Exec(fmt.Sprintf(`ALTER TABLE blueprints DROP COLUMN %s`, col))
+			case "postgres":
+				db.Exec(fmt.Sprintf(`ALTER TABLE blueprints DROP COLUMN IF EXISTS %s`, col))
+			}
+		}
+	}
+}
+
+// migrateBinsData creates default bin_type and migrates existing payload data to bins.
+func (db *DB) migrateBinsData() {
+	if !db.tableExists("bin_types") || !db.tableExists("bins") || !db.tableExists("payloads") {
+		return
+	}
+
+	// Ensure a DEFAULT bin type exists
+	var defaultBinTypeID int64
+	err := db.QueryRow(db.Q(`SELECT id FROM bin_types WHERE code = ?`), "DEFAULT").Scan(&defaultBinTypeID)
+	if err != nil {
+		res, insertErr := db.Exec(db.Q(`INSERT INTO bin_types (code, description) VALUES (?, ?)`), "DEFAULT", "Default bin type (migrated)")
+		if insertErr == nil {
+			defaultBinTypeID, _ = res.LastInsertId()
+			if defaultBinTypeID == 0 {
+				// Postgres doesn't support LastInsertId; query it back
+				db.QueryRow(db.Q(`SELECT id FROM bin_types WHERE code = ?`), "DEFAULT").Scan(&defaultBinTypeID)
+			}
+		}
+	}
+	if defaultBinTypeID == 0 {
+		return
+	}
+
+	// Migrate existing payloads that have tag_id or node_id but no bin_id yet
+	if !db.columnExists("payloads", "tag_id") && !db.columnExists("payloads", "node_id") {
+		// No old columns to migrate from
+		return
+	}
+
+	// Find payloads with no bin_id that have a tag_id or node_id to migrate
+	type oldPayload struct {
+		id    int64
+		tagID string
+		nodeID sql.NullInt64
+	}
+
+	query := `SELECT id`
+	if db.columnExists("payloads", "tag_id") {
+		query += `, tag_id`
+	} else {
+		query += `, '' as tag_id`
+	}
+	if db.columnExists("payloads", "node_id") {
+		query += `, node_id`
+	} else {
+		query += `, NULL as node_id`
+	}
+	query += ` FROM payloads WHERE bin_id IS NULL`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var payloads []oldPayload
+	for rows.Next() {
+		var p oldPayload
+		if rows.Scan(&p.id, &p.tagID, &p.nodeID) == nil {
+			payloads = append(payloads, p)
+		}
+	}
+	rows.Close()
+
+	for _, p := range payloads {
+		// Create a bin for this payload
+		var binID int64
+		if p.nodeID.Valid {
+			res, err := db.Exec(db.Q(`INSERT INTO bins (bin_type_id, label, node_id) VALUES (?, ?, ?)`),
+				defaultBinTypeID, p.tagID, p.nodeID.Int64)
+			if err != nil {
+				continue
+			}
+			binID, _ = res.LastInsertId()
+			if binID == 0 {
+				db.QueryRow(db.Q(`SELECT id FROM bins WHERE bin_type_id = ? AND label = ? AND node_id = ?`),
+					defaultBinTypeID, p.tagID, p.nodeID.Int64).Scan(&binID)
+			}
+		} else {
+			res, err := db.Exec(db.Q(`INSERT INTO bins (bin_type_id, label) VALUES (?, ?)`),
+				defaultBinTypeID, p.tagID)
+			if err != nil {
+				continue
+			}
+			binID, _ = res.LastInsertId()
+			if binID == 0 {
+				db.QueryRow(db.Q(`SELECT id FROM bins WHERE bin_type_id = ? AND label = ? AND node_id IS NULL`),
+					defaultBinTypeID, p.tagID).Scan(&binID)
+			}
+		}
+		if binID > 0 {
+			db.Exec(db.Q(`UPDATE payloads SET bin_id = ? WHERE id = ?`), binID, p.id)
 		}
 	}
 }
@@ -293,6 +596,12 @@ func (db *DB) migrateShallowLanes() {
 		}
 	}
 
+	// Determine which table name to use for node-blueprint associations
+	nbTable := "node_blueprints"
+	if !db.tableExists("node_blueprints") && db.tableExists("node_payload_styles") {
+		nbTable = "node_payload_styles"
+	}
+
 	for _, laneID := range shallowLaneIDs {
 		lane, err := db.GetNode(laneID)
 		if err != nil || lane.ParentID == nil {
@@ -313,7 +622,34 @@ func (db *DB) migrateShallowLanes() {
 		// Delete the shallow lane node
 		db.Exec(db.Q(`DELETE FROM node_properties WHERE node_id=?`), laneID)
 		db.Exec(db.Q(`DELETE FROM node_stations WHERE node_id=?`), laneID)
-		db.Exec(db.Q(`DELETE FROM node_payload_styles WHERE node_id=?`), laneID)
+		db.Exec(db.Q(fmt.Sprintf(`DELETE FROM %s WHERE node_id=?`, nbTable)), laneID)
 		db.Exec(db.Q(`DELETE FROM nodes WHERE id=?`), laneID)
+	}
+}
+
+// migrateDropNodeType removes the legacy node_type free-text column from nodes.
+// Physical nodes no longer need a type; structural nodes use node_type_id (FK to node_types).
+func (db *DB) migrateDropNodeType() {
+	if !db.columnExists("nodes", "node_type") {
+		return
+	}
+	switch db.driver {
+	case "sqlite":
+		db.Exec(`ALTER TABLE nodes DROP COLUMN node_type`)
+	case "postgres":
+		db.Exec(`ALTER TABLE nodes DROP COLUMN IF EXISTS node_type`)
+	}
+}
+
+// migrateDropCapacity removes the capacity column from nodes (all nodes now have capacity 1).
+func (db *DB) migrateDropCapacity() {
+	if !db.columnExists("nodes", "capacity") {
+		return
+	}
+	switch db.driver {
+	case "sqlite":
+		db.Exec(`ALTER TABLE nodes DROP COLUMN capacity`)
+	case "postgres":
+		db.Exec(`ALTER TABLE nodes DROP COLUMN IF EXISTS capacity`)
 	}
 }

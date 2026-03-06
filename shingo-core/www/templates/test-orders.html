@@ -38,10 +38,10 @@
           </select>
         </div>
         <div id="k-pt-wrap">
-          <label class="to-label">Payload Type</label>
-          <select id="k-payload-type" class="to-input">
-            <option value="">-- select payload type --</option>
-            {{range .PayloadTypes}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+          <label class="to-label">Blueprint</label>
+          <select id="k-blueprint" class="to-input">
+            <option value="">-- select blueprint --</option>
+            {{range .Blueprints}}<option value="{{.Code}}">{{.Code}}</option>{{end}}
           </select>
         </div>
         <div>
@@ -508,11 +508,11 @@ async function submitKafkaOrder() {
     order_type: document.getElementById('k-order-type').value,
     pickup_node: document.getElementById('k-pickup-node').value,
     delivery_node: document.getElementById('k-delivery-node').value,
-    payload_type_code: document.getElementById('k-payload-type').value,
+    blueprint_code: document.getElementById('k-blueprint').value,
     quantity: parseFloat(document.getElementById('k-quantity').value) || 1,
     priority: parseInt(document.getElementById('k-priority').value) || 0
   };
-  if (!body.payload_type_code) { alert('Payload type is required'); return; }
+  if (!body.blueprint_code) { alert('Blueprint is required'); return; }
   try {
     var res = await fetch('/api/test-orders/submit', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     var data = await res.json();

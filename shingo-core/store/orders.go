@@ -24,8 +24,8 @@ type Order struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	StyleID       *int64     `json:"style_id,omitempty"`
-	InstanceID    *int64     `json:"instance_id,omitempty"`
+	BlueprintID   *int64     `json:"blueprint_id,omitempty"`
+	PayloadID     *int64     `json:"payload_id,omitempty"`
 	ParentOrderID *int64     `json:"parent_order_id,omitempty"`
 	Sequence      int        `json:"sequence"`
 }
@@ -38,11 +38,11 @@ type OrderHistory struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-const orderSelectCols = `id, edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, vendor_order_id, vendor_state, robot_id, priority, payload_desc, error_detail, created_at, updated_at, completed_at, style_id, instance_id, parent_order_id, sequence`
+const orderSelectCols = `id, edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, vendor_order_id, vendor_state, robot_id, priority, payload_desc, error_detail, created_at, updated_at, completed_at, blueprint_id, payload_id, parent_order_id, sequence`
 
 func scanOrder(row interface{ Scan(...any) error }) (*Order, error) {
 	var o Order
-	var styleID, instanceID, parentOrderID sql.NullInt64
+	var blueprintID, payloadID, parentOrderID sql.NullInt64
 	var createdAt, updatedAt any
 	var completedAt any
 
@@ -50,15 +50,15 @@ func scanOrder(row interface{ Scan(...any) error }) (*Order, error) {
 		&o.Quantity,
 		&o.PickupNode, &o.DeliveryNode, &o.VendorOrderID, &o.VendorState, &o.RobotID,
 		&o.Priority, &o.PayloadDesc, &o.ErrorDetail, &createdAt, &updatedAt, &completedAt,
-		&styleID, &instanceID, &parentOrderID, &o.Sequence)
+		&blueprintID, &payloadID, &parentOrderID, &o.Sequence)
 	if err != nil {
 		return nil, err
 	}
-	if styleID.Valid {
-		o.StyleID = &styleID.Int64
+	if blueprintID.Valid {
+		o.BlueprintID = &blueprintID.Int64
 	}
-	if instanceID.Valid {
-		o.InstanceID = &instanceID.Int64
+	if payloadID.Valid {
+		o.PayloadID = &payloadID.Int64
 	}
 	if parentOrderID.Valid {
 		o.ParentOrderID = &parentOrderID.Int64
@@ -82,11 +82,11 @@ func scanOrders(rows *sql.Rows) ([]*Order, error) {
 }
 
 func (db *DB) CreateOrder(o *Order) error {
-	result, err := db.Exec(db.Q(`INSERT INTO orders (edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, priority, payload_desc, style_id, instance_id, parent_order_id, sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+	result, err := db.Exec(db.Q(`INSERT INTO orders (edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, priority, payload_desc, blueprint_id, payload_id, parent_order_id, sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		o.EdgeUUID, o.StationID, o.OrderType, o.Status,
 		o.Quantity,
 		o.PickupNode, o.DeliveryNode, o.Priority, o.PayloadDesc,
-		nullableInt64(o.StyleID), nullableInt64(o.InstanceID),
+		nullableInt64(o.BlueprintID), nullableInt64(o.PayloadID),
 		nullableInt64(o.ParentOrderID), o.Sequence)
 	if err != nil {
 		return fmt.Errorf("create order: %w", err)
@@ -101,11 +101,11 @@ func (db *DB) CreateOrder(o *Order) error {
 
 // CompoundChild describes a child order to create in a compound order transaction.
 type CompoundChild struct {
-	Order      *Order
-	InstanceID int64 // instance to claim for this child
+	Order     *Order
+	PayloadID int64 // payload to claim for this child
 }
 
-// CreateCompoundChildren creates all child orders and claims their instances in a single transaction.
+// CreateCompoundChildren creates all child orders and claims their payloads in a single transaction.
 func (db *DB) CreateCompoundChildren(children []CompoundChild) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -115,11 +115,11 @@ func (db *DB) CreateCompoundChildren(children []CompoundChild) error {
 
 	for _, c := range children {
 		o := c.Order
-		result, err := tx.Exec(db.Q(`INSERT INTO orders (edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, priority, payload_desc, style_id, instance_id, parent_order_id, sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+		result, err := tx.Exec(db.Q(`INSERT INTO orders (edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, priority, payload_desc, blueprint_id, payload_id, parent_order_id, sequence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 			o.EdgeUUID, o.StationID, o.OrderType, o.Status,
 			o.Quantity,
 			o.PickupNode, o.DeliveryNode, o.Priority, o.PayloadDesc,
-			nullableInt64(o.StyleID), nullableInt64(o.InstanceID),
+			nullableInt64(o.BlueprintID), nullableInt64(o.PayloadID),
 			nullableInt64(o.ParentOrderID), o.Sequence)
 		if err != nil {
 			return fmt.Errorf("create child order (seq %d): %w", o.Sequence, err)
@@ -127,11 +127,11 @@ func (db *DB) CreateCompoundChildren(children []CompoundChild) error {
 		id, _ := result.LastInsertId()
 		o.ID = id
 
-		if c.InstanceID > 0 {
-			_, err = tx.Exec(db.Q(`UPDATE payload_instances SET claimed_by=?, updated_at=datetime('now','localtime') WHERE id=?`),
-				o.ID, c.InstanceID)
+		if c.PayloadID > 0 {
+			_, err = tx.Exec(db.Q(`UPDATE payloads SET claimed_by=?, updated_at=datetime('now','localtime') WHERE id=?`),
+				o.ID, c.PayloadID)
 			if err != nil {
-				return fmt.Errorf("claim instance %d for child %d: %w", c.InstanceID, o.ID, err)
+				return fmt.Errorf("claim payload %d for child %d: %w", c.PayloadID, o.ID, err)
 			}
 		}
 	}

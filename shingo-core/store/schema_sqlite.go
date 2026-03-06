@@ -4,10 +4,8 @@ const schemaSQLite = `
 CREATE TABLE IF NOT EXISTS nodes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL UNIQUE,
-    node_type   TEXT NOT NULL DEFAULT 'storage',
     is_synthetic INTEGER NOT NULL DEFAULT 0,
     zone        TEXT NOT NULL DEFAULT '',
-    capacity    INTEGER NOT NULL DEFAULT 0,
     enabled     INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
@@ -34,8 +32,8 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     completed_at    TEXT,
-    style_id        INTEGER REFERENCES payload_styles(id),
-    instance_id     INTEGER REFERENCES payload_instances(id),
+    blueprint_id    INTEGER REFERENCES blueprints(id),
+    payload_id      INTEGER REFERENCES payloads(id),
     parent_order_id INTEGER REFERENCES orders(id),
     sequence        INTEGER NOT NULL DEFAULT 0
 );
@@ -80,7 +78,7 @@ CREATE TABLE IF NOT EXISTS corrections (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     correction_type  TEXT NOT NULL,
     node_id          INTEGER NOT NULL REFERENCES nodes(id),
-    instance_id      INTEGER REFERENCES payload_instances(id),
+    payload_id       INTEGER REFERENCES payloads(id),
     manifest_item_id INTEGER REFERENCES manifest_items(id),
     cat_id           TEXT NOT NULL DEFAULT '',
     description      TEXT NOT NULL DEFAULT '',
@@ -97,27 +95,50 @@ CREATE TABLE IF NOT EXISTS admin_users (
     created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
-CREATE TABLE IF NOT EXISTS payload_styles (
+CREATE TABLE IF NOT EXISTS bin_types (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    code        TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    width_in    REAL NOT NULL DEFAULT 0,
+    height_in   REAL NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS bins (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    bin_type_id INTEGER NOT NULL REFERENCES bin_types(id),
+    label       TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    node_id     INTEGER REFERENCES nodes(id),
+    status      TEXT NOT NULL DEFAULT 'available',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_bins_type ON bins(bin_type_id);
+CREATE INDEX IF NOT EXISTS idx_bins_node ON bins(node_id);
+CREATE INDEX IF NOT EXISTS idx_bins_status ON bins(status);
+
+CREATE TABLE IF NOT EXISTS blueprints (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    name                  TEXT NOT NULL UNIQUE,
-    code                  TEXT NOT NULL DEFAULT '',
+    code                  TEXT NOT NULL UNIQUE,
     description           TEXT NOT NULL DEFAULT '',
-    form_factor           TEXT NOT NULL DEFAULT 'other',
     uop_capacity          INTEGER NOT NULL DEFAULT 0,
-    width_mm              REAL NOT NULL DEFAULT 0,
-    height_mm             REAL NOT NULL DEFAULT 0,
-    depth_mm              REAL NOT NULL DEFAULT 0,
-    weight_kg             REAL NOT NULL DEFAULT 0,
     default_manifest_json TEXT NOT NULL DEFAULT '{}',
     created_at            TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at            TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
-CREATE TABLE IF NOT EXISTS payload_instances (
+CREATE TABLE IF NOT EXISTS blueprint_bin_types (
+    blueprint_id INTEGER NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+    bin_type_id  INTEGER NOT NULL REFERENCES bin_types(id) ON DELETE CASCADE,
+    PRIMARY KEY (blueprint_id, bin_type_id)
+);
+
+CREATE TABLE IF NOT EXISTS payloads (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    style_id        INTEGER NOT NULL REFERENCES payload_styles(id),
-    node_id         INTEGER REFERENCES nodes(id),
-    tag_id          TEXT NOT NULL DEFAULT '',
+    blueprint_id    INTEGER NOT NULL REFERENCES blueprints(id),
+    bin_id          INTEGER REFERENCES bins(id),
     status          TEXT NOT NULL DEFAULT 'empty',
     uop_remaining   INTEGER NOT NULL DEFAULT 0,
     claimed_by      INTEGER REFERENCES orders(id),
@@ -127,34 +148,33 @@ CREATE TABLE IF NOT EXISTS payload_instances (
     created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
-CREATE INDEX IF NOT EXISTS idx_instances_style ON payload_instances(style_id);
-CREATE INDEX IF NOT EXISTS idx_instances_node ON payload_instances(node_id);
-CREATE INDEX IF NOT EXISTS idx_instances_status ON payload_instances(status);
-CREATE INDEX IF NOT EXISTS idx_instances_tag ON payload_instances(tag_id);
+CREATE INDEX IF NOT EXISTS idx_payloads_blueprint ON payloads(blueprint_id);
+CREATE INDEX IF NOT EXISTS idx_payloads_bin ON payloads(bin_id);
+CREATE INDEX IF NOT EXISTS idx_payloads_status ON payloads(status);
 
-CREATE TABLE IF NOT EXISTS payload_style_manifest (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    style_id    INTEGER NOT NULL REFERENCES payload_styles(id) ON DELETE CASCADE,
-    part_number TEXT NOT NULL DEFAULT '',
-    quantity    REAL NOT NULL DEFAULT 0,
-    description TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+CREATE TABLE IF NOT EXISTS blueprint_manifest (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    blueprint_id  INTEGER NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+    part_number   TEXT NOT NULL DEFAULT '',
+    quantity      REAL NOT NULL DEFAULT 0,
+    description   TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
-CREATE INDEX IF NOT EXISTS idx_style_manifest_style ON payload_style_manifest(style_id);
+CREATE INDEX IF NOT EXISTS idx_blueprint_manifest_bp ON blueprint_manifest(blueprint_id);
 
-CREATE TABLE IF NOT EXISTS instance_events (
+CREATE TABLE IF NOT EXISTS payload_events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    instance_id INTEGER NOT NULL REFERENCES payload_instances(id) ON DELETE CASCADE,
+    payload_id  INTEGER NOT NULL REFERENCES payloads(id) ON DELETE CASCADE,
     event_type  TEXT NOT NULL,
     detail      TEXT NOT NULL DEFAULT '',
     actor       TEXT NOT NULL DEFAULT 'system',
     created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
-CREATE INDEX IF NOT EXISTS idx_instance_events_instance ON instance_events(instance_id);
+CREATE INDEX IF NOT EXISTS idx_payload_events_payload ON payload_events(payload_id);
 
 CREATE TABLE IF NOT EXISTS manifest_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    instance_id     INTEGER NOT NULL REFERENCES payload_instances(id) ON DELETE CASCADE,
+    payload_id      INTEGER NOT NULL REFERENCES payloads(id) ON DELETE CASCADE,
     part_number     TEXT NOT NULL DEFAULT '',
     quantity        REAL NOT NULL DEFAULT 0,
     production_date TEXT,
@@ -162,7 +182,7 @@ CREATE TABLE IF NOT EXISTS manifest_items (
     notes           TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
-CREATE INDEX IF NOT EXISTS idx_manifest_instance ON manifest_items(instance_id);
+CREATE INDEX IF NOT EXISTS idx_manifest_payload ON manifest_items(payload_id);
 
 CREATE TABLE IF NOT EXISTS scene_points (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,11 +266,11 @@ CREATE TABLE IF NOT EXISTS node_stations (
 );
 CREATE INDEX IF NOT EXISTS idx_node_stations_station ON node_stations(station_id);
 
-CREATE TABLE IF NOT EXISTS node_payload_styles (
-    node_id  INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-    style_id INTEGER NOT NULL REFERENCES payload_styles(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-    PRIMARY KEY (node_id, style_id)
+CREATE TABLE IF NOT EXISTS node_blueprints (
+    node_id      INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    blueprint_id INTEGER NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY (node_id, blueprint_id)
 );
 
 CREATE TABLE IF NOT EXISTS node_properties (
@@ -260,5 +280,11 @@ CREATE TABLE IF NOT EXISTS node_properties (
     value      TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     UNIQUE (node_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS node_bin_types (
+    node_id     INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    bin_type_id INTEGER NOT NULL REFERENCES bin_types(id) ON DELETE CASCADE,
+    PRIMARY KEY (node_id, bin_type_id)
 );
 `

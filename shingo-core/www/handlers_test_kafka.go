@@ -14,7 +14,7 @@ func (h *Handlers) apiTestOrderSubmit(w http.ResponseWriter, r *http.Request) {
 		OrderType       string  `json:"order_type"`
 		PickupNode      string  `json:"pickup_node"`
 		DeliveryNode    string  `json:"delivery_node"`
-		StyleCode string  `json:"style_code"`
+		BlueprintCode string  `json:"blueprint_code"`
 		Quantity        float64 `json:"quantity"`
 		Priority        int     `json:"priority"`
 	}
@@ -25,8 +25,8 @@ func (h *Handlers) apiTestOrderSubmit(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "order_type is required", http.StatusBadRequest)
 		return
 	}
-	if req.StyleCode == "" {
-		h.jsonError(w, "style_code is required", http.StatusBadRequest)
+	if req.BlueprintCode == "" {
+		h.jsonError(w, "blueprint_code is required", http.StatusBadRequest)
 		return
 	}
 	if req.Quantity <= 0 {
@@ -42,7 +42,7 @@ func (h *Handlers) apiTestOrderSubmit(w http.ResponseWriter, r *http.Request) {
 	orderReq := &protocol.OrderRequest{
 		OrderUUID:       orderUUID,
 		OrderType:       req.OrderType,
-		StyleCode: req.StyleCode,
+		BlueprintCode: req.BlueprintCode,
 		Quantity:        req.Quantity,
 		DeliveryNode:    req.DeliveryNode,
 		PickupNode:      req.PickupNode,

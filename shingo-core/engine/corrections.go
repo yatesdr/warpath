@@ -10,7 +10,7 @@ import (
 type ApplyCorrectionRequest struct {
 	CorrectionType string
 	NodeID         int64
-	InstanceID     int64
+	PayloadID     int64
 	CatID          string
 	Description    string
 	Quantity       float64
@@ -25,7 +25,7 @@ func (e *Engine) ApplyCorrection(req ApplyCorrectionRequest) (int64, error) {
 	corr := &store.Correction{
 		CorrectionType: req.CorrectionType,
 		NodeID:         req.NodeID,
-		InstanceID:     &req.InstanceID,
+		PayloadID:     &req.PayloadID,
 		CatID:          req.CatID,
 		Description:    req.Description,
 		Quantity:       req.Quantity,
@@ -36,7 +36,7 @@ func (e *Engine) ApplyCorrection(req ApplyCorrectionRequest) (int64, error) {
 	switch req.CorrectionType {
 	case "add_item":
 		m := &store.ManifestItem{
-			InstanceID: req.InstanceID,
+			PayloadID: req.PayloadID,
 			PartNumber: req.CatID,
 			Quantity:   req.Quantity,
 			Notes:      fmt.Sprintf("correction: %s", req.Reason),
@@ -73,7 +73,7 @@ func (e *Engine) ApplyCorrection(req ApplyCorrectionRequest) (int64, error) {
 	e.Events.Emit(Event{Type: EventPayloadChanged, Payload: PayloadChangedEvent{
 		NodeID:     req.NodeID,
 		Action:     req.CorrectionType,
-		InstanceID: req.InstanceID,
+		PayloadID: req.PayloadID,
 	}})
 
 	return corr.ID, nil

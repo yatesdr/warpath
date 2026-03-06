@@ -313,10 +313,8 @@ func (e *Engine) SyncFleetNodes(locationSet map[string]string) (created, deleted
 		}
 		node := &store.Node{
 			Name:       instanceName,
-			NodeType:   "storage",
 			NodeTypeID: storageTypeID,
 			Zone:       areaName,
-			Capacity:   1,
 			Enabled:    true,
 		}
 		if err := e.db.CreateNode(node); err != nil {

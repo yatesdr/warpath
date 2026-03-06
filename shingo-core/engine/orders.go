@@ -70,7 +70,7 @@ func (e *Engine) CreateDirectOrder(req DirectOrderRequest) (*DirectOrderResult, 
 	}, nil
 }
 
-// TerminateOrder cancels an order, unclaims any instances, and emits a cancellation event.
+// TerminateOrder cancels an order, unclaims any payloads, and emits a cancellation event.
 func (e *Engine) TerminateOrder(orderID int64, actor string) error {
 	order, err := e.db.GetOrder(orderID)
 	if err != nil {
@@ -84,8 +84,8 @@ func (e *Engine) TerminateOrder(orderID int64, actor string) error {
 		}
 	}
 
-	// Unclaim any instances held by this order
-	e.db.UnclaimOrderInstances(orderID)
+	// Unclaim any payloads held by this order
+	e.db.UnclaimOrderPayloads(orderID)
 
 	detail := "cancelled by " + actor
 	if err := e.db.UpdateOrderStatus(orderID, "cancelled", detail); err != nil {

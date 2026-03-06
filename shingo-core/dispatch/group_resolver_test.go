@@ -9,7 +9,21 @@ import (
 	"shingocore/store"
 )
 
-func setupNodeGroup(t *testing.T, db *store.DB) (grp *store.Node, lanes []*store.Node, slots [][]*store.Node, style *store.PayloadStyle) {
+// createTestPayloadAtNode creates a bin at the given node and a payload in that bin.
+func createTestPayloadAtNode(t *testing.T, db *store.DB, blueprintID int64, nodeID int64, label string) *store.Payload {
+	t.Helper()
+	bin := &store.Bin{BinTypeID: 1, Label: label, NodeID: &nodeID, Status: "active"}
+	if err := db.CreateBin(bin); err != nil {
+		t.Fatalf("create bin %s: %v", label, err)
+	}
+	p := &store.Payload{BlueprintID: blueprintID, BinID: &bin.ID, Status: "available"}
+	if err := db.CreatePayload(p); err != nil {
+		t.Fatalf("create payload for bin %s: %v", label, err)
+	}
+	return p
+}
+
+func setupNodeGroup(t *testing.T, db *store.DB) (grp *store.Node, lanes []*store.Node, slots [][]*store.Node, bp *store.Blueprint) {
 	t.Helper()
 	// Get node type IDs
 	grpType, err := db.GetNodeTypeByCode("NGRP")
@@ -21,14 +35,14 @@ func setupNodeGroup(t *testing.T, db *store.DB) (grp *store.Node, lanes []*store
 		t.Fatalf("get LANE node type: %v", err)
 	}
 
-	// Create payload style
-	style = &store.PayloadStyle{Name: "WIDGET-A", Code: "WGA", FormFactor: "tote", DefaultManifestJSON: "{}"}
-	if err := db.CreatePayloadStyle(style); err != nil {
-		t.Fatalf("create payload style: %v", err)
+	// Create blueprint
+	bp = &store.Blueprint{Code: "WGA", DefaultManifestJSON: "{}"}
+	if err := db.CreateBlueprint(bp); err != nil {
+		t.Fatalf("create blueprint: %v", err)
 	}
 
 	// Create NGRP node
-	grp = &store.Node{Name: "GRP-1", NodeType: "storage", IsSynthetic: true, NodeTypeID: &grpType.ID, Capacity: 0, Enabled: true}
+	grp = &store.Node{Name: "GRP-1", IsSynthetic: true, NodeTypeID: &grpType.ID, Enabled: true}
 	if err := db.CreateNode(grp); err != nil {
 		t.Fatalf("create NGRP node: %v", err)
 	}
@@ -39,8 +53,8 @@ func setupNodeGroup(t *testing.T, db *store.DB) (grp *store.Node, lanes []*store
 	slots = make([][]*store.Node, 2)
 	for i := 0; i < 2; i++ {
 		lane := &store.Node{
-			Name: fmt.Sprintf("GRP-1-L%d", i+1), NodeType: "storage", IsSynthetic: true,
-			NodeTypeID: &lanType.ID, ParentID: &grp.ID, Capacity: 0, Enabled: true,
+			Name: fmt.Sprintf("GRP-1-L%d", i+1), IsSynthetic: true,
+			NodeTypeID: &lanType.ID, ParentID: &grp.ID, Enabled: true,
 		}
 		if err := db.CreateNode(lane); err != nil {
 			t.Fatalf("create lane %d: %v", i, err)
@@ -52,8 +66,8 @@ func setupNodeGroup(t *testing.T, db *store.DB) (grp *store.Node, lanes []*store
 		slots[i] = make([]*store.Node, 3)
 		for d := 1; d <= 3; d++ {
 			slot := &store.Node{
-				Name: fmt.Sprintf("GRP-1-L%d-S%d", i+1, d), NodeType: "storage",
-				ParentID: &lane.ID, Capacity: 1, Enabled: true,
+				Name: fmt.Sprintf("GRP-1-L%d-S%d", i+1, d),
+				ParentID: &lane.ID, Enabled: true,
 			}
 			if err := db.CreateNode(slot); err != nil {
 				t.Fatalf("create slot L%d-S%d: %v", i+1, d, err)
@@ -69,82 +83,70 @@ func setupNodeGroup(t *testing.T, db *store.DB) (grp *store.Node, lanes []*store
 
 func TestGroupResolveRetrieve_AccessibleFIFO(t *testing.T) {
 	db := testDB(t)
-	grp, _, slots, style := setupNodeGroup(t, db)
+	grp, _, slots, bp := setupNodeGroup(t, db)
 
 	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
 
-	// Place instance of WIDGET-A at lane 0, slot depth 1 (front/accessible) — older
-	older := &store.PayloadInstance{StyleID: style.ID, NodeID: &slots[0][0].ID, Status: "available"}
-	if err := db.CreateInstance(older); err != nil {
-		t.Fatalf("create older instance: %v", err)
-	}
+	// Place payload of WIDGET-A at lane 0, slot depth 1 (front/accessible) — older
+	older := createTestPayloadAtNode(t, db, bp.ID, slots[0][0].ID, "BIN-FIFO-OLD")
 
 	// Small delay to ensure different timestamps
 	time.Sleep(10 * time.Millisecond)
 
-	// Place instance of WIDGET-A at lane 1, slot depth 1 (front/accessible) — newer
-	newer := &store.PayloadInstance{StyleID: style.ID, NodeID: &slots[1][0].ID, Status: "available"}
-	if err := db.CreateInstance(newer); err != nil {
-		t.Fatalf("create newer instance: %v", err)
-	}
+	// Place payload of WIDGET-A at lane 1, slot depth 1 (front/accessible) — newer
+	createTestPayloadAtNode(t, db, bp.ID, slots[1][0].ID, "BIN-FIFO-NEW")
 
-	result, err := gr.ResolveRetrieve(grp, &style.ID)
+	result, err := gr.ResolveRetrieve(grp, &bp.ID)
 	if err != nil {
 		t.Fatalf("ResolveRetrieve: %v", err)
 	}
-	if result.Instance == nil {
-		t.Fatal("expected instance in result")
+	if result.Payload == nil {
+		t.Fatal("expected payload in result")
 	}
-	if result.Instance.ID != older.ID {
-		t.Errorf("instance ID = %d, want %d (FIFO should pick older)", result.Instance.ID, older.ID)
+	if result.Payload.ID != older.ID {
+		t.Errorf("payload ID = %d, want %d (FIFO should pick older)", result.Payload.ID, older.ID)
 	}
 }
 
 func TestGroupResolveRetrieve_BuriedFails(t *testing.T) {
 	db := testDB(t)
-	grp, _, slots, style := setupNodeGroup(t, db)
+	grp, _, slots, bp := setupNodeGroup(t, db)
 
 	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
 
-	// Create a different style for the blocker
-	blocker := &store.PayloadStyle{Name: "BLOCKER-B", Code: "BLK", FormFactor: "tote", DefaultManifestJSON: "{}"}
-	if err := db.CreatePayloadStyle(blocker); err != nil {
-		t.Fatalf("create blocker style: %v", err)
+	// Create a different blueprint for the blocker
+	blockerBP := &store.Blueprint{Code: "BLK", DefaultManifestJSON: "{}"}
+	if err := db.CreateBlueprint(blockerBP); err != nil {
+		t.Fatalf("create blocker blueprint: %v", err)
 	}
 
 	// Place blocker at lane 0, slot depth 1 (front — blocks access)
-	blockerInst := &store.PayloadInstance{StyleID: blocker.ID, NodeID: &slots[0][0].ID, Status: "available"}
-	if err := db.CreateInstance(blockerInst); err != nil {
-		t.Fatalf("create blocker instance: %v", err)
-	}
+	createTestPayloadAtNode(t, db, blockerBP.ID, slots[0][0].ID, "BIN-BLK")
 
 	// Place target WIDGET-A at lane 0, slot depth 3 (back — buried)
-	buried := &store.PayloadInstance{StyleID: style.ID, NodeID: &slots[0][2].ID, Status: "available"}
-	if err := db.CreateInstance(buried); err != nil {
-		t.Fatalf("create buried instance: %v", err)
-	}
+	buried := createTestPayloadAtNode(t, db, bp.ID, slots[0][2].ID, "BIN-BURIED")
 
-	_, err := gr.ResolveRetrieve(grp, &style.ID)
+	_, err := gr.ResolveRetrieve(grp, &bp.ID)
 	if err == nil {
-		t.Fatal("expected error for buried instance, got nil")
+		t.Fatal("expected error for buried payload, got nil")
 	}
 
 	var buriedErr *BuriedError
 	if !errors.As(err, &buriedErr) {
 		t.Fatalf("expected *BuriedError, got %T: %v", err, err)
 	}
-	if buriedErr.Instance.ID != buried.ID {
-		t.Errorf("buried instance ID = %d, want %d", buriedErr.Instance.ID, buried.ID)
+	if buriedErr.Payload.ID != buried.ID {
+		t.Errorf("buried payload ID = %d, want %d", buriedErr.Payload.ID, buried.ID)
 	}
 }
 
 func TestGroupResolveStore_BackToFront(t *testing.T) {
 	db := testDB(t)
-	grp, _, slots, style := setupNodeGroup(t, db)
+	grp, _, slots, bp := setupNodeGroup(t, db)
 
 	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
 
-	result, err := gr.ResolveStore(grp, &style.ID)
+	result, err := gr.ResolveStore(grp, &bp.ID, nil)
 	if err != nil {
 		t.Fatalf("ResolveStore: %v", err)
 	}
@@ -158,17 +160,14 @@ func TestGroupResolveStore_BackToFront(t *testing.T) {
 
 func TestGroupResolveStore_Consolidation(t *testing.T) {
 	db := testDB(t)
-	grp, lanes, slots, style := setupNodeGroup(t, db)
+	grp, lanes, slots, bp := setupNodeGroup(t, db)
 
 	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
 
-	// Place a WIDGET-A instance at lane 0, slot depth 3 (deepest)
-	existing := &store.PayloadInstance{StyleID: style.ID, NodeID: &slots[0][2].ID, Status: "available"}
-	if err := db.CreateInstance(existing); err != nil {
-		t.Fatalf("create existing instance: %v", err)
-	}
+	// Place a WIDGET-A payload at lane 0, slot depth 3 (deepest)
+	createTestPayloadAtNode(t, db, bp.ID, slots[0][2].ID, "BIN-CONSOL")
 
-	result, err := gr.ResolveStore(grp, &style.ID)
+	result, err := gr.ResolveStore(grp, &bp.ID, nil)
 	if err != nil {
 		t.Fatalf("ResolveStore: %v", err)
 	}
@@ -182,19 +181,16 @@ func TestGroupResolveStore_Consolidation(t *testing.T) {
 
 func TestGroupResolveStore_FullLane(t *testing.T) {
 	db := testDB(t)
-	grp, lanes, slots, style := setupNodeGroup(t, db)
+	grp, lanes, slots, bp := setupNodeGroup(t, db)
 
 	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
 
 	// Fill all 3 slots of lane 0
 	for i := 0; i < 3; i++ {
-		inst := &store.PayloadInstance{StyleID: style.ID, NodeID: &slots[0][i].ID, Status: "available"}
-		if err := db.CreateInstance(inst); err != nil {
-			t.Fatalf("create instance slot %d: %v", i, err)
-		}
+		createTestPayloadAtNode(t, db, bp.ID, slots[0][i].ID, fmt.Sprintf("BIN-FULL-%d", i))
 	}
 
-	result, err := gr.ResolveStore(grp, nil)
+	result, err := gr.ResolveStore(grp, nil, nil)
 	if err != nil {
 		t.Fatalf("ResolveStore: %v", err)
 	}
@@ -208,27 +204,24 @@ func TestGroupResolveStore_FullLane(t *testing.T) {
 
 func TestGroupResolveRetrieve_LockedLaneSkipped(t *testing.T) {
 	db := testDB(t)
-	grp, lanes, slots, style := setupNodeGroup(t, db)
+	grp, lanes, slots, bp := setupNodeGroup(t, db)
 
 	laneLock := NewLaneLock()
 	gr := &GroupResolver{DB: db, LaneLock: laneLock}
 
-	// Place instance at lane 0, slot depth 1
-	inst := &store.PayloadInstance{StyleID: style.ID, NodeID: &slots[0][0].ID, Status: "available"}
-	if err := db.CreateInstance(inst); err != nil {
-		t.Fatalf("create instance: %v", err)
-	}
+	// Place payload at lane 0, slot depth 1
+	createTestPayloadAtNode(t, db, bp.ID, slots[0][0].ID, "BIN-LOCKED")
 
 	// Lock lane 0
 	laneLock.TryLock(lanes[0].ID, 999)
 
-	// Should fail since lane 0 is locked and lane 1 has no instances
-	_, err := gr.ResolveRetrieve(grp, &style.ID)
+	// Should fail since lane 0 is locked and lane 1 has no payloads
+	_, err := gr.ResolveRetrieve(grp, &bp.ID)
 	if err == nil {
-		t.Fatal("expected error when lane is locked and no other instances available, got nil")
+		t.Fatal("expected error when lane is locked and no other payloads available, got nil")
 	}
 
-	// Verify it's not a BuriedError — it should be a "no instance" error
+	// Verify it's not a BuriedError — it should be a "no payload" error
 	var buriedErr *BuriedError
 	if errors.As(err, &buriedErr) {
 		t.Error("should not be a BuriedError; lane 0 should have been skipped entirely")
@@ -243,30 +236,29 @@ func TestNodeGroupResolveRetrieve_DirectChildren(t *testing.T) {
 		t.Fatalf("get NGRP type: %v", err)
 	}
 
-	style := &store.PayloadStyle{Name: "PART-DC", Code: "PDC", FormFactor: "tote", DefaultManifestJSON: "{}"}
-	db.CreatePayloadStyle(style)
+	bp := &store.Blueprint{Code: "PDC", DefaultManifestJSON: "{}"}
+	db.CreateBlueprint(bp)
 
 	// Create group with direct physical children (no lanes)
-	grp := &store.Node{Name: "GRP-DC", NodeType: "storage", IsSynthetic: true, NodeTypeID: &grpType.ID, Capacity: 0, Enabled: true}
+	grp := &store.Node{Name: "GRP-DC", IsSynthetic: true, NodeTypeID: &grpType.ID, Enabled: true}
 	db.CreateNode(grp)
 	grp, _ = db.GetNode(grp.ID)
 
-	child1 := &store.Node{Name: "DC-01", NodeType: "storage", ParentID: &grp.ID, Capacity: 1, Enabled: true}
+	child1 := &store.Node{Name: "DC-01", ParentID: &grp.ID, Enabled: true}
 	db.CreateNode(child1)
-	child2 := &store.Node{Name: "DC-02", NodeType: "storage", ParentID: &grp.ID, Capacity: 1, Enabled: true}
+	child2 := &store.Node{Name: "DC-02", ParentID: &grp.ID, Enabled: true}
 	db.CreateNode(child2)
 
-	// Place instance at child2
-	inst := &store.PayloadInstance{StyleID: style.ID, NodeID: &child2.ID, Status: "available"}
-	db.CreateInstance(inst)
+	// Place payload at child2
+	p := createTestPayloadAtNode(t, db, bp.ID, child2.ID, "BIN-DC")
 
 	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
-	result, err := gr.ResolveRetrieve(grp, &style.ID)
+	result, err := gr.ResolveRetrieve(grp, &bp.ID)
 	if err != nil {
 		t.Fatalf("ResolveRetrieve: %v", err)
 	}
-	if result.Instance.ID != inst.ID {
-		t.Errorf("instance ID = %d, want %d", result.Instance.ID, inst.ID)
+	if result.Payload.ID != p.ID {
+		t.Errorf("payload ID = %d, want %d", result.Payload.ID, p.ID)
 	}
 	if result.Node.ID != child2.ID {
 		t.Errorf("node ID = %d, want %d", result.Node.ID, child2.ID)
@@ -275,30 +267,28 @@ func TestNodeGroupResolveRetrieve_DirectChildren(t *testing.T) {
 
 func TestNodeGroupResolveRetrieve_Mixed(t *testing.T) {
 	db := testDB(t)
-	grp, _, slots, style := setupNodeGroup(t, db)
+	grp, _, slots, bp := setupNodeGroup(t, db)
 
 	// Add a direct physical child to the group
-	directChild := &store.Node{Name: "GRP-1-DC1", NodeType: "storage", ParentID: &grp.ID, Capacity: 1, Enabled: true}
+	directChild := &store.Node{Name: "GRP-1-DC1", ParentID: &grp.ID, Enabled: true}
 	db.CreateNode(directChild)
 
-	// Place older instance at direct child
-	older := &store.PayloadInstance{StyleID: style.ID, NodeID: &directChild.ID, Status: "available"}
-	db.CreateInstance(older)
+	// Place older payload at direct child
+	older := createTestPayloadAtNode(t, db, bp.ID, directChild.ID, "BIN-MIX-OLD")
 
 	time.Sleep(10 * time.Millisecond)
 
-	// Place newer instance at lane 0, slot 0
-	newer := &store.PayloadInstance{StyleID: style.ID, NodeID: &slots[0][0].ID, Status: "available"}
-	db.CreateInstance(newer)
+	// Place newer payload at lane 0, slot 0
+	createTestPayloadAtNode(t, db, bp.ID, slots[0][0].ID, "BIN-MIX-NEW")
 
 	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
-	result, err := gr.ResolveRetrieve(grp, &style.ID)
+	result, err := gr.ResolveRetrieve(grp, &bp.ID)
 	if err != nil {
 		t.Fatalf("ResolveRetrieve: %v", err)
 	}
-	// Should pick the older instance from the direct child
-	if result.Instance.ID != older.ID {
-		t.Errorf("instance ID = %d, want %d (FIFO should pick older from direct child)", result.Instance.ID, older.ID)
+	// Should pick the older payload from the direct child
+	if result.Payload.ID != older.ID {
+		t.Errorf("payload ID = %d, want %d (FIFO should pick older from direct child)", result.Payload.ID, older.ID)
 	}
 }
 
@@ -306,20 +296,20 @@ func TestNodeGroupResolveStore_DirectChildren(t *testing.T) {
 	db := testDB(t)
 
 	grpType, _ := db.GetNodeTypeByCode("NGRP")
-	style := &store.PayloadStyle{Name: "PART-DS", Code: "PDS", FormFactor: "tote", DefaultManifestJSON: "{}"}
-	db.CreatePayloadStyle(style)
+	bp := &store.Blueprint{Code: "PDS", DefaultManifestJSON: "{}"}
+	db.CreateBlueprint(bp)
 
-	grp := &store.Node{Name: "GRP-DS", NodeType: "storage", IsSynthetic: true, NodeTypeID: &grpType.ID, Capacity: 0, Enabled: true}
+	grp := &store.Node{Name: "GRP-DS", IsSynthetic: true, NodeTypeID: &grpType.ID, Enabled: true}
 	db.CreateNode(grp)
 	grp, _ = db.GetNode(grp.ID)
 
-	child1 := &store.Node{Name: "DS-01", NodeType: "storage", ParentID: &grp.ID, Capacity: 2, Enabled: true}
+	child1 := &store.Node{Name: "DS-01", ParentID: &grp.ID, Enabled: true}
 	db.CreateNode(child1)
-	child2 := &store.Node{Name: "DS-02", NodeType: "storage", ParentID: &grp.ID, Capacity: 2, Enabled: true}
+	child2 := &store.Node{Name: "DS-02", ParentID: &grp.ID, Enabled: true}
 	db.CreateNode(child2)
 
 	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
-	result, err := gr.ResolveStore(grp, &style.ID)
+	result, err := gr.ResolveStore(grp, &bp.ID, nil)
 	if err != nil {
 		t.Fatalf("ResolveStore: %v", err)
 	}
@@ -327,4 +317,58 @@ func TestNodeGroupResolveStore_DirectChildren(t *testing.T) {
 	if result.Node.ID != child1.ID && result.Node.ID != child2.ID {
 		t.Errorf("expected direct child, got node %s (ID %d)", result.Node.Name, result.Node.ID)
 	}
+}
+
+func TestGroupResolveStore_BinTypeRestriction(t *testing.T) {
+	db := testDB(t)
+	grp, _, slots, bp := setupNodeGroup(t, db)
+
+	// Create two bin types
+	btSmall := &store.BinType{Code: "SMALL"}
+	if err := db.CreateBinType(btSmall); err != nil {
+		t.Fatalf("create bin type SMALL: %v", err)
+	}
+	btLarge := &store.BinType{Code: "LARGE"}
+	if err := db.CreateBinType(btLarge); err != nil {
+		t.Fatalf("create bin type LARGE: %v", err)
+	}
+
+	// Restrict lane 0 to SMALL only
+	lanes, _ := db.ListChildNodes(grp.ID)
+	var lane0 *store.Node
+	for _, l := range lanes {
+		if l.NodeTypeCode == "LANE" {
+			lane0 = l
+			break
+		}
+	}
+	if lane0 == nil {
+		t.Fatal("no lane found")
+	}
+	if err := db.SetNodeBinTypes(lane0.ID, []int64{btSmall.ID}); err != nil {
+		t.Fatalf("set node bin types: %v", err)
+	}
+
+	gr := &GroupResolver{DB: db, LaneLock: NewLaneLock()}
+
+	// Try to store a LARGE bin — should skip lane 0 and use lane 1
+	result, err := gr.ResolveStore(grp, &bp.ID, &btLarge.ID)
+	if err != nil {
+		t.Fatalf("ResolveStore: %v", err)
+	}
+
+	// Verify the slot is NOT in lane 0
+	if result.Node.ParentID != nil && *result.Node.ParentID == lane0.ID {
+		t.Errorf("expected slot NOT in lane 0 (restricted to SMALL), got node %s in lane 0", result.Node.Name)
+	}
+
+	// Try to store a SMALL bin — should use lane 0
+	result, err = gr.ResolveStore(grp, &bp.ID, &btSmall.ID)
+	if err != nil {
+		t.Fatalf("ResolveStore: %v", err)
+	}
+
+	// The result can be in any lane since SMALL is allowed in lane 0
+	_ = result
+	_ = slots
 }

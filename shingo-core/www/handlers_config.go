@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -95,16 +94,4 @@ func (h *Handlers) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("config: %s section saved", section)
 	http.Redirect(w, r, "/config?saved="+section, http.StatusSeeOther)
-}
-
-func splitTrim(s, sep string) []string {
-	parts := strings.Split(s, sep)
-	var result []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-	return result
 }

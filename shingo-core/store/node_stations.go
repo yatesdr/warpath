@@ -46,26 +46,38 @@ func (db *DB) ListNodesForStation(stationID string) ([]*Node, error) {
 	return scanNodes(rows)
 }
 
-// GetEffectiveStations returns stations for a node, walking up the parent chain
-// until a non-empty set is found. Returns nil (all access) if no ancestor has stations.
+// GetEffectiveStations returns stations for a node based on its station_mode property:
+//   - "all": no restrictions (returns nil)
+//   - "specific": returns directly assigned stations
+//   - "" / "inherit": walks parent chain until a non-empty set is found
 func (db *DB) GetEffectiveStations(nodeID int64) ([]string, error) {
-	cur := nodeID
-	for {
-		stations, err := db.ListStationsForNode(cur)
-		if err != nil {
-			return nil, err
+	mode := db.GetNodeProperty(nodeID, "station_mode")
+	switch mode {
+	case "all":
+		return nil, nil
+	case "none":
+		return []string{}, nil // empty = no stations permitted
+	case "specific":
+		return db.ListStationsForNode(nodeID)
+	default: // "" or "inherit"
+		cur := nodeID
+		for {
+			stations, err := db.ListStationsForNode(cur)
+			if err != nil {
+				return nil, err
+			}
+			if len(stations) > 0 {
+				return stations, nil
+			}
+			node, err := db.GetNode(cur)
+			if err != nil {
+				return nil, nil
+			}
+			if node.ParentID == nil {
+				return nil, nil
+			}
+			cur = *node.ParentID
 		}
-		if len(stations) > 0 {
-			return stations, nil
-		}
-		node, err := db.GetNode(cur)
-		if err != nil {
-			return nil, nil
-		}
-		if node.ParentID == nil {
-			return nil, nil
-		}
-		cur = *node.ParentID
 	}
 }
 

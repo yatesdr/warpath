@@ -81,14 +81,14 @@ func (e *Engine) wireEventHandlers() {
 	// When an order is received, audit it
 	e.Events.SubscribeTypes(func(evt Event) {
 		ev := evt.Payload.(OrderReceivedEvent)
-		e.logFn("engine: order %d received from %s: %s %s -> %s", ev.OrderID, ev.StationID, ev.OrderType, ev.StyleCode, ev.DeliveryNode)
-		e.db.AppendAudit("order", ev.OrderID, "received", "", fmt.Sprintf("%s %s from %s", ev.OrderType, ev.StyleCode, ev.StationID), "system")
+		e.logFn("engine: order %d received from %s: %s %s -> %s", ev.OrderID, ev.StationID, ev.OrderType, ev.BlueprintCode, ev.DeliveryNode)
+		e.db.AppendAudit("order", ev.OrderID, "received", "", fmt.Sprintf("%s %s from %s", ev.OrderType, ev.BlueprintCode, ev.StationID), "system")
 	}, EventOrderReceived)
 
 	// Payload changes: audit
 	e.Events.SubscribeTypes(func(evt Event) {
 		ev := evt.Payload.(PayloadChangedEvent)
-		e.db.AppendAudit("payload", ev.InstanceID, ev.Action, "", fmt.Sprintf("style=%s node=%d", ev.StyleCode, ev.NodeID), "system")
+		e.db.AppendAudit("payload", ev.PayloadID, ev.Action, "", fmt.Sprintf("blueprint=%s node=%d", ev.BlueprintCode, ev.NodeID), "system")
 	}, EventPayloadChanged)
 
 	// Node updates: audit
@@ -201,16 +201,18 @@ func (e *Engine) handleOrderCompleted(ev OrderCompletedEvent) {
 		sourceNodeID = sourceNode.ID
 	}
 
-	instances, _ := e.db.ListInstancesByClaimedOrder(order.ID)
-	for _, p := range instances {
-		e.nodeState.MoveInstance(p.ID, destNode.ID)
+	payloads, _ := e.db.ListPayloadsByClaimedOrder(order.ID)
+	for _, p := range payloads {
+		if p.BinID != nil {
+			e.nodeState.MoveBin(*p.BinID, destNode.ID)
+		}
 		e.Events.Emit(Event{Type: EventPayloadChanged, Payload: PayloadChangedEvent{
-			Action:     "moved",
-			InstanceID: p.ID,
-			StyleCode:  p.StyleName,
-			FromNodeID: sourceNodeID,
-			ToNodeID:   destNode.ID,
-			NodeID:     destNode.ID,
+			Action:        "moved",
+			PayloadID:     p.ID,
+			BlueprintCode: p.BlueprintCode,
+			FromNodeID:    sourceNodeID,
+			ToNodeID:      destNode.ID,
+			NodeID:        destNode.ID,
 		}})
 	}
 }

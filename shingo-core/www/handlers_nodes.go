@@ -1,9 +1,11 @@
 package www
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"shingocore/engine"
 	"shingocore/fleet"
@@ -24,7 +26,7 @@ func (h *Handlers) apiNodePayloads(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	payloads, err := h.engine.DB().ListInstancesByNode(id)
+	payloads, err := h.engine.DB().ListPayloadsByNode(id)
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -76,7 +78,7 @@ func (h *Handlers) handleNodes(w http.ResponseWriter, r *http.Request) {
 		"NodeInfo":       pd.NodeInfo,
 		"MapGroups":      pd.MapGroups,
 		"MapClassOrder":  []string{"ActionPoint", "ChargePoint", "LocationMark"},
-		"PayloadStyles":  pd.PayloadStyles,
+		"BinTypes":       pd.BinTypes,
 		"Edges":          pd.Edges,
 		"ChildCounts":    pd.ChildCounts,
 		"Depths":         pd.Depths,
@@ -90,12 +92,9 @@ func (h *Handlers) handleNodeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	capacity, _ := strconv.Atoi(r.FormValue("capacity"))
 	node := &store.Node{
 		Name:     r.FormValue("name"),
-		NodeType: r.FormValue("node_type"),
 		Zone:     r.FormValue("zone"),
-		Capacity: capacity,
 		Enabled:  r.FormValue("enabled") == "on",
 	}
 
@@ -111,20 +110,32 @@ func (h *Handlers) handleNodeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save station assignments
-	if stations := r.Form["stations"]; len(stations) > 0 {
-		h.engine.DB().SetNodeStations(node.ID, stations)
+	// Save station mode + assignments
+	stationMode := r.FormValue("station_mode")
+	if stationMode != "" {
+		h.engine.DB().SetNodeProperty(node.ID, "station_mode", stationMode)
+	}
+	if stationMode == "specific" {
+		h.engine.DB().SetNodeStations(node.ID, r.Form["stations"])
+	} else {
+		h.engine.DB().SetNodeStations(node.ID, nil)
 	}
 
-	// Save payload style compatibility
-	if sIDs := r.Form["style_ids"]; len(sIDs) > 0 {
+	// Save bin type mode + assignments
+	binTypeMode := r.FormValue("bin_type_mode")
+	if binTypeMode != "" {
+		h.engine.DB().SetNodeProperty(node.ID, "bin_type_mode", binTypeMode)
+	}
+	if binTypeMode == "specific" {
 		var ids []int64
-		for _, s := range sIDs {
+		for _, s := range r.Form["bin_type_ids"] {
 			if id, err := strconv.ParseInt(s, 10, 64); err == nil {
 				ids = append(ids, id)
 			}
 		}
-		h.engine.DB().SetNodePayloadStyles(node.ID, ids)
+		h.engine.DB().SetNodeBinTypes(node.ID, ids)
+	} else {
+		h.engine.DB().SetNodeBinTypes(node.ID, nil)
 	}
 
 	h.engine.Events.Emit(engine.Event{Type: engine.EventNodeUpdated, Payload: engine.NodeUpdatedEvent{
@@ -152,11 +163,8 @@ func (h *Handlers) handleNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	capacity, _ := strconv.Atoi(r.FormValue("capacity"))
 	node.Name = r.FormValue("name")
-	node.NodeType = r.FormValue("node_type")
 	node.Zone = r.FormValue("zone")
-	node.Capacity = capacity
 	node.Enabled = r.FormValue("enabled") == "on"
 
 	if ntID, err := strconv.ParseInt(r.FormValue("node_type_id"), 10, 64); err == nil && ntID > 0 {
@@ -175,18 +183,29 @@ func (h *Handlers) handleNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update station assignments
-	stations := r.Form["stations"]
-	h.engine.DB().SetNodeStations(node.ID, stations)
-
-	// Update payload style compatibility
-	var styleIDs []int64
-	for _, s := range r.Form["style_ids"] {
-		if sID, err := strconv.ParseInt(s, 10, 64); err == nil {
-			styleIDs = append(styleIDs, sID)
-		}
+	// Update station mode + assignments
+	stationMode := r.FormValue("station_mode")
+	h.engine.DB().SetNodeProperty(node.ID, "station_mode", stationMode)
+	if stationMode == "specific" {
+		h.engine.DB().SetNodeStations(node.ID, r.Form["stations"])
+	} else {
+		h.engine.DB().SetNodeStations(node.ID, nil)
 	}
-	h.engine.DB().SetNodePayloadStyles(node.ID, styleIDs)
+
+	// Update bin type mode + assignments
+	binTypeMode := r.FormValue("bin_type_mode")
+	h.engine.DB().SetNodeProperty(node.ID, "bin_type_mode", binTypeMode)
+	if binTypeMode == "specific" {
+		var binTypeIDs []int64
+		for _, s := range r.Form["bin_type_ids"] {
+			if sID, err := strconv.ParseInt(s, 10, 64); err == nil {
+				binTypeIDs = append(binTypeIDs, sID)
+			}
+		}
+		h.engine.DB().SetNodeBinTypes(node.ID, binTypeIDs)
+	} else {
+		h.engine.DB().SetNodeBinTypes(node.ID, nil)
+	}
 
 	h.engine.Events.Emit(engine.Event{Type: engine.EventNodeUpdated, Payload: engine.NodeUpdatedEvent{
 		NodeID: node.ID, NodeName: node.Name, Action: "updated",
@@ -262,7 +281,7 @@ func (h *Handlers) apiNodeOccupancy(w http.ResponseWriter, r *http.Request) {
 	h.jsonOK(w, results)
 }
 
-// apiNodeDetail returns extended node info (stations, payload types, properties, children).
+// apiNodeDetail returns extended node info (stations, blueprints, properties, children).
 func (h *Handlers) apiNodeDetail(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil {
@@ -277,12 +296,16 @@ func (h *Handlers) apiNodeDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stations, _ := h.engine.DB().ListStationsForNode(id)
-	payloadStyles, _ := h.engine.DB().ListPayloadStylesForNode(id)
+	binTypes, _ := h.engine.DB().ListBinTypesForNode(id)
 	props, _ := h.engine.DB().ListNodeProperties(id)
 
 	// Effective (inherited) values for child nodes
 	effectiveStations, _ := h.engine.DB().GetEffectiveStations(id)
-	effectiveStyles, _ := h.engine.DB().GetEffectivePayloadStyles(id)
+	effectiveBinTypes, _ := h.engine.DB().GetEffectiveBinTypes(id)
+
+	// Mode properties
+	binTypeMode := h.engine.DB().GetNodeProperty(id, "bin_type_mode")
+	stationMode := h.engine.DB().GetNodeProperty(id, "station_mode")
 
 	var children []*store.Node
 	if node.IsSynthetic {
@@ -290,13 +313,15 @@ func (h *Handlers) apiNodeDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.jsonOK(w, map[string]any{
-		"node":              node,
-		"stations":          stations,
-		"payload_styles":    payloadStyles,
-		"properties":        props,
-		"children":          children,
-		"effective_stations": effectiveStations,
-		"effective_styles":   effectiveStyles,
+		"node":                  node,
+		"stations":              stations,
+		"bin_types":             binTypes,
+		"properties":            props,
+		"children":              children,
+		"effective_stations":    effectiveStations,
+		"effective_bin_types":   effectiveBinTypes,
+		"bin_type_mode":         binTypeMode,
+		"station_mode":          stationMode,
 	})
 }
 
@@ -319,6 +344,202 @@ func (h *Handlers) apiNodePropertySet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.jsonSuccess(w)
+}
+
+// apiGenerateTestNodes creates a representative set of test nodes for debugging.
+func (h *Handlers) apiGenerateTestNodes(w http.ResponseWriter, r *http.Request) {
+	db := h.engine.DB()
+
+	// Check if test nodes already exist.
+	nodes, err := db.ListNodes()
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, n := range nodes {
+		if strings.HasPrefix(n.Name, "TEST-") {
+			h.jsonError(w, "test nodes already exist — delete them first", http.StatusConflict)
+			return
+		}
+	}
+
+	type nodeDef struct {
+		name string
+		zone string
+	}
+
+	defs := []nodeDef{
+		// Warehouse A — 6 storage nodes
+		{"TEST-WH-A01", "Warehouse-A"},
+		{"TEST-WH-A02", "Warehouse-A"},
+		{"TEST-WH-A03", "Warehouse-A"},
+		{"TEST-WH-A04", "Warehouse-A"},
+		{"TEST-WH-A05", "Warehouse-A"},
+		{"TEST-WH-A06", "Warehouse-A"},
+		// Warehouse B — 4 storage nodes
+		{"TEST-WH-B01", "Warehouse-B"},
+		{"TEST-WH-B02", "Warehouse-B"},
+		{"TEST-WH-B03", "Warehouse-B"},
+		{"TEST-WH-B04", "Warehouse-B"},
+		// Production — 3 line-side nodes
+		{"TEST-LINE-1", "Production"},
+		{"TEST-LINE-2", "Production"},
+		{"TEST-LINE-3", "Production"},
+		// Staging — 2 nodes
+		{"TEST-STAGE-IN", "Staging"},
+		{"TEST-STAGE-OUT", "Staging"},
+	}
+
+	created := 0
+	for _, d := range defs {
+		n := &store.Node{
+			Name:    d.name,
+			Zone:    d.zone,
+			Enabled: true,
+		}
+		if err := db.CreateNode(n); err != nil {
+			h.jsonError(w, fmt.Sprintf("creating %s: %v", d.name, err), http.StatusInternalServerError)
+			return
+		}
+		created++
+	}
+
+	// Node group with lanes and slots.
+	groupID, err := db.CreateNodeGroup("TEST-NGRP-1")
+	if err != nil {
+		h.jsonError(w, fmt.Sprintf("creating node group: %v", err), http.StatusInternalServerError)
+		return
+	}
+	created++ // the synthetic group node
+
+	// Two direct children on the group node.
+	for _, name := range []string{"TEST-NGRP-1-D1", "TEST-NGRP-1-D2"} {
+		child := &store.Node{
+			Name:     name,
+			Zone:     "Production",
+			Enabled:  true,
+			ParentID: &groupID,
+		}
+		if err := db.CreateNode(child); err != nil {
+			h.jsonError(w, fmt.Sprintf("creating %s: %v", name, err), http.StatusInternalServerError)
+			return
+		}
+		created++
+	}
+
+	// Two lanes, each with 4 slot nodes.
+	for _, laneName := range []string{"TEST-LANE-A", "TEST-LANE-B"} {
+		laneID, err := db.AddLane(groupID, laneName)
+		if err != nil {
+			h.jsonError(w, fmt.Sprintf("adding lane %s: %v", laneName, err), http.StatusInternalServerError)
+			return
+		}
+		created++ // lane node
+
+		for i := 1; i <= 4; i++ {
+			slotName := fmt.Sprintf("%s-S%d", laneName, i)
+			slot := &store.Node{
+				Name:     slotName,
+				Zone:     "Production",
+				Enabled:  true,
+			}
+			if err := db.CreateNode(slot); err != nil {
+				h.jsonError(w, fmt.Sprintf("creating %s: %v", slotName, err), http.StatusInternalServerError)
+				return
+			}
+			if err := db.ReparentNode(slot.ID, &laneID, i); err != nil {
+				h.jsonError(w, fmt.Sprintf("reparenting %s: %v", slotName, err), http.StatusInternalServerError)
+				return
+			}
+			created++
+		}
+	}
+
+	h.engine.Events.Emit(engine.Event{Type: engine.EventNodeUpdated, Payload: engine.NodeUpdatedEvent{
+		Action: "created",
+	}})
+
+	log.Printf("generated %d test nodes", created)
+	h.jsonOK(w, map[string]any{"created": created})
+}
+
+// apiDeleteTestNodes removes all TEST- prefixed nodes.
+func (h *Handlers) apiDeleteTestNodes(w http.ResponseWriter, r *http.Request) {
+	db := h.engine.DB()
+
+	nodes, err := db.ListNodes()
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	deleted := 0
+
+	// First pass: delete node groups (cascades to lanes + children).
+	for _, n := range nodes {
+		if strings.HasPrefix(n.Name, "TEST-") && n.IsSynthetic && n.ParentID == nil {
+			if err := db.DeleteNodeGroup(n.ID); err != nil {
+				h.jsonError(w, fmt.Sprintf("deleting group %s: %v", n.Name, err), http.StatusInternalServerError)
+				return
+			}
+			deleted++
+		}
+	}
+
+	// Second pass: delete remaining standalone TEST- nodes.
+	// Re-fetch since DeleteNodeGroup may have removed children.
+	nodes, _ = db.ListNodes()
+	for _, n := range nodes {
+		if strings.HasPrefix(n.Name, "TEST-") {
+			if err := db.DeleteNode(n.ID); err != nil {
+				log.Printf("delete test node %s: %v", n.Name, err)
+				continue
+			}
+			deleted++
+		}
+	}
+
+	h.engine.Events.Emit(engine.Event{Type: engine.EventNodeUpdated, Payload: engine.NodeUpdatedEvent{
+		Action: "deleted",
+	}})
+
+	log.Printf("deleted %d test nodes", deleted)
+	h.jsonOK(w, map[string]any{"deleted": deleted})
+}
+
+// apiSetNodeBinTypes replaces bin type assignments for a node.
+func (h *Handlers) apiSetNodeBinTypes(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID     int64   `json:"node_id"`
+		BinTypeIDs []int64 `json:"bin_type_ids"`
+	}
+	if !h.parseJSON(w, r, &req) {
+		return
+	}
+	if req.NodeID == 0 {
+		h.jsonError(w, "node_id is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.engine.DB().SetNodeBinTypes(req.NodeID, req.BinTypeIDs); err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.jsonSuccess(w)
+}
+
+// apiGetNodeBinTypes returns bin types assigned to a node.
+func (h *Handlers) apiGetNodeBinTypes(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil {
+		h.jsonError(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	binTypes, err := h.engine.DB().ListBinTypesForNode(id)
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.jsonOK(w, binTypes)
 }
 
 // apiNodePropertyDelete removes a property from a node.

@@ -44,12 +44,12 @@ func (db *DB) IsSlotAccessible(slotNodeID int64) (bool, error) {
 		return true, nil // no depth property = accessible
 	}
 
-	// Check if any shallower slot (depth < this depth) has an instance
+	// Check if any shallower slot (depth < this depth) has a bin
 	var count int
 	err = db.QueryRow(db.Q(`
 		SELECT COUNT(*) FROM nodes sib
 		JOIN node_properties dp ON dp.node_id=sib.id AND dp.key='depth'
-		JOIN payload_instances pi ON pi.node_id=sib.id
+		JOIN bins b ON b.node_id=sib.id
 		WHERE sib.parent_id=? AND sib.id!=? AND CAST(dp.value AS INTEGER) < ?
 	`), *slot.ParentID, slotNodeID, depth).Scan(&count)
 	if err != nil {
@@ -58,40 +58,40 @@ func (db *DB) IsSlotAccessible(slotNodeID int64) (bool, error) {
 	return count == 0, nil
 }
 
-// FindSourceInstanceInLane finds the FIFO-oldest accessible unclaimed instance in a lane.
-func (db *DB) FindSourceInstanceInLane(laneID int64, styleCode string) (*PayloadInstance, error) {
+// FindSourcePayloadInLane finds the FIFO-oldest accessible unclaimed payload in a lane.
+func (db *DB) FindSourcePayloadInLane(laneID int64, blueprintCode string) (*Payload, error) {
 	slots, err := db.ListLaneSlots(laneID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Walk from front (shallowest) to back, find first accessible slot with matching instance
+	// Walk from front (shallowest) to back, find first accessible slot with matching payload
 	for _, slot := range slots {
-		instances, err := db.ListInstancesByNode(slot.ID)
-		if err != nil || len(instances) == 0 {
+		payloads, err := db.ListPayloadsByNode(slot.ID)
+		if err != nil || len(payloads) == 0 {
 			continue
 		}
 
-		for _, inst := range instances {
-			if inst.ClaimedBy != nil || inst.Status != "available" {
+		for _, p := range payloads {
+			if p.ClaimedBy != nil || p.Status != "available" {
 				continue
 			}
-			if styleCode != "" && inst.StyleName != styleCode {
+			if blueprintCode != "" && p.BlueprintCode != blueprintCode {
 				continue
 			}
 			// This slot is accessible (front-most occupied slot)
-			return inst, nil
+			return p, nil
 		}
 		// If this slot is occupied but doesn't match, deeper slots are blocked
-		if len(instances) > 0 {
+		if len(payloads) > 0 {
 			break
 		}
 	}
-	return nil, fmt.Errorf("no accessible instance in lane %d", laneID)
+	return nil, fmt.Errorf("no accessible payload in lane %d", laneID)
 }
 
 // FindStoreSlotInLane finds the deepest empty slot in a lane for back-to-front packing.
-func (db *DB) FindStoreSlotInLane(laneID int64, styleID int64) (*Node, error) {
+func (db *DB) FindStoreSlotInLane(laneID int64, blueprintID int64) (*Node, error) {
 	slots, err := db.ListLaneSlots(laneID)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (db *DB) FindStoreSlotInLane(laneID int64, styleID int64) (*Node, error) {
 	// Walk from back (deepest) to front, find first empty slot
 	for i := len(slots) - 1; i >= 0; i-- {
 		slot := slots[i]
-		count, err := db.CountInstancesByNode(slot.ID)
+		count, err := db.CountBinsByNode(slot.ID)
 		if err != nil {
 			continue
 		}
@@ -111,42 +111,42 @@ func (db *DB) FindStoreSlotInLane(laneID int64, styleID int64) (*Node, error) {
 	return nil, fmt.Errorf("no empty slot in lane %d", laneID)
 }
 
-// CountInstancesInLane counts total instances across all slots in a lane.
-func (db *DB) CountInstancesInLane(laneID int64) (int, error) {
+// CountBinsInLane counts total bins across all slots in a lane.
+func (db *DB) CountBinsInLane(laneID int64) (int, error) {
 	var count int
 	err := db.QueryRow(db.Q(`
-		SELECT COUNT(*) FROM payload_instances pi
-		JOIN nodes slot ON slot.id = pi.node_id
+		SELECT COUNT(*) FROM bins b
+		JOIN nodes slot ON slot.id = b.node_id
 		WHERE slot.parent_id = ?
 	`), laneID).Scan(&count)
 	return count, err
 }
 
-// FindBuriedInstance finds an instance that exists in a lane but is blocked by shallower instances.
-func (db *DB) FindBuriedInstance(laneID int64, styleCode string) (*PayloadInstance, *Node, error) {
+// FindBuriedPayload finds a payload that exists in a lane but is blocked by shallower bins.
+func (db *DB) FindBuriedPayload(laneID int64, blueprintCode string) (*Payload, *Node, error) {
 	slots, err := db.ListLaneSlots(laneID)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	for _, slot := range slots {
-		instances, err := db.ListInstancesByNode(slot.ID)
-		if err != nil || len(instances) == 0 {
+		payloads, err := db.ListPayloadsByNode(slot.ID)
+		if err != nil || len(payloads) == 0 {
 			continue
 		}
-		for _, inst := range instances {
-			if inst.ClaimedBy != nil || inst.Status != "available" {
+		for _, p := range payloads {
+			if p.ClaimedBy != nil || p.Status != "available" {
 				continue
 			}
-			if styleCode != "" && inst.StyleName != styleCode {
+			if blueprintCode != "" && p.BlueprintCode != blueprintCode {
 				continue
 			}
 			// Check if it's actually buried (not accessible)
 			accessible, _ := db.IsSlotAccessible(slot.ID)
 			if !accessible {
-				return inst, slot, nil
+				return p, slot, nil
 			}
 		}
 	}
-	return nil, nil, fmt.Errorf("no buried instance in lane %d", laneID)
+	return nil, nil, fmt.Errorf("no buried payload in lane %d", laneID)
 }

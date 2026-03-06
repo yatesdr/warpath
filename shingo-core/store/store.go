@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -16,6 +17,40 @@ type DB struct {
 	mu sync.RWMutex
 	*sql.DB
 	driver string
+}
+
+// ResetDatabase removes all data so the next Open() starts fresh.
+// For SQLite it deletes the database file; for Postgres it drops all tables.
+func ResetDatabase(cfg *config.DatabaseConfig) error {
+	switch cfg.Driver {
+	case "sqlite":
+		path := cfg.SQLite.Path
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			os.Remove(path + suffix)
+		}
+		return nil
+	case "postgres":
+		dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
+			cfg.Postgres.Host, cfg.Postgres.Port, cfg.Postgres.Database,
+			cfg.Postgres.User, cfg.Postgres.Password, cfg.Postgres.SSLMode)
+		sqlDB, err := sql.Open("pgx", dsn)
+		if err != nil {
+			return fmt.Errorf("connect postgres for reset: %w", err)
+		}
+		defer sqlDB.Close()
+		_, err = sqlDB.Exec(`DO $$ DECLARE r RECORD;
+			BEGIN
+				FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+					EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
+				END LOOP;
+			END $$`)
+		if err != nil {
+			return fmt.Errorf("drop postgres tables: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported driver: %s", cfg.Driver)
+	}
 }
 
 func Open(cfg *config.DatabaseConfig) (*DB, error) {

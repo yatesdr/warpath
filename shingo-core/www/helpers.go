@@ -155,23 +155,8 @@ func templateFuncs() template.FuncMap {
 			}
 			return [2]string{broker, "9093"}
 		},
-		"nodeColor": func(count, capacity int) string {
-			if capacity <= 0 || count <= 0 {
-				return "background:#e9ecef;color:#495057;"
-			}
-			f := float64(count) / float64(capacity)
-			if f > 1 {
-				f = 1
-			}
-			// Interpolate gray (#e9ecef) → purple (#7c3aed)
-			r := int(233 - 109*f)
-			g := int(236 - 178*f)
-			b := int(239 - 2*f)
-			tc := "#495057"
-			if f > 0.45 {
-				tc = "#fff"
-			}
-			return fmt.Sprintf("background:rgb(%d,%d,%d);color:%s;", r, g, b, tc)
+		"nodeColor": func(count, _ int) string {
+			return "" // Styling handled via tile-occupied CSS class
 		},
 	}
 }

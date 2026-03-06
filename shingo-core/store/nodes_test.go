@@ -5,7 +5,7 @@ import "testing"
 func TestNodeCRUD(t *testing.T) {
 	db := testDB(t)
 
-	n := &Node{Name: "STORAGE-A1", NodeType: "storage", Zone: "A", Capacity: 10, Enabled: true}
+	n := &Node{Name: "STORAGE-A1", Zone: "A", Enabled: true}
 	if err := db.CreateNode(n); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -20,23 +20,16 @@ func TestNodeCRUD(t *testing.T) {
 	if got.Name != "STORAGE-A1" {
 		t.Errorf("Name = %q, want %q", got.Name, "STORAGE-A1")
 	}
-	if got.Capacity != 10 {
-		t.Errorf("Capacity = %d, want 10", got.Capacity)
-	}
 	if !got.Enabled {
 		t.Error("Enabled should be true")
 	}
 
 	// Update
-	got.Capacity = 20
 	got.Zone = "B"
 	if err := db.UpdateNode(got); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	got2, _ := db.GetNode(n.ID)
-	if got2.Capacity != 20 {
-		t.Errorf("Capacity after update = %d, want 20", got2.Capacity)
-	}
 	if got2.Zone != "B" {
 		t.Errorf("Zone after update = %q, want %q", got2.Zone, "B")
 	}
@@ -51,19 +44,13 @@ func TestNodeCRUD(t *testing.T) {
 	}
 
 	// List
-	db.CreateNode(&Node{Name: "LINE1-IN", NodeType: "line_side", Enabled: true})
+	db.CreateNode(&Node{Name: "LINE1-IN", Enabled: true})
 	nodes, err := db.ListNodes()
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(nodes) != 2 {
 		t.Errorf("len = %d, want 2", len(nodes))
-	}
-
-	// ListByType
-	storageNodes, _ := db.ListNodesByType("storage")
-	if len(storageNodes) != 1 {
-		t.Errorf("storage count = %d, want 1", len(storageNodes))
 	}
 
 	// Delete
@@ -89,7 +76,6 @@ func TestLaneQueries(t *testing.T) {
 	// Create NGRP node
 	grpNode := &Node{
 		Name:        "GRP-01",
-		NodeType:    "storage",
 		IsSynthetic: true,
 		Enabled:     true,
 		NodeTypeID:  &grpType.ID,
@@ -99,7 +85,6 @@ func TestLaneQueries(t *testing.T) {
 	// Create LANE node as child of NGRP
 	lanNode := &Node{
 		Name:        "LAN-01",
-		NodeType:    "storage",
 		IsSynthetic: true,
 		Enabled:     true,
 		NodeTypeID:  &lanType.ID,
@@ -108,28 +93,34 @@ func TestLaneQueries(t *testing.T) {
 	db.CreateNode(lanNode)
 
 	// Create 3 slot nodes as children of LANE
-	slot1 := &Node{Name: "SLOT-01", NodeType: "storage", Capacity: 1, Enabled: true, ParentID: &lanNode.ID}
+	slot1 := &Node{Name: "SLOT-01", Enabled: true, ParentID: &lanNode.ID}
 	db.CreateNode(slot1)
 	db.SetNodeProperty(slot1.ID, "depth", "1")
 
-	slot2 := &Node{Name: "SLOT-02", NodeType: "storage", Capacity: 1, Enabled: true, ParentID: &lanNode.ID}
+	slot2 := &Node{Name: "SLOT-02", Enabled: true, ParentID: &lanNode.ID}
 	db.CreateNode(slot2)
 	db.SetNodeProperty(slot2.ID, "depth", "2")
 
-	slot3 := &Node{Name: "SLOT-03", NodeType: "storage", Capacity: 1, Enabled: true, ParentID: &lanNode.ID}
+	slot3 := &Node{Name: "SLOT-03", Enabled: true, ParentID: &lanNode.ID}
 	db.CreateNode(slot3)
 	db.SetNodeProperty(slot3.ID, "depth", "3")
 
-	// Create a payload style
-	ps := &PayloadStyle{Name: "Lane-Tote", Code: "LANE-TOTE", FormFactor: "tote", UOPCapacity: 50}
-	db.CreatePayloadStyle(ps)
+	// Create bin type, blueprint, bins, and payloads
+	bt := &BinType{Code: "TOTE", Description: "Tote"}
+	db.CreateBinType(bt)
 
-	// Place instances at slots at depth 1 and depth 3
-	instFront := &PayloadInstance{StyleID: ps.ID, NodeID: &slot1.ID, TagID: "LT-001", Status: "available", UOPRemaining: 50}
-	db.CreateInstance(instFront)
+	bp := &Blueprint{Code: "LANE-TOTE", UOPCapacity: 50}
+	db.CreateBlueprint(bp)
 
-	instBack := &PayloadInstance{StyleID: ps.ID, NodeID: &slot3.ID, TagID: "LT-003", Status: "available", UOPRemaining: 50}
-	db.CreateInstance(instBack)
+	binFront := &Bin{BinTypeID: bt.ID, Label: "LT-001", NodeID: &slot1.ID, Status: "active"}
+	db.CreateBin(binFront)
+	binBack := &Bin{BinTypeID: bt.ID, Label: "LT-003", NodeID: &slot3.ID, Status: "active"}
+	db.CreateBin(binBack)
+
+	pFront := &Payload{BlueprintID: bp.ID, BinID: &binFront.ID, Status: "available", UOPRemaining: 50}
+	db.CreatePayload(pFront)
+	pBack := &Payload{BlueprintID: bp.ID, BinID: &binBack.ID, Status: "available", UOPRemaining: 50}
+	db.CreatePayload(pBack)
 
 	// ListLaneSlots: should return slots ordered by depth ascending
 	slots, err := db.ListLaneSlots(lanNode.ID)
@@ -183,17 +174,17 @@ func TestLaneQueries(t *testing.T) {
 		t.Error("slot3 should NOT be accessible (blocked by slot1)")
 	}
 
-	// FindSourceInstanceInLane: should return the instance at depth 1 (front)
-	srcInst, err := db.FindSourceInstanceInLane(lanNode.ID, "Lane-Tote")
+	// FindSourcePayloadInLane: should return the payload at depth 1 (front)
+	srcPayload, err := db.FindSourcePayloadInLane(lanNode.ID, "LANE-TOTE")
 	if err != nil {
-		t.Fatalf("FindSourceInstanceInLane: %v", err)
+		t.Fatalf("FindSourcePayloadInLane: %v", err)
 	}
-	if srcInst.ID != instFront.ID {
-		t.Errorf("source instance ID = %d, want %d (front)", srcInst.ID, instFront.ID)
+	if srcPayload.ID != pFront.ID {
+		t.Errorf("source payload ID = %d, want %d (front)", srcPayload.ID, pFront.ID)
 	}
 
 	// FindStoreSlotInLane: should return slot at depth 2 (deepest empty)
-	storeSlot, err := db.FindStoreSlotInLane(lanNode.ID, ps.ID)
+	storeSlot, err := db.FindStoreSlotInLane(lanNode.ID, bp.ID)
 	if err != nil {
 		t.Fatalf("FindStoreSlotInLane: %v", err)
 	}
@@ -201,22 +192,22 @@ func TestLaneQueries(t *testing.T) {
 		t.Errorf("store slot ID = %d, want %d (depth 2)", storeSlot.ID, slot2.ID)
 	}
 
-	// CountInstancesInLane: should be 2
-	laneCount, err := db.CountInstancesInLane(lanNode.ID)
+	// CountBinsInLane: should be 2
+	laneCount, err := db.CountBinsInLane(lanNode.ID)
 	if err != nil {
-		t.Fatalf("CountInstancesInLane: %v", err)
+		t.Fatalf("CountBinsInLane: %v", err)
 	}
 	if laneCount != 2 {
 		t.Errorf("lane count = %d, want 2", laneCount)
 	}
 
-	// FindBuriedInstance: should return the instance at depth 3 (blocked by depth 1)
-	buriedInst, buriedSlot, err := db.FindBuriedInstance(lanNode.ID, "Lane-Tote")
+	// FindBuriedPayload: should return the payload at depth 3 (blocked by depth 1)
+	buriedPayload, buriedSlot, err := db.FindBuriedPayload(lanNode.ID, "LANE-TOTE")
 	if err != nil {
-		t.Fatalf("FindBuriedInstance: %v", err)
+		t.Fatalf("FindBuriedPayload: %v", err)
 	}
-	if buriedInst.ID != instBack.ID {
-		t.Errorf("buried instance ID = %d, want %d", buriedInst.ID, instBack.ID)
+	if buriedPayload.ID != pBack.ID {
+		t.Errorf("buried payload ID = %d, want %d", buriedPayload.ID, pBack.ID)
 	}
 	if buriedSlot.ID != slot3.ID {
 		t.Errorf("buried slot ID = %d, want %d", buriedSlot.ID, slot3.ID)

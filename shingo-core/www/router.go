@@ -48,7 +48,7 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		"templates/rds_explorer.html",
 		"templates/robots.html",
 		"templates/payloads.html",
-		"templates/inventory.html",
+		"templates/bins.html",
 		"templates/demand.html",
 		"templates/test-orders.html",
 	}
@@ -105,10 +105,15 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		r.Get("/orders", h.apiListOrders)
 		r.Get("/orders/detail", h.apiGetOrder)
 		r.Get("/robots", h.apiRobotsStatus)
-		r.Get("/payload-styles", h.apiListPayloadStyles)
-		r.Get("/instances", h.apiListInstances)
-		r.Get("/instances/detail", h.apiGetInstance)
-		r.Get("/instances/manifest", h.apiListManifest)
+		r.Get("/nodes/bin-types", h.apiGetNodeBinTypes)
+		r.Get("/blueprints", h.apiListBlueprints)
+		r.Get("/blueprints/manifest", h.apiGetBlueprintManifest)
+		r.Get("/blueprints/bin-types", h.apiGetBlueprintBinTypes)
+		r.Get("/payloads", h.apiListPayloads)
+		r.Get("/payloads/detail", h.apiGetPayload)
+		r.Get("/payloads/manifest", h.apiListManifest)
+		r.Get("/payloads/by-node", h.apiPayloadsByNode)
+		r.Get("/bins/by-node", h.apiBinsByNode)
 		r.Get("/corrections", h.apiListNodeCorrections)
 		r.Get("/demands", h.apiListDemands)
 		r.Get("/demands/{id}/log", h.apiDemandLog)
@@ -118,6 +123,9 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		r.Group(func(r chi.Router) {
 			r.Use(h.requireAuth)
 
+			r.Post("/nodes/generate-test", h.apiGenerateTestNodes)
+			r.Post("/nodes/delete-test", h.apiDeleteTestNodes)
+			r.Post("/nodes/bin-types", h.apiSetNodeBinTypes)
 			r.Post("/nodes/properties/set", h.apiNodePropertySet)
 			r.Post("/nodes/properties/delete", h.apiNodePropertyDelete)
 
@@ -136,13 +144,20 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 			r.Get("/test-commands", h.apiTestCommandsList)
 			r.Get("/test-commands/status", h.apiTestCommandStatus)
 
+			r.Post("/blueprints/create", h.apiCreateBlueprint)
+			r.Post("/blueprints/update", h.apiUpdateBlueprint)
+			r.Post("/blueprints/manifest", h.apiSaveBlueprintManifest)
+			r.Post("/blueprints/bin-types", h.apiSaveBlueprintBinTypes)
+
 			r.Post("/payloads/manifest/create", h.apiCreateManifestItem)
 			r.Post("/payloads/manifest/update", h.apiUpdateManifestItem)
 			r.Post("/payloads/manifest/delete", h.apiDeleteManifestItem)
 
-			r.Post("/instances/action", h.apiInstanceAction)
-			r.Post("/instances/bulk-register", h.apiBulkRegisterInstances)
-			r.Get("/instances/events", h.apiListInstanceEvents)
+			r.Post("/payloads/action", h.apiPayloadAction)
+			r.Post("/payloads/bulk-register", h.apiBulkRegisterPayloads)
+			r.Get("/payloads/events", h.apiListPayloadEvents)
+			r.Post("/bins/bulk-register", h.apiBulkRegisterBins)
+			r.Post("/bins/action", h.apiBinAction)
 
 			r.Post("/nodegroup/create", h.apiCreateNodeGroup)
 			r.Get("/nodegroup/layout", h.apiGetGroupLayout)
@@ -181,7 +196,7 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		// Protected pages
 		r.Get("/test-orders", h.handleTestOrders)
 		r.Get("/payloads", h.handlePayloads)
-		r.Get("/inventory", h.handleInventory)
+		r.Get("/bins", h.handleBins)
 		r.Get("/diagnostics", h.handleDiagnostics)
 		r.Get("/config", h.handleConfig)
 		r.Post("/config/save", h.handleConfigSave)
@@ -194,15 +209,23 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		r.Post("/nodes/sync-fleet", h.handleNodeSyncFleet)
 		r.Post("/nodes/sync-scene", h.handleSceneSync)
 
-		// Payload style management
-		r.Post("/payload-styles/create", h.handlePayloadStyleCreate)
-		r.Post("/payload-styles/update", h.handlePayloadStyleUpdate)
-		r.Post("/payload-styles/delete", h.handlePayloadStyleDelete)
+		// Blueprint management
+		r.Post("/blueprints/create", h.handleBlueprintCreate)
+		r.Post("/blueprints/update", h.handleBlueprintUpdate)
+		r.Post("/blueprints/delete", h.handleBlueprintDelete)
 
-		// Payload instance management
-		r.Post("/instances/create", h.handleInstanceCreate)
-		r.Post("/instances/update", h.handleInstanceUpdate)
-		r.Post("/instances/delete", h.handleInstanceDelete)
+		// Payload management
+		r.Post("/payloads/create", h.handlePayloadCreate)
+		r.Post("/payloads/update", h.handlePayloadUpdate)
+		r.Post("/payloads/delete", h.handlePayloadDelete)
+
+		// Bin management
+		r.Post("/bin-types/create", h.handleBinTypeCreate)
+		r.Post("/bin-types/update", h.handleBinTypeUpdate)
+		r.Post("/bin-types/delete", h.handleBinTypeDelete)
+		r.Post("/bins/create", h.handleBinCreate)
+		r.Post("/bins/update", h.handleBinUpdate)
+		r.Post("/bins/delete", h.handleBinDelete)
 
 	})
 

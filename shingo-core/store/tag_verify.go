@@ -8,7 +8,7 @@ type TagVerifyResult struct {
 }
 
 // VerifyTag performs best-effort QR tag verification for an order.
-// It looks up the claimed instance, learns new tags, and logs events.
+// It looks up the claimed payload's bin, learns new tags, and logs events.
 // Returns match=true even on mismatch/missing (best-effort: never blocks orders).
 func (db *DB) VerifyTag(orderUUID, tagID, location string) *TagVerifyResult {
 	order, err := db.GetOrderByUUID(orderUUID)
@@ -16,38 +16,47 @@ func (db *DB) VerifyTag(orderUUID, tagID, location string) *TagVerifyResult {
 		return &TagVerifyResult{Match: true, Detail: "order not found — accepting scan"}
 	}
 
-	if order.InstanceID == nil {
-		return &TagVerifyResult{Match: true, Detail: "no instance tracking — accepting scan"}
+	if order.PayloadID == nil {
+		return &TagVerifyResult{Match: true, Detail: "no payload tracking — accepting scan"}
 	}
 
-	inst, err := db.GetInstance(*order.InstanceID)
+	payload, err := db.GetPayload(*order.PayloadID)
 	if err != nil {
-		return &TagVerifyResult{Match: true, Detail: "instance not found — accepting scan"}
+		return &TagVerifyResult{Match: true, Detail: "payload not found — accepting scan"}
 	}
 
-	if inst.TagID == "" {
-		// Learn the tag on first scan
-		inst.TagID = tagID
-		db.UpdateInstance(inst)
-		db.CreateInstanceEvent(&InstanceEvent{
-			InstanceID: inst.ID, EventType: InstanceEventTagScanned,
+	if payload.BinID == nil {
+		return &TagVerifyResult{Match: true, Detail: "no bin assigned — accepting scan"}
+	}
+
+	bin, err := db.GetBin(*payload.BinID)
+	if err != nil {
+		return &TagVerifyResult{Match: true, Detail: "bin not found — accepting scan"}
+	}
+
+	if bin.Label == "" {
+		// Learn the tag on first scan by updating bin label
+		bin.Label = tagID
+		db.UpdateBin(bin)
+		db.CreatePayloadEvent(&PayloadEvent{
+			PayloadID: payload.ID, EventType: PayloadEventTagScanned,
 			Detail: "tag learned from scan: " + tagID, Actor: "system",
 		})
 		return &TagVerifyResult{Match: true, Detail: "tag learned: " + tagID}
 	}
 
-	if inst.TagID == tagID {
-		db.CreateInstanceEvent(&InstanceEvent{
-			InstanceID: inst.ID, EventType: InstanceEventTagScanned,
+	if bin.Label == tagID {
+		db.CreatePayloadEvent(&PayloadEvent{
+			PayloadID: payload.ID, EventType: PayloadEventTagScanned,
 			Detail: "tag verified at " + location, Actor: "system",
 		})
 		return &TagVerifyResult{Match: true, Detail: "tag match"}
 	}
 
 	// Tag mismatch — best-effort: log but proceed
-	db.CreateInstanceEvent(&InstanceEvent{
-		InstanceID: inst.ID, EventType: InstanceEventTagMismatch,
-		Detail: "expected " + inst.TagID + " got " + tagID, Actor: "system",
+	db.CreatePayloadEvent(&PayloadEvent{
+		PayloadID: payload.ID, EventType: PayloadEventTagMismatch,
+		Detail: "expected " + bin.Label + " got " + tagID, Actor: "system",
 	})
-	return &TagVerifyResult{Match: false, Expected: inst.TagID, Detail: "tag mismatch — proceeding (best-effort)"}
+	return &TagVerifyResult{Match: false, Expected: bin.Label, Detail: "tag mismatch — proceeding (best-effort)"}
 }

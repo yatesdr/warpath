@@ -47,6 +47,7 @@ func main() {
 
 	showVersion := flag.Bool("version", false, "print version and exit")
 	configPath := flag.String("config", "shingocore.yaml", "path to config file")
+	resetDB := flag.Bool("reset-db", false, "wipe database before starting (requires confirmation)")
 	showHelp := flag.Bool("help", false, "show help")
 	flag.Parse()
 
@@ -55,6 +56,7 @@ func main() {
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  --config PATH         config file path (default: shingocore.yaml)")
+		fmt.Println("  --reset-db            wipe database before starting (requires confirmation)")
 		fmt.Println("  --version             show version")
 		fmt.Println("  --log-debug[=FILTER]  enable debug log to shingo-debug.log")
 		fmt.Println("                        FILTER: comma-separated subsystems (default: all)")
@@ -99,6 +101,22 @@ func main() {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("load config: %v", err)
+	}
+
+	// Reset database if requested
+	if *resetDB {
+		fmt.Fprintf(os.Stderr, "WARNING: This will permanently delete all data in the %s database.\n", cfg.Database.Driver)
+		fmt.Fprintf(os.Stderr, "Type 'yes' to confirm: ")
+		var answer string
+		fmt.Scanln(&answer)
+		if answer != "yes" {
+			fmt.Fprintln(os.Stderr, "Aborted.")
+			os.Exit(1)
+		}
+		if err := store.ResetDatabase(&cfg.Database); err != nil {
+			log.Fatalf("reset database: %v", err)
+		}
+		log.Printf("shingocore: database reset complete")
 	}
 
 	// Database

@@ -89,7 +89,7 @@ type NodesPageData struct {
 	NodeLabels     map[string]string
 	NodeInfo       map[string]*NodeSceneInfo
 	MapGroups      map[string][]*store.ScenePoint
-	PayloadStyles  []*store.PayloadStyle
+	BinTypes    []*store.BinType
 	Edges          []store.EdgeRegistration
 	ChildCounts    map[int64]int
 	Depths         map[int64]int
@@ -98,14 +98,13 @@ type NodesPageData struct {
 // GetNodesPageData assembles all data for the nodes page.
 func (e *Engine) GetNodesPageData() (*NodesPageData, error) {
 	nodes, _ := e.db.ListNodes()
-	states, _ := e.nodeState.GetAllNodeStates()
 
-	counts := make(map[int64]int, len(nodes))
+	counts, _ := e.db.CountBinsByAllNodes()
+	if counts == nil {
+		counts = make(map[int64]int, len(nodes))
+	}
 	zoneSet := map[string]bool{}
 	for _, n := range nodes {
-		if st, ok := states[n.ID]; ok {
-			counts[n.ID] = st.ItemCount
-		}
 		if n.Zone != "" {
 			zoneSet[n.Zone] = true
 		}
@@ -138,7 +137,7 @@ func (e *Engine) GetNodesPageData() (*NodesPageData, error) {
 		}
 	}
 
-	payloadStyles, _ := e.db.ListPayloadStyles()
+	binTypes, _ := e.db.ListBinTypes()
 	edges, _ := e.db.ListEdges()
 
 	childCounts := make(map[int64]int)
@@ -159,7 +158,7 @@ func (e *Engine) GetNodesPageData() (*NodesPageData, error) {
 		NodeLabels:     nodeLabels,
 		NodeInfo:       nodeInfo,
 		MapGroups:      mapGroups,
-		PayloadStyles:  payloadStyles,
+		BinTypes:    binTypes,
 		Edges:          edges,
 		ChildCounts:    childCounts,
 		Depths:         depths,

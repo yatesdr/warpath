@@ -13,7 +13,7 @@ const StatusReshuffling = "reshuffling"
 // All children and instance claims are created in a single transaction.
 func (d *Dispatcher) CreateCompoundOrder(parentOrder *store.Order, plan *ReshufflePlan) error {
 	d.db.UpdateOrderStatus(parentOrder.ID, StatusReshuffling,
-		fmt.Sprintf("reshuffling: %d steps to unbury instance %d", len(plan.Steps), plan.TargetInstance.ID))
+		fmt.Sprintf("reshuffling: %d steps to unbury payload %d", len(plan.Steps), plan.TargetPayload.ID))
 
 	var children []store.CompoundChild
 	for _, step := range plan.Steps {
@@ -24,8 +24,8 @@ func (d *Dispatcher) CreateCompoundOrder(parentOrder *store.Order, plan *Reshuff
 			Status:        StatusPending,
 			ParentOrderID: &parentOrder.ID,
 			Sequence:      step.Sequence,
-			PayloadDesc:   fmt.Sprintf("reshuffle %s: instance %d", step.StepType, step.InstanceID),
-			InstanceID:    &step.InstanceID,
+			PayloadDesc:   fmt.Sprintf("reshuffle %s: payload %d", step.StepType, step.PayloadID),
+			PayloadID:     &step.PayloadID,
 		}
 
 		if step.FromNode != nil {
@@ -38,7 +38,7 @@ func (d *Dispatcher) CreateCompoundOrder(parentOrder *store.Order, plan *Reshuff
 			child.DeliveryNode = parentOrder.DeliveryNode
 		}
 
-		children = append(children, store.CompoundChild{Order: child, InstanceID: step.InstanceID})
+		children = append(children, store.CompoundChild{Order: child, PayloadID: step.PayloadID})
 	}
 
 	if err := d.db.CreateCompoundChildren(children); err != nil {
@@ -118,7 +118,7 @@ func (d *Dispatcher) HandleChildOrderFailure(parentOrderID, childOrderID int64) 
 		}
 		if child.Status == StatusPending || child.Status == StatusSourcing {
 			d.db.UpdateOrderStatus(child.ID, StatusCancelled, "parent reshuffle failed")
-			d.unclaimOrderInstances(child.ID)
+			d.unclaimOrderPayloads(child.ID)
 		}
 	}
 

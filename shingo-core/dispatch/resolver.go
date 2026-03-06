@@ -6,15 +6,15 @@ import (
 	"shingocore/store"
 )
 
-// ResolveResult carries the resolved node and optionally a specific instance.
+// ResolveResult carries the resolved node and optionally a specific payload.
 type ResolveResult struct {
-	Node     *store.Node
-	Instance *store.PayloadInstance // set when resolver identified a specific instance
+	Node    *store.Node
+	Payload *store.Payload // set when resolver identified a specific payload
 }
 
 // NodeResolver resolves a synthetic node to a physical child node.
 type NodeResolver interface {
-	Resolve(syntheticNode *store.Node, orderType string, styleID *int64) (*ResolveResult, error)
+	Resolve(syntheticNode *store.Node, orderType string, blueprintID *int64, binTypeID *int64) (*ResolveResult, error)
 }
 
 // DefaultResolver resolves synthetic nodes using the database.
@@ -25,7 +25,7 @@ type DefaultResolver struct {
 }
 
 // Resolve selects the best physical child of a synthetic node for the given order type.
-func (r *DefaultResolver) Resolve(syntheticNode *store.Node, orderType string, styleID *int64) (*ResolveResult, error) {
+func (r *DefaultResolver) Resolve(syntheticNode *store.Node, orderType string, blueprintID *int64, binTypeID *int64) (*ResolveResult, error) {
 	children, err := r.DB.ListChildNodes(syntheticNode.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list children of %s: %w", syntheticNode.Name, err)
@@ -39,21 +39,21 @@ func (r *DefaultResolver) Resolve(syntheticNode *store.Node, orderType string, s
 		gr := &GroupResolver{DB: r.DB, LaneLock: r.LaneLock}
 		switch orderType {
 		case OrderTypeRetrieve:
-			return gr.ResolveRetrieve(syntheticNode, styleID)
+			return gr.ResolveRetrieve(syntheticNode, blueprintID)
 		case OrderTypeStore:
-			return gr.ResolveStore(syntheticNode, styleID)
+			return gr.ResolveStore(syntheticNode, blueprintID, binTypeID)
 		}
 	}
 
 	switch orderType {
 	case OrderTypeRetrieve:
-		node, err := r.resolveRetrieve(children, styleID)
+		node, err := r.resolveRetrieve(children, blueprintID)
 		if err != nil {
 			return nil, err
 		}
 		return &ResolveResult{Node: node}, nil
 	case OrderTypeStore:
-		node, err := r.resolveStore(children, styleID)
+		node, err := r.resolveStore(children, blueprintID)
 		if err != nil {
 			return nil, err
 		}
@@ -68,31 +68,31 @@ func (r *DefaultResolver) Resolve(syntheticNode *store.Node, orderType string, s
 	}
 }
 
-// resolveRetrieve finds the child node with the oldest unclaimed instance of the requested style.
-func (r *DefaultResolver) resolveRetrieve(children []*store.Node, styleID *int64) (*store.Node, error) {
+// resolveRetrieve finds the child node with the oldest unclaimed payload of the requested blueprint.
+func (r *DefaultResolver) resolveRetrieve(children []*store.Node, blueprintID *int64) (*store.Node, error) {
 	for _, child := range children {
 		if !child.Enabled {
 			continue
 		}
-		instances, err := r.DB.ListInstancesByNode(child.ID)
+		payloads, err := r.DB.ListPayloadsByNode(child.ID)
 		if err != nil {
 			continue
 		}
-		for _, p := range instances {
+		for _, p := range payloads {
 			if p.ClaimedBy != nil || p.Status != "available" {
 				continue
 			}
-			if styleID != nil && p.StyleID != *styleID {
+			if blueprintID != nil && p.BlueprintID != *blueprintID {
 				continue
 			}
 			return child, nil
 		}
 	}
-	return nil, fmt.Errorf("no child node has an available unclaimed instance")
+	return nil, fmt.Errorf("no child node has an available unclaimed payload")
 }
 
 // resolveStore finds the best child node for storage (consolidation-first, then emptiest).
-func (r *DefaultResolver) resolveStore(children []*store.Node, styleID *int64) (*store.Node, error) {
+func (r *DefaultResolver) resolveStore(children []*store.Node, blueprintID *int64) (*store.Node, error) {
 	type candidate struct {
 		node     *store.Node
 		count    int
@@ -101,22 +101,22 @@ func (r *DefaultResolver) resolveStore(children []*store.Node, styleID *int64) (
 
 	var candidates []candidate
 	for _, child := range children {
-		if !child.Enabled || child.Capacity <= 0 {
+		if !child.Enabled || child.IsSynthetic {
 			continue
 		}
-		count, err := r.DB.CountInstancesByNode(child.ID)
+		count, err := r.DB.CountBinsByNode(child.ID)
 		if err != nil {
 			continue
 		}
-		if count >= child.Capacity {
+		if count >= 1 {
 			continue
 		}
 
 		hasMatch := false
-		if styleID != nil {
-			instances, _ := r.DB.ListInstancesByNode(child.ID)
-			for _, p := range instances {
-				if p.StyleID == *styleID {
+		if blueprintID != nil {
+			payloads, _ := r.DB.ListPayloadsByNode(child.ID)
+			for _, p := range payloads {
+				if p.BlueprintID == *blueprintID {
 					hasMatch = true
 					break
 				}
@@ -126,7 +126,7 @@ func (r *DefaultResolver) resolveStore(children []*store.Node, styleID *int64) (
 	}
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no child node has available capacity")
+		return nil, fmt.Errorf("no child node available for storage")
 	}
 
 	best := candidates[0]

@@ -5,9 +5,7 @@
     {{if .Authenticated}}
     <div class="flex gap-1">
       <button class="btn btn-primary" onclick="openNgrpModal()">Add Node Group</button>
-      <form method="POST" action="/nodes/sync-fleet" style="display:inline" onsubmit="return confirm('Sync all nodes and scene data from fleet?')">
-        <button type="submit" class="btn">Sync from Fleet</button>
-      </form>
+      <button type="button" class="btn" onclick="syncOrGenerate(event)" title="Ctrl-click: generate test nodes | Shift-click: delete test nodes">Sync from Fleet</button>
       <button class="btn" onclick="checkOccupancy()">Check Occupancy</button>
     </div>
     {{end}}
@@ -28,14 +26,11 @@
     {{range .Nodes}}
     {{$count := index $.Counts .ID}}
     {{$childCount := index $.ChildCounts .ID}}
-    <div class="node-tile{{if not .Enabled}} tile-disabled{{end}}{{if .IsSynthetic}} tile-synthetic{{end}}"
-         style="{{nodeColor $count .Capacity}}"
+    <div class="node-tile{{if not .Enabled}} tile-disabled{{end}}{{if .IsSynthetic}} tile-synthetic{{end}}{{if $count}} tile-occupied{{end}}"
          data-id="{{.ID}}"
          data-name="{{.Name}}"
-         data-type="{{.NodeType}}"
          data-type-code="{{.NodeTypeCode}}"
          data-zone="{{.Zone}}"
-         data-cap="{{.Capacity}}"
          data-enabled="{{.Enabled}}"
          data-count="{{$count}}"
          data-label="{{index $.NodeLabels .Name}}"
@@ -46,7 +41,7 @@
          data-node-type-id="{{if .NodeTypeID}}{{deref .NodeTypeID}}{{end}}"
          {{with index $.NodeInfo .Name}}data-point-name="{{.PointName}}" data-node-tasks="{{.Tasks}}" data-bound-map="{{.BoundMap}}"{{end}}
          onclick="openNodeModal(this)"
-         title="{{.Name}} ({{$count}}/{{.Capacity}}){{if .IsSynthetic}} [synthetic, {{$childCount}} children]{{end}}">
+         title="{{.Name}}{{if $count}} ({{$count}} items){{end}}{{if .IsSynthetic}} [synthetic, {{$childCount}} children]{{end}}">
       <div>
         <span class="tile-loc">{{.Name}}</span>
         {{with index $.NodeLabels .Name}}
@@ -105,55 +100,53 @@
       <button class="modal-close" onclick="closeNodeModal()">&times;</button>
     </div>
 
-    <!-- Type & parent info (read-only summary) -->
+    <!-- Parent info (read-only summary) -->
     <div id="modal-type-info" style="display:none" class="mb-2">
-      <div class="grid grid-2" style="font-size:0.85rem">
-        <div><strong>Node Type:</strong> <span id="ti-type"></span></div>
-        <div><strong>Parent:</strong> <span id="ti-parent"></span></div>
+      <div style="font-size:0.85rem">
+        <strong>Parent:</strong> <span id="ti-parent"></span>
       </div>
     </div>
 
     {{if .Authenticated}}
-    <form id="node-form" method="POST" action="/nodes/update" onsubmit="saveAlgorithmProperties()">
+    <form id="node-form" method="POST" action="/nodes/update" onsubmit="serializeChipPickers();saveAlgorithmProperties()">
       <input type="hidden" name="id" id="nf-id">
-      <!-- Common settings: Capacity, Enabled -->
-      <div class="grid grid-2 mb-1">
-        <div class="form-group" id="nf-cap-group">
-          <label>Capacity</label>
-          <input type="number" name="capacity" id="nf-cap" value="1">
-        </div>
-        <div class="form-group">
-          <label>&nbsp;</label>
-          <label><input type="checkbox" name="enabled" id="nf-enabled" checked> Enabled</label>
-        </div>
+      <div class="mb-1">
+        <label><input type="checkbox" name="enabled" id="nf-enabled" checked> Enabled</label>
       </div>
-      <!-- Stations & payload styles (hidden for child nodes) -->
+      <!-- Bin Types & Stations (hidden for child nodes) -->
       <div class="grid grid-2 mb-1" id="nf-assoc-section">
         <div class="form-group">
-          <label>Stations</label>
-          <select name="stations" id="nf-stations" multiple size="3" style="font-size:0.85rem">
-            {{range .Edges}}
-            <option value="{{.StationID}}">{{.StationID}}</option>
-            {{end}}
-          </select>
+          <label>Allowed Bins</label>
+          <div class="chip-picker" id="cp-bin-types">
+            <select class="mode-select" id="nf-bt-mode" name="bin_type_mode" onchange="onModeChange('bin-types')" style="font-size:0.85rem">
+              <option value="all">Any</option>
+              <option value="inherit">Inherit</option>
+              <option value="specific">Selected</option>
+            </select>
+            <div id="cp-bin-types-specific" style="display:none">
+              <div class="chip-container" id="cp-bin-types-chips"></div>
+              <input type="text" class="chip-filter" placeholder="Filter bins..." oninput="filterChipDropdown('bin-types')" onfocus="showChipDropdown('bin-types')" onblur="hideChipDropdown('bin-types')">
+              <div class="chip-dropdown" id="cp-bin-types-dropdown" style="display:none"></div>
+            </div>
+          </div>
         </div>
         <div class="form-group">
-          <label>Payload Styles</label>
-          <select name="style_ids" id="nf-pt" multiple size="3" style="font-size:0.85rem">
-            {{range .PayloadStyles}}
-            <option value="{{.ID}}">{{.Name}}</option>
-            {{end}}
-          </select>
+          <label>Allowed Stations</label>
+          <div class="chip-picker" id="cp-stations">
+            <select class="mode-select" id="nf-st-mode" name="station_mode" onchange="onModeChange('stations')" style="font-size:0.85rem">
+              <option value="all">Any</option>
+              <option value="none">None (Core only)</option>
+              <option value="inherit">Inherit</option>
+              <option value="specific">Selected</option>
+            </select>
+            <div id="cp-stations-specific" style="display:none">
+              <div class="chip-container" id="cp-stations-chips"></div>
+              <input type="text" class="chip-filter" placeholder="Filter stations..." oninput="filterChipDropdown('stations')" onfocus="showChipDropdown('stations')" onblur="hideChipDropdown('stations')">
+              <div class="chip-dropdown" id="cp-stations-dropdown" style="display:none"></div>
+            </div>
+          </div>
         </div>
       </div>
-
-    <!-- Stations & payload types (read-only, loaded via API) -->
-    <div id="modal-associations" style="display:none" class="mb-2">
-      <div class="grid grid-2" style="font-size:0.85rem">
-        <div><strong>Stations:</strong> <span id="assoc-stations" class="text-muted">-</span></div>
-        <div><strong>Payload Styles:</strong> <span id="assoc-pt" class="text-muted">-</span></div>
-      </div>
-    </div>
 
     <!-- Algorithm settings (NGRP only) -->
     <div id="ngrp-algorithms" style="display:none" class="mb-2">
@@ -179,7 +172,7 @@
     <div id="modal-inventory" style="display:none" class="mb-2">
       <div class="flex flex-between mb-1">
         <strong style="font-size:0.85rem">Contents</strong>
-        <span class="text-muted" style="font-size:0.8rem"><span id="inv-count">0</span> / <span id="inv-cap">0</span></span>
+        <span class="text-muted" style="font-size:0.8rem"><span id="inv-count">0</span> items</span>
       </div>
       <div id="inv-list"></div>
       <div id="inv-manifest" style="display:none; margin-top:0.5rem; border-top:1px solid var(--border); padding-top:0.5rem">
@@ -198,10 +191,6 @@
           <button class="btn btn-sm btn-primary" onclick="addCorrectionItem()" style="margin-top:0.3rem">Add Item</button>
         </div>
       </div>
-      <div id="inv-corrections" style="display:none; margin-top:0.75rem; border-top:1px solid var(--border); padding-top:0.5rem">
-        <strong style="font-size:0.8rem">Recent Corrections</strong>
-        <div id="inv-corrections-list" style="font-size:0.8rem; margin-top:0.3rem"></div>
-      </div>
     </div>
 
     <!-- Children section (for synthetic nodes) -->
@@ -210,29 +199,8 @@
       <div id="children-list" style="font-size:0.8rem; margin-top:0.3rem"></div>
     </div>
 
-      <!-- Location (read-only) -->
-      <div class="mb-1" style="font-size:0.85rem">
-        <strong>Location:</strong> <span id="nf-location-label"></span>
-      </div>
       <input type="hidden" name="name" id="nf-name">
 
-      <!-- Advanced settings (collapsible) -->
-      <div class="accordion mb-1" id="node-advanced">
-        <button type="button" class="accordion-toggle" onclick="toggleAccordion('node-advanced')">
-          Advanced
-        </button>
-        <div class="accordion-body">
-          <!-- Scene detail section -->
-          <div id="modal-scene-detail" style="display:none" class="mt-1">
-            <div class="grid grid-2" style="font-size:0.85rem">
-              <div><strong>Point Name:</strong> <span id="sd-point"></span></div>
-              <div><strong>Area:</strong> <span id="sd-area"></span></div>
-              <div><strong>Tasks:</strong> <span id="sd-tasks"></span></div>
-              <div><strong>Assigned Map:</strong> <span id="sd-map"></span></div>
-            </div>
-          </div>
-        </div>
-      </div>
       <div class="flex flex-between">
         <button type="submit" class="btn btn-primary">Save</button>
         <button type="button" class="btn btn-danger btn-sm" onclick="deleteNode()">Delete Node</button>
@@ -242,30 +210,20 @@
     <!-- Read-only view for unauthenticated users -->
     <div id="modal-associations" style="display:none" class="mb-2">
       <div class="grid grid-2" style="font-size:0.85rem">
-        <div><strong>Stations:</strong> <span id="assoc-stations" class="text-muted">-</span></div>
-        <div><strong>Payload Styles:</strong> <span id="assoc-pt" class="text-muted">-</span></div>
+        <div><strong>Allowed Bins:</strong> <span id="assoc-bt" class="text-muted">-</span></div>
+        <div><strong>Allowed Stations:</strong> <span id="assoc-stations" class="text-muted">-</span></div>
       </div>
     </div>
     <div id="node-detail-ro">
-      <div class="grid grid-2" style="font-size:0.85rem">
-        <div><strong>Capacity:</strong> <span id="ro-cap"></span></div>
-        <div><strong>Enabled:</strong> <span id="ro-enabled"></span></div>
-      </div>
-    </div>
-    <!-- Scene detail section (read-only) -->
-    <div id="modal-scene-detail" style="display:none" class="mb-2">
-      <div class="grid grid-2" style="font-size:0.85rem">
-        <div><strong>Point Name:</strong> <span id="sd-point"></span></div>
-        <div><strong>Area:</strong> <span id="sd-area"></span></div>
-        <div><strong>Tasks:</strong> <span id="sd-tasks"></span></div>
-        <div><strong>Assigned Map:</strong> <span id="sd-map"></span></div>
+      <div style="font-size:0.85rem">
+        <strong>Enabled:</strong> <span id="ro-enabled"></span>
       </div>
     </div>
     <!-- Occupant section (read-only) -->
     <div id="modal-inventory" style="display:none" class="mb-2">
       <div class="flex flex-between mb-1">
         <strong style="font-size:0.85rem">Contents</strong>
-        <span class="text-muted" style="font-size:0.8rem"><span id="inv-count">0</span> / <span id="inv-cap">0</span></span>
+        <span class="text-muted" style="font-size:0.8rem"><span id="inv-count">0</span> items</span>
       </div>
       <div id="inv-list"></div>
     </div>
@@ -280,6 +238,35 @@
 
 <script>
 var isAuth = {{if .Authenticated}}true{{else}}false{{end}};
+
+function syncOrGenerate(e) {
+  if (e.shiftKey) {
+    if (!confirm('Delete all TEST- nodes?')) return;
+    fetch('/api/nodes/delete-test', {method:'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) alert(data.error);
+        else location.reload();
+      })
+      .catch(function(err) { alert('Error: ' + err); });
+  } else if (e.ctrlKey || e.metaKey) {
+    if (!confirm('Generate test nodes for debugging?\n\nThis creates ~25 TEST- prefixed nodes.')) return;
+    fetch('/api/nodes/generate-test', {method:'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) alert(data.error);
+        else location.reload();
+      })
+      .catch(function(err) { alert('Error: ' + err); });
+  } else {
+    if (!confirm('Sync all nodes and scene data from fleet?')) return;
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/nodes/sync-fleet';
+    document.body.appendChild(form);
+    form.submit();
+  }
+}
 
 function toggleAccordion(id) {
   document.getElementById(id).classList.toggle('open');
@@ -320,37 +307,19 @@ function openNodeModal(el) {
   if (!el || !el.dataset) return;
   var m = document.getElementById('node-modal');
   var inv = document.getElementById('modal-inventory');
-  var sceneDetail = document.getElementById('modal-scene-detail');
 
   var d = el.dataset;
   document.getElementById('modal-title').textContent = d.name;
 
-  // Scene detail section
-  var pointName = d.pointName || '';
-  var nodeTasks = d.nodeTasks || '';
-  var boundMap = d.boundMap || '';
-  if (pointName || nodeTasks || boundMap) {
-    document.getElementById('sd-point').textContent = pointName;
-    document.getElementById('sd-area').textContent = d.zone;
-    document.getElementById('sd-tasks').textContent = nodeTasks;
-    document.getElementById('sd-map').textContent = boundMap;
-    sceneDetail.style.display = '';
-  } else {
-    sceneDetail.style.display = 'none';
-  }
-
-  // Type & parent info
+  // Parent info
   var typeInfo = document.getElementById('modal-type-info');
-  var tiType = d.typeCode || d.type || '-';
   var tiParent = d.parentName || '-';
-  document.getElementById('ti-type').textContent = tiType;
   document.getElementById('ti-parent').textContent = tiParent;
-  typeInfo.style.display = '';
+  typeInfo.style.display = d.parentId ? '' : 'none';
 
   // Inventory
   inv.style.display = d.synthetic === 'true' ? 'none' : '';
   document.getElementById('inv-count').textContent = d.count;
-  document.getElementById('inv-cap').textContent = d.cap;
   if (d.synthetic !== 'true') {
     loadInventory(d.id);
   }
@@ -362,7 +331,7 @@ function openNodeModal(el) {
 
   // Hide associations for physical child nodes (slots — managed by core only)
   var assocDiv = document.getElementById('modal-associations');
-  if (isLeafChild) assocDiv.style.display = 'none';
+  if (assocDiv && isLeafChild) assocDiv.style.display = 'none';
 
   // Show algorithm dropdowns only for NGRP nodes
   var algoDiv = document.getElementById('ngrp-algorithms');
@@ -376,24 +345,21 @@ function openNodeModal(el) {
   }
 
   if (isAuth) {
-    // Synthetic nodes: capacity is inferred from children, hide it
-    var capGroup = document.getElementById('nf-cap-group');
-    if (capGroup) capGroup.style.display = d.synthetic === 'true' ? 'none' : '';
-
-    // Slots: hide both stations and styles
-    // Lanes/shuffle: hide stations, show styles
-    // Top-level / supermarkets: show both
     var assocSection = document.getElementById('nf-assoc-section');
-    var stationsGroup = document.getElementById('nf-stations');
+    var stationsGroup = document.getElementById('cp-stations');
     if (assocSection) assocSection.style.display = isLeafChild ? 'none' : '';
     if (stationsGroup) stationsGroup.closest('.form-group').style.display = (isLeafChild || isSyntheticChild) ? 'none' : '';
+    // Hide inherit option for root nodes (no parent)
+    var hasParent = !!d.parentId;
+    toggleInheritOption('nf-bt-mode', hasParent);
+    toggleInheritOption('nf-st-mode', hasParent);
+    // Reset chip pickers
+    clearChipPicker('bin-types');
+    clearChipPicker('stations');
     document.getElementById('nf-id').value = d.id;
     document.getElementById('nf-name').value = d.name;
-    document.getElementById('nf-location-label').textContent = d.name;
-    document.getElementById('nf-cap').value = d.cap;
     document.getElementById('nf-enabled').checked = d.enabled === 'true';
   } else {
-    document.getElementById('ro-cap').textContent = d.cap;
     document.getElementById('ro-enabled').textContent = d.enabled === 'true' ? 'Yes' : 'No';
   }
 
@@ -405,30 +371,41 @@ function loadNodeDetail(nodeID, isSynthetic) {
   var assocDiv = document.getElementById('modal-associations');
 
   childrenDiv.style.display = 'none';
-  assocDiv.style.display = 'none';
+  if (assocDiv) assocDiv.style.display = 'none';
 
   fetch('/api/nodes/detail?id=' + nodeID)
     .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(data) {
-      // Stations (show effective/inherited for child nodes)
+      // Modes
+      var btMode = data.bin_type_mode || '';
+      var stMode = data.station_mode || '';
       var stations = data.stations || [];
       var effStations = data.effective_stations || [];
-      var isChild = !!document.querySelector('.node-tile[data-id="' + nodeID + '"]')
-                    && document.querySelector('.node-tile[data-id="' + nodeID + '"]').dataset.parentId;
-      var stLabel = stations.length > 0 ? stations.join(', ') : (effStations.length > 0 ? effStations.join(', ') + ' (inherited)' : 'All (no restrictions)');
-      document.getElementById('assoc-stations').textContent = stLabel;
+      var bts = data.bin_types || [];
+      var effBts = data.effective_bin_types || [];
 
-      // Payload styles (show effective/inherited for child nodes)
-      var pts = data.payload_styles || [];
-      var effStyles = data.effective_styles || [];
-      var ptLabel = pts.length > 0 ? pts.map(function(p) { return p.name; }).join(', ') : (effStyles.length > 0 ? effStyles.map(function(p) { return p.name; }).join(', ') + ' (inherited)' : 'All (no restrictions)');
-      document.getElementById('assoc-pt').textContent = ptLabel;
-      assocDiv.style.display = '';
+      // Read-only labels (unauthenticated view only)
+      if (!isAuth) {
+        var stLabel = stMode === 'all' ? 'Any' : stMode === 'none' ? 'None (Core only)' : stMode === 'specific' ? (stations.length > 0 ? stations.join(', ') : 'None') : (effStations && effStations.length > 0 ? effStations.join(', ') + ' (inherited)' : 'Any');
+        document.getElementById('assoc-stations').textContent = stLabel;
+        var btLabel = btMode === 'all' ? 'Any' : btMode === 'specific' ? (bts.length > 0 ? bts.map(function(b) { return b.code; }).join(', ') : 'None') : (effBts && effBts.length > 0 ? effBts.map(function(b) { return b.code; }).join(', ') + ' (inherited)' : 'Any');
+        document.getElementById('assoc-bt').textContent = btLabel;
+        assocDiv.style.display = '';
+      }
 
-      // Set multi-selects for auth mode
+      // Set chip pickers for auth mode
       if (isAuth) {
-        setMultiSelect('nf-stations', stations);
-        setMultiSelect('nf-pt', pts.map(function(p) { return String(p.id); }));
+        // Bin type mode
+        var btSelect = document.getElementById('nf-bt-mode');
+        btSelect.value = btMode || (data.node && data.node.parent_id ? 'inherit' : 'all');
+        populateChipPicker('bin-types', bts.map(function(b) { return { id: String(b.id), label: b.code }; }));
+        onModeChange('bin-types');
+
+        // Station mode
+        var stSelect = document.getElementById('nf-st-mode');
+        stSelect.value = stMode || (data.node && data.node.parent_id ? 'inherit' : 'all');
+        populateChipPicker('stations', stations.map(function(s) { return { id: s, label: s }; }));
+        onModeChange('stations');
       }
 
       // Populate algorithm dropdowns from properties
@@ -469,12 +446,126 @@ function loadNodeDetail(nodeID, isSynthetic) {
     .catch(function() {});
 }
 
-function setMultiSelect(selectId, values) {
+/* --- Chip Picker --- */
+var _allBinTypes = [{{range .BinTypes}}{id:"{{.ID}}", label:"{{.Code}}"},{{end}}];
+var _allStations = [{{range .Edges}}{id:"{{.StationID}}", label:"{{.StationID}}"},{{end}}];
+var _chipSelections = { 'bin-types': [], 'stations': [] };
+
+function getPickerConfig(name) {
+  if (name === 'bin-types') return { all: _allBinTypes, inputName: 'bin_type_ids', modeId: 'nf-bt-mode' };
+  return { all: _allStations, inputName: 'stations', modeId: 'nf-st-mode' };
+}
+
+function onModeChange(name) {
+  var cfg = getPickerConfig(name);
+  var mode = document.getElementById(cfg.modeId).value;
+  var spec = document.getElementById('cp-' + name + '-specific');
+  spec.style.display = mode === 'specific' ? '' : 'none';
+}
+
+function toggleInheritOption(selectId, hasParent) {
   var sel = document.getElementById(selectId);
-  if (!sel) return;
-  for (var i = 0; i < sel.options.length; i++) {
-    sel.options[i].selected = values.indexOf(sel.options[i].value) >= 0;
+  var opt = sel.querySelector('option[value="inherit"]');
+  if (opt) opt.style.display = hasParent ? '' : 'none';
+  if (!hasParent && sel.value === 'inherit') sel.value = 'all';
+}
+
+function clearChipPicker(name) {
+  _chipSelections[name] = [];
+  var chips = document.getElementById('cp-' + name + '-chips');
+  if (chips) chips.innerHTML = '';
+  var filter = document.querySelector('#cp-' + name + ' .chip-filter');
+  if (filter) filter.value = '';
+}
+
+function populateChipPicker(name, items) {
+  _chipSelections[name] = items.slice();
+  renderChips(name);
+}
+
+function renderChips(name) {
+  var container = document.getElementById('cp-' + name + '-chips');
+  container.innerHTML = '';
+  _chipSelections[name].forEach(function(item) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = item.label;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chip-remove';
+    btn.innerHTML = '&times;';
+    btn.onclick = function() { removeChip(name, item.id); };
+    chip.appendChild(btn);
+    container.appendChild(chip);
+  });
+  renderChipDropdown(name);
+}
+
+function renderChipDropdown(name) {
+  var cfg = getPickerConfig(name);
+  var dd = document.getElementById('cp-' + name + '-dropdown');
+  var filter = document.querySelector('#cp-' + name + ' .chip-filter');
+  var q = (filter ? filter.value : '').toLowerCase();
+  var selectedIds = _chipSelections[name].map(function(i) { return i.id; });
+  var available = cfg.all.filter(function(item) {
+    return selectedIds.indexOf(item.id) < 0 && (!q || item.label.toLowerCase().indexOf(q) >= 0);
+  });
+  if (available.length === 0) {
+    dd.innerHTML = '<div class="chip-dropdown-empty">No items</div>';
+    return;
   }
+  dd.innerHTML = '';
+  available.forEach(function(item) {
+    var div = document.createElement('div');
+    div.className = 'chip-dropdown-item';
+    div.textContent = item.label;
+    div.onclick = function() { addChip(name, item); };
+    dd.appendChild(div);
+  });
+}
+
+function addChip(name, item) {
+  _chipSelections[name].push(item);
+  renderChips(name);
+}
+
+function removeChip(name, id) {
+  _chipSelections[name] = _chipSelections[name].filter(function(i) { return i.id !== id; });
+  renderChips(name);
+}
+
+function filterChipDropdown(name) { renderChipDropdown(name); }
+
+function showChipDropdown(name) {
+  var dd = document.getElementById('cp-' + name + '-dropdown');
+  dd.style.display = '';
+  renderChipDropdown(name);
+}
+
+function hideChipDropdown(name) {
+  // Delay so click on dropdown item registers before hide
+  setTimeout(function() {
+    var dd = document.getElementById('cp-' + name + '-dropdown');
+    dd.style.display = 'none';
+  }, 150);
+}
+
+// Serialize chips as hidden inputs before form submit
+function serializeChipPickers() {
+  // Remove old hidden inputs
+  document.querySelectorAll('input.chip-hidden').forEach(function(el) { el.remove(); });
+  var form = document.getElementById('node-form');
+  ['bin-types', 'stations'].forEach(function(name) {
+    var cfg = getPickerConfig(name);
+    var mode = document.getElementById(cfg.modeId).value;
+    if (mode !== 'specific') return;
+    _chipSelections[name].forEach(function(item) {
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = cfg.inputName; inp.value = item.id;
+      inp.className = 'chip-hidden';
+      form.appendChild(inp);
+    });
+  });
 }
 
 function closeNodeModal() {
@@ -525,9 +616,6 @@ function loadInventory(nodeID) {
   currentNodeID = parseInt(nodeID);
   expandedPayloadID = 0;
   document.getElementById('inv-manifest').style.display = 'none';
-  var corrDiv = document.getElementById('inv-corrections');
-  if (corrDiv) corrDiv.style.display = 'none';
-
   var list = document.getElementById('inv-list');
   list.innerHTML = '<span class="text-muted" style="font-size:0.8rem">Loading...</span>';
   fetch('/api/nodes/inventory?id=' + nodeID)
@@ -535,17 +623,16 @@ function loadInventory(nodeID) {
     .then(function(items) {
       if (!items || items.length === 0) {
         list.innerHTML = '<span class="text-muted" style="font-size:0.8rem">Empty</span>';
-        loadNodeCorrections(nodeID);
+
         return;
       }
       var html = '<table style="font-size:0.8rem"><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Age</th></tr></thead><tbody>';
       items.forEach(function(item) {
         var age = timeAgo(item.delivered_at);
-        html += '<tr style="cursor:pointer" onclick="expandPayloadManifest(' + item.id + ')"><td>#' + item.id + '</td><td>' + esc(item.style_name) + '</td><td>' + esc(item.status) + '</td><td>' + age + '</td></tr>';
+        html += '<tr style="cursor:pointer" onclick="expandPayloadManifest(' + item.id + ')"><td>#' + item.id + '</td><td>' + esc(item.blueprint_code) + '</td><td>' + esc(item.status) + '</td><td>' + age + '</td></tr>';
       });
       html += '</tbody></table>';
       list.innerHTML = html;
-      loadNodeCorrections(nodeID);
     })
     .catch(function() {
       list.innerHTML = '<span class="text-muted" style="font-size:0.8rem">Error loading</span>';
@@ -640,28 +727,6 @@ function removeCorrectionItem(manifestItemID, partNumber) {
   .catch(function(e) { alert('Error: ' + e); });
 }
 
-function loadNodeCorrections(nodeID) {
-  var sec = document.getElementById('inv-corrections');
-  if (!sec) return;
-  sec.style.display = '';
-  var list = document.getElementById('inv-corrections-list');
-  list.innerHTML = '<span class="text-muted">Loading...</span>';
-  fetch('/api/corrections?node_id=' + nodeID)
-    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(items) {
-      if (!items || items.length === 0) {
-        list.innerHTML = '<span class="text-muted">No corrections for this node</span>';
-        return;
-      }
-      var html = '<table><thead><tr><th>Type</th><th>Part</th><th>Qty</th><th>Reason</th><th>Actor</th><th>Date</th></tr></thead><tbody>';
-      items.forEach(function(c) {
-        html += '<tr><td>' + esc(c.correction_type) + '</td><td>' + esc(c.cat_id) + '</td><td>' + c.quantity + '</td><td>' + esc(c.reason) + '</td><td>' + esc(c.actor) + '</td><td>' + timeAgo(c.created_at) + '</td></tr>';
-      });
-      html += '</tbody></table>';
-      list.innerHTML = html;
-    })
-    .catch(function() { list.innerHTML = '<span class="text-muted">Error loading corrections</span>'; });
-}
 
 function timeAgo(ts) {
   if (!ts) return '-';
@@ -841,8 +906,12 @@ function closeOccupancyModal() {
   flex-wrap: wrap;
   gap: 0.35rem;
   min-height: 36px;
-  padding: 0.2rem;
-  border-radius: 4px;
+  padding: 0.2rem 0.4rem;
+  border-top: 1.5px solid #d4a574;
+  border-right: 1.5px solid #d4a574;
+  border-bottom: 1.5px solid #d4a574;
+  border-left: none;
+  border-radius: 0 4px 4px 0;
   transition: background 0.15s, outline-color 0.15s;
 }
 .smkt-lane-slots .node-tile {
@@ -979,7 +1048,7 @@ function submitAddNode() {
   if (!name) { document.getElementById('an-name').focus(); return; }
   var form = document.createElement('form');
   form.method = 'POST'; form.action = '/nodes/create'; form.style.display = 'none';
-  var fields = { name: name, zone: p.zone || '', capacity: '1', enabled: 'on' };
+  var fields = { name: name, zone: p.zone || '', enabled: 'on' };
   if (p.parentId) fields.parent_id = p.parentId;
   for (var k in fields) {
     var inp = document.createElement('input');
@@ -1017,11 +1086,11 @@ function loadGroupLayout(nodeID) {
         directNodes.forEach(function(node) {
           var cls = 'sm-empty';
           var label = esc(node.name);
-          if (node.instance) {
-            cls = node.instance.claimed_by ? 'sm-claimed' : 'sm-occupied';
-            label = '#' + node.instance.id;
+          if (node.payload) {
+            cls = node.payload.claimed_by ? 'sm-claimed' : 'sm-occupied';
+            label = '#' + node.payload.id;
           }
-          html += '<span class="sm-cell ' + cls + '" title="' + esc(node.name) + (node.instance ? ' — ' + esc(node.instance.style_name || '') : '') + '">' + label + '</span>';
+          html += '<span class="sm-cell ' + cls + '" title="' + esc(node.name) + (node.payload ? ' — ' + esc(node.payload.blueprint_code || '') : '') + '">' + label + '</span>';
         });
         html += '</div>';
       }
@@ -1031,11 +1100,11 @@ function loadGroupLayout(nodeID) {
         (lane.slots || []).forEach(function(slot) {
           var cls = 'sm-empty';
           var label = slot.depth || '';
-          if (slot.instance) {
-            cls = slot.instance.claimed_by ? 'sm-claimed' : 'sm-occupied';
-            label = '#' + slot.instance.id;
+          if (slot.payload) {
+            cls = slot.payload.claimed_by ? 'sm-claimed' : 'sm-occupied';
+            label = '#' + slot.payload.id;
           }
-          html += '<span class="sm-cell ' + cls + '" title="' + esc(slot.name) + (slot.instance ? ' — ' + esc(slot.instance.style_name || '') : '') + '">' + label + '</span>';
+          html += '<span class="sm-cell ' + cls + '" title="' + esc(slot.name) + (slot.payload ? ' — ' + esc(slot.payload.blueprint_code || '') : '') + '">' + label + '</span>';
         });
         html += '</div>';
       });

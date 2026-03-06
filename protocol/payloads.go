@@ -47,8 +47,9 @@ type EdgeHeartbeatAck struct {
 type OrderRequest struct {
 	OrderUUID       string  `json:"order_uuid"`
 	OrderType       string  `json:"order_type"`
-	StyleCode       string  `json:"style_code,omitempty"`
-	PayloadTypeCode string  `json:"payload_type_code,omitempty"` // deprecated: use StyleCode
+	BlueprintCode   string  `json:"blueprint_code,omitempty"`
+	StyleCode       string  `json:"style_code,omitempty"`       // deprecated: use BlueprintCode
+	PayloadTypeCode string  `json:"payload_type_code,omitempty"` // deprecated: use BlueprintCode
 	PayloadDesc     string  `json:"payload_desc,omitempty"`
 	Quantity        float64 `json:"quantity"`
 	DeliveryNode    string  `json:"delivery_node,omitempty"`
@@ -57,6 +58,18 @@ type OrderRequest struct {
 	LoadType        string  `json:"load_type,omitempty"`
 	Priority        int     `json:"priority,omitempty"`
 	RetrieveEmpty   bool    `json:"retrieve_empty,omitempty"`
+}
+
+// EffectiveBlueprintCode returns the blueprint code to use, checking BlueprintCode first,
+// then falling back to StyleCode and PayloadTypeCode for backward compatibility.
+func (r *OrderRequest) EffectiveBlueprintCode() string {
+	if r.BlueprintCode != "" {
+		return r.BlueprintCode
+	}
+	if r.StyleCode != "" {
+		return r.StyleCode
+	}
+	return r.PayloadTypeCode
 }
 
 // OrderCancel cancels an existing order.
@@ -175,7 +188,7 @@ type EdgeStale struct {
 
 // --- QR Tag Verification ---
 
-// TagVerifyRequest is sent by edge to verify a scanned QR tag against an order's instance.
+// TagVerifyRequest is sent by edge to verify a scanned QR tag against an order's payload bin.
 type TagVerifyRequest struct {
 	OrderUUID string `json:"order_uuid"`
 	TagID     string `json:"tag_id"`
@@ -190,22 +203,26 @@ type TagVerifyResponse struct {
 	Detail    string `json:"detail,omitempty"`
 }
 
-// --- Style Catalog ---
+// --- Blueprint Catalog ---
 
-// CatalogStylesRequest is sent by edge to request the style catalog.
-type CatalogStylesRequest struct{}
+// CatalogBlueprintsRequest is sent by edge to request the blueprint catalog.
+type CatalogBlueprintsRequest struct{}
 
-// CatalogStyleInfo describes a single style in the catalog.
-type CatalogStyleInfo struct {
+// CatalogBlueprintInfo describes a single blueprint in the catalog.
+type CatalogBlueprintInfo struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Code        string `json:"code"`
-	FormFactor  string `json:"form_factor"`
 	Description string `json:"description"`
 	UOPCapacity int    `json:"uop_capacity"`
 }
 
-// CatalogStylesResponse carries the core's style catalog.
-type CatalogStylesResponse struct {
-	Styles []CatalogStyleInfo `json:"styles"`
+// CatalogBlueprintsResponse carries the core's blueprint catalog.
+type CatalogBlueprintsResponse struct {
+	Blueprints []CatalogBlueprintInfo `json:"blueprints"`
 }
+
+// Backward-compatible aliases for edge clients that still use "style" terminology.
+type CatalogStylesRequest = CatalogBlueprintsRequest
+type CatalogStyleInfo = CatalogBlueprintInfo
+type CatalogStylesResponse = CatalogBlueprintsResponse

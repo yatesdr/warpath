@@ -10,7 +10,7 @@ func (h *Handlers) apiCreateCorrection(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CorrectionType string  `json:"correction_type"`
 		NodeID         int64   `json:"node_id"`
-		InstanceID     int64   `json:"instance_id"`
+		PayloadID     int64   `json:"payload_id"`
 		CatID          string  `json:"cat_id"`
 		Description    string  `json:"description"`
 		Quantity       float64 `json:"quantity"`
@@ -29,7 +29,7 @@ func (h *Handlers) apiCreateCorrection(w http.ResponseWriter, r *http.Request) {
 	id, err := h.engine.ApplyCorrection(engine.ApplyCorrectionRequest{
 		CorrectionType: req.CorrectionType,
 		NodeID:         req.NodeID,
-		InstanceID:     req.InstanceID,
+		PayloadID:     req.PayloadID,
 		CatID:          req.CatID,
 		Description:    req.Description,
 		Quantity:       req.Quantity,

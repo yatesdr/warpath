@@ -8,25 +8,25 @@ import (
 
 // ReshuffleStep describes a single move in a reshuffle plan.
 type ReshuffleStep struct {
-	Sequence   int
-	StepType   string // "unbury", "retrieve", "restock"
-	InstanceID int64
-	FromNode   *store.Node
-	ToNode     *store.Node
+	Sequence  int
+	StepType  string // "unbury", "retrieve", "restock"
+	PayloadID int64
+	FromNode  *store.Node
+	ToNode    *store.Node
 }
 
-// ReshufflePlan describes the full reshuffle needed to access a buried instance.
+// ReshufflePlan describes the full reshuffle needed to access a buried payload.
 type ReshufflePlan struct {
-	TargetInstance *store.PayloadInstance
-	TargetSlot     *store.Node
-	Lane           *store.Node
-	ShuffleSlots   []*store.Node
-	Steps          []ReshuffleStep
+	TargetPayload *store.Payload
+	TargetSlot    *store.Node
+	Lane          *store.Node
+	ShuffleSlots  []*store.Node
+	Steps         []ReshuffleStep
 }
 
-// PlanReshuffle creates a plan to unbury a target instance in a lane.
+// PlanReshuffle creates a plan to unbury a target payload in a lane.
 // Steps: move blockers front-to-back to shuffle slots, retrieve target, restock blockers deepest-first.
-func PlanReshuffle(db *store.DB, target *store.PayloadInstance, targetSlot *store.Node, lane *store.Node, groupID int64) (*ReshufflePlan, error) {
+func PlanReshuffle(db *store.DB, target *store.Payload, targetSlot *store.Node, lane *store.Node, groupID int64) (*ReshufflePlan, error) {
 	if targetSlot.ParentID == nil {
 		return nil, fmt.Errorf("target slot has no parent lane")
 	}
@@ -43,9 +43,9 @@ func PlanReshuffle(db *store.DB, target *store.PayloadInstance, targetSlot *stor
 	}
 
 	type blocker struct {
-		instance *store.PayloadInstance
-		slot     *store.Node
-		depth    int
+		payload *store.Payload
+		slot    *store.Node
+		depth   int
 	}
 
 	var blockers []blocker
@@ -54,11 +54,11 @@ func PlanReshuffle(db *store.DB, target *store.PayloadInstance, targetSlot *stor
 		if err != nil || depth >= targetDepth {
 			continue
 		}
-		instances, err := db.ListInstancesByNode(slot.ID)
-		if err != nil || len(instances) == 0 {
+		payloads, err := db.ListPayloadsByNode(slot.ID)
+		if err != nil || len(payloads) == 0 {
 			continue
 		}
-		blockers = append(blockers, blocker{instance: instances[0], slot: slot, depth: depth})
+		blockers = append(blockers, blocker{payload: payloads[0], slot: slot, depth: depth})
 	}
 
 	// Find shuffle slots
@@ -68,10 +68,10 @@ func PlanReshuffle(db *store.DB, target *store.PayloadInstance, targetSlot *stor
 	}
 
 	plan := &ReshufflePlan{
-		TargetInstance: target,
-		TargetSlot:     targetSlot,
-		Lane:           lane,
-		ShuffleSlots:   shuffleSlots,
+		TargetPayload: target,
+		TargetSlot:    targetSlot,
+		Lane:          lane,
+		ShuffleSlots:  shuffleSlots,
 	}
 
 	seq := 1
@@ -79,32 +79,32 @@ func PlanReshuffle(db *store.DB, target *store.PayloadInstance, targetSlot *stor
 	// Step 1: Move blockers to shuffle slots (front-to-back order = shallowest first)
 	for i, b := range blockers {
 		plan.Steps = append(plan.Steps, ReshuffleStep{
-			Sequence:   seq,
-			StepType:   "unbury",
-			InstanceID: b.instance.ID,
-			FromNode:   b.slot,
-			ToNode:     shuffleSlots[i],
+			Sequence:  seq,
+			StepType:  "unbury",
+			PayloadID: b.payload.ID,
+			FromNode:  b.slot,
+			ToNode:    shuffleSlots[i],
 		})
 		seq++
 	}
 
 	// Step 2: Retrieve the target (this is the actual order delivery)
 	plan.Steps = append(plan.Steps, ReshuffleStep{
-		Sequence:   seq,
-		StepType:   "retrieve",
-		InstanceID: target.ID,
-		FromNode:   targetSlot,
+		Sequence:  seq,
+		StepType:  "retrieve",
+		PayloadID: target.ID,
+		FromNode:  targetSlot,
 	})
 	seq++
 
 	// Step 3: Restock blockers back to lane (deepest-first = reverse order)
 	for i := len(blockers) - 1; i >= 0; i-- {
 		plan.Steps = append(plan.Steps, ReshuffleStep{
-			Sequence:   seq,
-			StepType:   "restock",
-			InstanceID: blockers[i].instance.ID,
-			FromNode:   shuffleSlots[i],
-			ToNode:     blockers[i].slot,
+			Sequence:  seq,
+			StepType:  "restock",
+			PayloadID: blockers[i].payload.ID,
+			FromNode:  shuffleSlots[i],
+			ToNode:    blockers[i].slot,
 		})
 		seq++
 	}
@@ -128,7 +128,7 @@ func FindShuffleSlots(db *store.DB, groupID int64, count int) ([]*store.Node, er
 		if !c.Enabled || c.IsSynthetic {
 			continue
 		}
-		cnt, _ := db.CountInstancesByNode(c.ID)
+		cnt, _ := db.CountBinsByNode(c.ID)
 		if cnt == 0 {
 			available = append(available, c)
 			if len(available) >= count {
@@ -151,7 +151,7 @@ func FindShuffleSlots(db *store.DB, groupID int64, count int) ([]*store.Node, er
 			if !acc {
 				continue
 			}
-			cnt, _ := db.CountInstancesByNode(slot.ID)
+			cnt, _ := db.CountBinsByNode(slot.ID)
 			if cnt == 0 {
 				available = append(available, slot)
 				if len(available) >= count {

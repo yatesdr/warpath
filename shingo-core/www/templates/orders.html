@@ -14,7 +14,7 @@
         <tr><td><strong>UUID</strong></td><td>{{.Order.EdgeUUID}}</td></tr>
         <tr><td><strong>Station</strong></td><td>{{.Order.StationID}}</td></tr>
         <tr><td><strong>Type</strong></td><td>{{.Order.OrderType}}</td></tr>
-        <tr><td><strong>Style</strong></td><td>{{if .Order.StyleID}}PT#{{deref .Order.StyleID}}{{else}}{{.Order.MaterialCode}}{{end}}</td></tr>
+        <tr><td><strong>Blueprint</strong></td><td>{{if .Order.BlueprintID}}BP#{{deref .Order.BlueprintID}}{{else}}{{.Order.MaterialCode}}{{end}}</td></tr>
         <tr><td><strong>Quantity</strong></td><td>{{.Order.Quantity}}</td></tr>
         <tr><td><strong>Status</strong></td><td><span class="badge badge-{{.Order.Status}}">{{.Order.Status}}</span></td></tr>
         <tr><td><strong>Vendor Order</strong></td><td>{{.Order.VendorOrderID}}</td></tr>
@@ -84,7 +84,7 @@
           <th>UUID</th>
           <th>Station</th>
           <th>Type</th>
-          <th>Style</th>
+          <th>Blueprint</th>
           <th>Status</th>
           <th>Robot</th>
           <th>Created</th>
@@ -97,7 +97,7 @@
           <td style="font-family:monospace;font-size:0.8rem">{{.EdgeUUID}}</td>
           <td>{{.StationID}}</td>
           <td>{{.OrderType}}</td>
-          <td>{{if .StyleID}}PT#{{deref .StyleID}}{{else}}{{.MaterialCode}}{{end}}</td>
+          <td>{{if .BlueprintID}}BP#{{deref .BlueprintID}}{{else}}{{.MaterialCode}}{{end}}</td>
           <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
           <td>{{.RobotID}}</td>
           <td>{{formatTime .CreatedAt}}</td>

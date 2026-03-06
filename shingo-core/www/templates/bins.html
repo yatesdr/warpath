@@ -1,0 +1,379 @@
+{{define "content"}}
+<div>
+  <div class="flex flex-between mb-2">
+    <h1>Bins</h1>
+  </div>
+
+  {{if .Authenticated}}
+  <!-- Bin Types accordion -->
+  <div class="accordion mb-2" id="bt-accordion">
+    <button class="accordion-toggle" onclick="document.getElementById('bt-accordion').classList.toggle('open')">
+      Bin Types <span class="text-muted">({{len .BinTypes}})</span>
+    </button>
+    <div class="accordion-body">
+      <div style="margin-bottom:0.5rem;text-align:right">
+        <button class="btn btn-primary btn-sm" onclick="openCreateBTModal()">+ Bin Type</button>
+      </div>
+      {{if .BinTypes}}
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Code</th>
+            <th>Description</th>
+            <th>Dimensions (in)</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .BinTypes}}
+          <tr>
+            <td>{{.ID}}</td>
+            <td><code>{{.Code}}</code></td>
+            <td>{{if .Description}}{{.Description}}{{else}}<span class="text-muted">-</span>{{end}}</td>
+            <td>{{if .WidthIn}}{{.WidthIn}} x {{.HeightIn}}{{else}}<span class="text-muted">-</span>{{end}}</td>
+            <td>
+              <button class="btn btn-sm" onclick="openEditBTModal(this)"
+                data-id="{{.ID}}"
+                data-code="{{.Code}}"
+                data-desc="{{.Description}}"
+                data-width="{{.WidthIn}}"
+                data-height="{{.HeightIn}}">Edit</button>
+              <form method="POST" action="/bin-types/delete" style="display:inline" onsubmit="return confirm('Delete bin type {{.Code}}? All bins of this type must be removed first.')">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="text-muted">No bin types defined yet.</p>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+
+  <!-- Filter bar -->
+  <div class="filter-bar mb-1">
+    <input type="text" id="bin-search" placeholder="Filter by label or location..." oninput="filterBins()">
+    <select id="bin-type-filter" onchange="filterBins()">
+      <option value="">All Bin Types</option>
+      {{range .BinTypes}}
+      <option value="{{.Code}}">{{.Code}}</option>
+      {{end}}
+    </select>
+    <select id="bin-status-filter" onchange="filterBins()">
+      <option value="">All Statuses</option>
+      <option value="available">Available</option>
+      <option value="in_use">In Use</option>
+      <option value="maintenance">Maintenance</option>
+      <option value="retired">Retired</option>
+    </select>
+    <span class="text-muted" style="font-size:0.8rem" id="bin-count">{{len .Bins}} bins</span>
+    {{if .Authenticated}}
+    <button class="btn btn-primary btn-sm" onclick="openCreateBinModal()" style="margin-left:auto">+ Bin</button>
+    {{end}}
+  </div>
+
+  {{if .Bins}}
+  <table id="bin-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Label</th>
+        <th>Bin Type</th>
+        <th>Node</th>
+        <th>Status</th>
+        <th>Created</th>
+        {{if .Authenticated}}<th>Actions</th>{{end}}
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Bins}}
+      <tr data-label="{{.Label}}" data-type="{{.BinTypeCode}}" data-status="{{.Status}}" data-node="{{.NodeName}}">
+        <td>{{.ID}}</td>
+        <td><strong><code>{{.Label}}</code></strong></td>
+        <td>{{.BinTypeCode}}</td>
+        <td>{{if .NodeName}}{{.NodeName}}{{else}}<span class="text-muted">unassigned</span>{{end}}</td>
+        <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+        <td>{{formatTime .CreatedAt}}</td>
+        {{if $.Authenticated}}
+        <td>
+          <button class="btn btn-sm" onclick="openEditBinModal(this)"
+            data-id="{{.ID}}"
+            data-label="{{.Label}}"
+            data-type-id="{{.BinTypeID}}"
+            data-node="{{if .NodeID}}{{deref .NodeID}}{{end}}"
+            data-status="{{.Status}}">Edit</button>
+          {{if eq .Status "available"}}
+          <button class="btn btn-sm" onclick="binAction({{.ID}}, 'maintenance')" title="Send to maintenance">Maint</button>
+          {{end}}
+          {{if eq .Status "maintenance"}}
+          <button class="btn btn-sm" onclick="binAction({{.ID}}, 'activate')" title="Return to service">Activate</button>
+          <button class="btn btn-sm btn-danger" onclick="binAction({{.ID}}, 'retire')" title="Retire permanently">Retire</button>
+          {{end}}
+          <form method="POST" action="/bins/delete" style="display:inline" onsubmit="return confirm('Delete bin {{.Label}}? It must not have a payload assigned.')">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </td>
+        {{end}}
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="card">
+    <p class="text-muted">No bins registered.{{if .Authenticated}} Use "+ Bin" to create bins.{{end}}</p>
+  </div>
+  {{end}}
+</div>
+
+{{if .Authenticated}}
+<!-- Create Bin Type Modal -->
+<div id="bt-create-modal" class="modal-overlay" onclick="if(event.target===this)closeBTCreateModal()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header flex flex-between">
+      <h2>Create Bin Type</h2>
+      <button class="modal-close" onclick="closeBTCreateModal()">&times;</button>
+    </div>
+    <form method="POST" action="/bin-types/create">
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label>Code <span class="tooltip-trigger" title="Short unique identifier for this bin type">?</span></label>
+          <input type="text" name="code" required placeholder="e.g. TOTE-STD">
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" name="description" placeholder="e.g. Standard plastic tote">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Dimensions (in) <span class="tooltip-trigger" title="Physical dimensions: Width x Height">?</span></label>
+        <div style="display:flex;gap:0.25rem">
+          <input type="number" name="width_in" placeholder="W" step="0.1" style="flex:1">
+          <input type="number" name="height_in" placeholder="H" step="0.1" style="flex:1">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Create</button>
+      <button type="button" class="btn" onclick="closeBTCreateModal()" style="margin-left:0.5rem">Cancel</button>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Bin Type Modal -->
+<div id="bt-edit-modal" class="modal-overlay" onclick="if(event.target===this)closeBTEditModal()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header flex flex-between">
+      <h2>Edit Bin Type</h2>
+      <button class="modal-close" onclick="closeBTEditModal()">&times;</button>
+    </div>
+    <form method="POST" action="/bin-types/update">
+      <input type="hidden" name="id" id="bt-edit-id">
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label>Code</label>
+          <input type="text" name="code" id="bt-edit-code" required>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" name="description" id="bt-edit-desc">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Dimensions (in)</label>
+        <div style="display:flex;gap:0.25rem">
+          <input type="number" name="width_in" id="bt-edit-w" placeholder="W" step="0.1" style="flex:1">
+          <input type="number" name="height_in" id="bt-edit-h" placeholder="H" step="0.1" style="flex:1">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+      <button type="button" class="btn" onclick="closeBTEditModal()" style="margin-left:0.5rem">Cancel</button>
+    </form>
+  </div>
+</div>
+
+<!-- Create Bin Modal -->
+<div id="bin-create-modal" class="modal-overlay" onclick="if(event.target===this)closeCreateBinModal()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header flex flex-between">
+      <h2>Create Bin</h2>
+      <button class="modal-close" onclick="closeCreateBinModal()">&times;</button>
+    </div>
+    <form method="POST" action="/bins/create">
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label>Bin Type</label>
+          <select name="bin_type_id" required>
+            <option value="">-- Select --</option>
+            {{range .BinTypes}}
+            <option value="{{.ID}}">{{.Code}}{{if .Description}} - {{.Description}}{{end}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Label Prefix <span class="tooltip-trigger" title="e.g. 'BIN-' generates BIN-0001, BIN-0002, etc.">?</span></label>
+          <input type="text" name="label_prefix" placeholder="e.g. BIN-" required>
+        </div>
+        <div class="form-group">
+          <label>Node (optional)</label>
+          <select name="node_id">
+            <option value="">-- No Node --</option>
+            {{range .Nodes}}
+            <option value="{{.ID}}">{{.Name}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Quantity <span class="tooltip-trigger" title="Number of bins to create (1-100). Labels will be auto-numbered.">?</span></label>
+          <input type="number" name="quantity" value="1" min="1" max="100">
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select name="status">
+            <option value="available">Available</option>
+            <option value="maintenance">Maintenance</option>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Create</button>
+      <button type="button" class="btn" onclick="closeCreateBinModal()" style="margin-left:0.5rem">Cancel</button>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Bin Modal -->
+<div id="bin-edit-modal" class="modal-overlay" onclick="if(event.target===this)closeEditBinModal()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header flex flex-between">
+      <h2>Edit Bin</h2>
+      <button class="modal-close" onclick="closeEditBinModal()">&times;</button>
+    </div>
+    <form method="POST" action="/bins/update">
+      <input type="hidden" name="id" id="be-id">
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label>Label</label>
+          <input type="text" name="label" id="be-label" required>
+        </div>
+        <div class="form-group">
+          <label>Bin Type</label>
+          <select name="bin_type_id" id="be-type" required>
+            {{range .BinTypes}}
+            <option value="{{.ID}}">{{.Code}}{{if .Description}} - {{.Description}}{{end}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Node</label>
+          <select name="node_id" id="be-node">
+            <option value="">-- No Node --</option>
+            {{range .Nodes}}
+            <option value="{{.ID}}">{{.Name}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select name="status" id="be-status">
+            <option value="available">Available</option>
+            <option value="in_use">In Use</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="retired">Retired</option>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+      <button type="button" class="btn" onclick="closeEditBinModal()" style="margin-left:0.5rem">Cancel</button>
+    </form>
+  </div>
+</div>
+{{end}}
+
+<script>
+function filterBins() {
+  var q = document.getElementById('bin-search').value.toLowerCase();
+  var binType = document.getElementById('bin-type-filter').value;
+  var status = document.getElementById('bin-status-filter').value;
+  var rows = document.querySelectorAll('#bin-table tbody tr');
+  var shown = 0;
+  rows.forEach(function(row) {
+    var d = row.dataset;
+    var matchQ = !q || (d.label && d.label.toLowerCase().indexOf(q) >= 0) || (d.node && d.node.toLowerCase().indexOf(q) >= 0);
+    var matchType = !binType || d.type === binType;
+    var matchStatus = !status || d.status === status;
+    var vis = matchQ && matchType && matchStatus;
+    row.style.display = vis ? '' : 'none';
+    if (vis) shown++;
+  });
+  document.getElementById('bin-count').textContent = shown + ' bins';
+}
+
+/* --- Bin Type modals --- */
+function openCreateBTModal() {
+  document.getElementById('bt-create-modal').classList.add('active');
+}
+function closeBTCreateModal() {
+  document.getElementById('bt-create-modal').classList.remove('active');
+}
+
+function openEditBTModal(btn) {
+  var d = btn.dataset;
+  document.getElementById('bt-edit-id').value = d.id;
+  document.getElementById('bt-edit-code').value = d.code;
+  document.getElementById('bt-edit-desc').value = d.desc || '';
+  document.getElementById('bt-edit-w').value = d.width && d.width !== '0' ? d.width : '';
+  document.getElementById('bt-edit-h').value = d.height && d.height !== '0' ? d.height : '';
+  document.getElementById('bt-edit-modal').classList.add('active');
+}
+function closeBTEditModal() {
+  document.getElementById('bt-edit-modal').classList.remove('active');
+}
+
+/* --- Bin modals --- */
+function openCreateBinModal() {
+  document.getElementById('bin-create-modal').classList.add('active');
+}
+function closeCreateBinModal() {
+  document.getElementById('bin-create-modal').classList.remove('active');
+}
+
+function openEditBinModal(btn) {
+  var d = btn.dataset;
+  document.getElementById('be-id').value = d.id;
+  document.getElementById('be-label').value = d.label;
+  document.getElementById('be-type').value = d.typeId;
+  document.getElementById('be-node').value = d.node || '';
+  document.getElementById('be-status').value = d.status;
+  document.getElementById('bin-edit-modal').classList.add('active');
+}
+function closeEditBinModal() {
+  document.getElementById('bin-edit-modal').classList.remove('active');
+}
+
+/* --- Bin lifecycle actions --- */
+function binAction(id, action) {
+  if (!confirm(action.charAt(0).toUpperCase() + action.slice(1) + ' bin #' + id + '?')) return;
+  fetch('/api/bins/action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: id, action: action})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert(data.error); return; }
+    location.reload();
+  })
+  .catch(function(e) { alert('Error: ' + e); });
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeBTCreateModal(); closeBTEditModal();
+    closeCreateBinModal(); closeEditBinModal();
+  }
+});
+</script>
+{{end}}

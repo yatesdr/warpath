@@ -39,15 +39,19 @@ func newMockTrackingBackend() *mockTrackingBackend {
 
 func TestDispatcher_RetrieveOrder_FullLifecycle(t *testing.T) {
 	db := testDB(t)
-	storageNode, lineNode, ps := setupTestData(t, db)
+	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create an available payload at storage
-	payload := &store.PayloadInstance{
-		StyleID: ps.ID,
-		NodeID:        &storageNode.ID,
-		Status:        "available",
+	// Create a bin at the storage node and an available payload
+	bin := &store.Bin{BinTypeID: 1, Label: "BIN-RET-1", NodeID: &storageNode.ID, Status: "active"}
+	if err := db.CreateBin(bin); err != nil {
+		t.Fatalf("create bin: %v", err)
 	}
-	if err := db.CreateInstance(payload); err != nil {
+	payload := &store.Payload{
+		BlueprintID: bp.ID,
+		BinID:       &bin.ID,
+		Status:      "available",
+	}
+	if err := db.CreatePayload(payload); err != nil {
 		t.Fatalf("create payload: %v", err)
 	}
 
@@ -110,7 +114,7 @@ func TestDispatcher_RetrieveOrder_FullLifecycle(t *testing.T) {
 	}
 
 	// Verify payload was claimed
-	payload2, err := db.GetInstance(payload.ID)
+	payload2, err := db.GetPayload(payload.ID)
 	if err != nil {
 		t.Fatalf("get payload: %v", err)
 	}
@@ -121,15 +125,17 @@ func TestDispatcher_RetrieveOrder_FullLifecycle(t *testing.T) {
 
 func TestDispatcher_MoveOrder_FullLifecycle(t *testing.T) {
 	db := testDB(t)
-	storageNode, lineNode, ps := setupTestData(t, db)
+	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create an available payload at storage
-	payload := &store.PayloadInstance{
-		StyleID: ps.ID,
-		NodeID:        &storageNode.ID,
-		Status:        "available",
+	// Create a bin at storage node and an available payload
+	bin := &store.Bin{BinTypeID: 1, Label: "BIN-MOV-1", NodeID: &storageNode.ID, Status: "active"}
+	db.CreateBin(bin)
+	payload := &store.Payload{
+		BlueprintID: bp.ID,
+		BinID:       &bin.ID,
+		Status:      "available",
 	}
-	if err := db.CreateInstance(payload); err != nil {
+	if err := db.CreatePayload(payload); err != nil {
 		t.Fatalf("create payload: %v", err)
 	}
 
@@ -175,15 +181,17 @@ func TestDispatcher_MoveOrder_FullLifecycle(t *testing.T) {
 
 func TestDispatcher_StoreOrder_FullLifecycle(t *testing.T) {
 	db := testDB(t)
-	storageNode, lineNode, ps := setupTestData(t, db)
+	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create an available payload at line-side
-	payload := &store.PayloadInstance{
-		StyleID: ps.ID,
-		NodeID:        &lineNode.ID,
-		Status:        "available",
+	// Create a bin at line-side and an available payload
+	bin := &store.Bin{BinTypeID: 1, Label: "BIN-STO-1", NodeID: &lineNode.ID, Status: "active"}
+	db.CreateBin(bin)
+	payload := &store.Payload{
+		BlueprintID: bp.ID,
+		BinID:       &bin.ID,
+		Status:      "available",
 	}
-	if err := db.CreateInstance(payload); err != nil {
+	if err := db.CreatePayload(payload); err != nil {
 		t.Fatalf("create payload: %v", err)
 	}
 
@@ -222,15 +230,17 @@ func TestDispatcher_StoreOrder_FullLifecycle(t *testing.T) {
 
 func TestDispatcher_CancelOrder(t *testing.T) {
 	db := testDB(t)
-	storageNode, lineNode, ps := setupTestData(t, db)
+	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create an available payload at storage
-	payload := &store.PayloadInstance{
-		StyleID: ps.ID,
-		NodeID:        &storageNode.ID,
-		Status:        "available",
+	// Create a bin at storage and an available payload
+	bin := &store.Bin{BinTypeID: 1, Label: "BIN-CAN-1", NodeID: &storageNode.ID, Status: "active"}
+	db.CreateBin(bin)
+	payload := &store.Payload{
+		BlueprintID: bp.ID,
+		BinID:       &bin.ID,
+		Status:      "available",
 	}
-	db.CreateInstance(payload)
+	db.CreatePayload(payload)
 
 	backend := newMockTrackingBackend()
 	d, emitter := newTestDispatcher(t, db, backend)
@@ -249,7 +259,7 @@ func TestDispatcher_CancelOrder(t *testing.T) {
 	order, _ := db.GetOrderByUUID("cancel-uuid-1")
 
 	// Verify payload was claimed by this order
-	claimed, _ := db.GetInstance(payload.ID)
+	claimed, _ := db.GetPayload(payload.ID)
 	if claimed.ClaimedBy == nil || *claimed.ClaimedBy != order.ID {
 		t.Fatalf("payload should be claimed by order %d before cancel", order.ID)
 	}
@@ -267,7 +277,7 @@ func TestDispatcher_CancelOrder(t *testing.T) {
 	}
 
 	// Verify payload was unclaimed by the cancel
-	unclaimed, _ := db.GetInstance(payload.ID)
+	unclaimed, _ := db.GetPayload(payload.ID)
 	if unclaimed.ClaimedBy != nil {
 		t.Errorf("payload should be unclaimed after cancel, but ClaimedBy = %v", unclaimed.ClaimedBy)
 	}
@@ -280,19 +290,21 @@ func TestDispatcher_CancelOrder(t *testing.T) {
 
 func TestDispatcher_RedirectOrder(t *testing.T) {
 	db := testDB(t)
-	storageNode, lineNode, ps := setupTestData(t, db)
+	storageNode, lineNode, bp := setupTestData(t, db)
 
 	// Create another line node
-	lineNode2 := &store.Node{Name: "LINE2-IN", NodeType: "line_side", Capacity: 5, Enabled: true}
+	lineNode2 := &store.Node{Name: "LINE2-IN", Enabled: true}
 	db.CreateNode(lineNode2)
 
-	// Create an available payload
-	payload := &store.PayloadInstance{
-		StyleID: ps.ID,
-		NodeID:        &storageNode.ID,
-		Status:        "available",
+	// Create a bin and an available payload
+	bin := &store.Bin{BinTypeID: 1, Label: "BIN-RED-1", NodeID: &storageNode.ID, Status: "active"}
+	db.CreateBin(bin)
+	payload := &store.Payload{
+		BlueprintID: bp.ID,
+		BinID:       &bin.ID,
+		Status:      "available",
 	}
-	db.CreateInstance(payload)
+	db.CreatePayload(payload)
 
 	backend := newMockTrackingBackend()
 	d, _ := newTestDispatcher(t, db, backend)
@@ -311,8 +323,8 @@ func TestDispatcher_RedirectOrder(t *testing.T) {
 
 	// Redirect to line2
 	d.HandleOrderRedirect(env, &protocol.OrderRedirect{
-		OrderUUID:        "redirect-uuid-1",
-		NewDeliveryNode:  lineNode2.Name,
+		OrderUUID:       "redirect-uuid-1",
+		NewDeliveryNode: lineNode2.Name,
 	})
 
 	// Verify order destination was updated (need to re-fetch from DB)
@@ -324,7 +336,7 @@ func TestDispatcher_RedirectOrder(t *testing.T) {
 
 func TestDispatcher_SyntheticNodeResolution(t *testing.T) {
 	db := testDB(t)
-	_, _, ps := setupTestData(t, db)
+	_, _, bp := setupTestData(t, db)
 
 	// Look up the seeded synthetic node type (NGRP)
 	syntheticType, err := db.GetNodeTypeByCode("NGRP")
@@ -334,28 +346,30 @@ func TestDispatcher_SyntheticNodeResolution(t *testing.T) {
 
 	// Create a synthetic parent node
 	parentNode := &store.Node{
-		Name: "ZONE-A", NodeType: "storage", IsSynthetic: true,
-		NodeTypeID: &syntheticType.ID, Capacity: 0, Enabled: true,
+		Name: "ZONE-A", IsSynthetic: true,
+		NodeTypeID: &syntheticType.ID, Enabled: true,
 	}
 	if err := db.CreateNode(parentNode); err != nil {
 		t.Fatalf("create parent node: %v", err)
 	}
 
 	// Create child nodes under the synthetic parent
-	child1 := &store.Node{Name: "ZONE-A-01", NodeType: "storage", Capacity: 10, Enabled: true}
-	child2 := &store.Node{Name: "ZONE-A-02", NodeType: "storage", Capacity: 10, Enabled: true}
+	child1 := &store.Node{Name: "ZONE-A-01", Enabled: true}
+	child2 := &store.Node{Name: "ZONE-A-02", Enabled: true}
 	db.CreateNode(child1)
 	db.CreateNode(child2)
 	db.SetNodeParent(child1.ID, parentNode.ID)
 	db.SetNodeParent(child2.ID, parentNode.ID)
 
 	// Create a line node for delivery
-	lineNode := &store.Node{Name: "LINE-SYN", NodeType: "line_side", Capacity: 5, Enabled: true}
+	lineNode := &store.Node{Name: "LINE-SYN", Enabled: true}
 	db.CreateNode(lineNode)
 
 	// Put an available payload at child2 (not child1) to verify resolver picks the right child
-	payload := &store.PayloadInstance{StyleID: ps.ID, NodeID: &child2.ID, Status: "available"}
-	db.CreateInstance(payload)
+	bin := &store.Bin{BinTypeID: 1, Label: "BIN-SYN-1", NodeID: &child2.ID, Status: "active"}
+	db.CreateBin(bin)
+	payload := &store.Payload{BlueprintID: bp.ID, BinID: &bin.ID, Status: "available"}
+	db.CreatePayload(payload)
 
 	// Create dispatcher with resolver
 	backend := newMockTrackingBackend()
@@ -401,11 +415,13 @@ func TestDispatcher_SyntheticNodeResolution(t *testing.T) {
 
 func TestDispatcher_FleetFailure(t *testing.T) {
 	db := testDB(t)
-	storageNode, lineNode, ps := setupTestData(t, db)
+	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create an available payload
-	payload := &store.PayloadInstance{StyleID: ps.ID, NodeID: &storageNode.ID, Status: "available"}
-	db.CreateInstance(payload)
+	// Create a bin and an available payload
+	bin := &store.Bin{BinTypeID: 1, Label: "BIN-FF-1", NodeID: &storageNode.ID, Status: "active"}
+	db.CreateBin(bin)
+	payload := &store.Payload{BlueprintID: bp.ID, BinID: &bin.ID, Status: "available"}
+	db.CreatePayload(payload)
 
 	// Use mockBackend (returns errors for all fleet ops)
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
@@ -441,7 +457,7 @@ func TestDispatcher_FleetFailure(t *testing.T) {
 	}
 
 	// Verify payload was unclaimed after fleet failure
-	p, _ := db.GetInstance(payload.ID)
+	p, _ := db.GetPayload(payload.ID)
 	if p.ClaimedBy != nil {
 		t.Errorf("payload should be unclaimed after fleet failure, ClaimedBy = %v", p.ClaimedBy)
 	}
@@ -449,13 +465,18 @@ func TestDispatcher_FleetFailure(t *testing.T) {
 
 func TestDispatcher_PriorityHandling(t *testing.T) {
 	db := testDB(t)
-	storageNode, lineNode, ps := setupTestData(t, db)
+	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create available payloads
-	payload1 := &store.PayloadInstance{StyleID: ps.ID, NodeID: &storageNode.ID, Status: "available"}
-	payload2 := &store.PayloadInstance{StyleID: ps.ID, NodeID: &storageNode.ID, Status: "available"}
-	db.CreateInstance(payload1)
-	db.CreateInstance(payload2)
+	// Create bins and available payloads
+	bin1 := &store.Bin{BinTypeID: 1, Label: "BIN-PRI-1", NodeID: &storageNode.ID, Status: "active"}
+	db.CreateBin(bin1)
+	payload1 := &store.Payload{BlueprintID: bp.ID, BinID: &bin1.ID, Status: "available"}
+	db.CreatePayload(payload1)
+
+	bin2 := &store.Bin{BinTypeID: 1, Label: "BIN-PRI-2", NodeID: &storageNode.ID, Status: "active"}
+	db.CreateBin(bin2)
+	payload2 := &store.Payload{BlueprintID: bp.ID, BinID: &bin2.ID, Status: "available"}
+	db.CreatePayload(payload2)
 
 	backend := newMockTrackingBackend()
 	d, _ := newTestDispatcher(t, db, backend)
@@ -493,4 +514,3 @@ func TestDispatcher_PriorityHandling(t *testing.T) {
 		t.Errorf("high priority = %d, want 10", order2.Priority)
 	}
 }
-

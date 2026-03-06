@@ -1,67 +1,82 @@
 package www
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"shingocore/store"
 )
 
-func (h *Handlers) apiListPayloadStyles(w http.ResponseWriter, r *http.Request) {
-	styles, err := h.engine.DB().ListPayloadStyles()
+func (h *Handlers) apiListBlueprints(w http.ResponseWriter, r *http.Request) {
+	blueprints, err := h.engine.DB().ListBlueprints()
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.jsonOK(w, styles)
+	h.jsonOK(w, blueprints)
 }
 
 func (h *Handlers) handlePayloads(w http.ResponseWriter, r *http.Request) {
-	instances, _ := h.engine.DB().ListInstances()
-	styles, _ := h.engine.DB().ListPayloadStyles()
+	payloads, _ := h.engine.DB().ListPayloads()
+	blueprints, _ := h.engine.DB().ListBlueprints()
 	nodes, _ := h.engine.DB().ListNodes()
+	bins, _ := h.engine.DB().ListBins()
 
-	// Build compatible nodes map: style_id -> [node names]
+	// Build compatible nodes map: blueprint_id -> [node names]
 	compatNodes := make(map[int64][]string)
-	for _, ps := range styles {
-		nodeList, _ := h.engine.DB().ListNodesForPayloadStyle(ps.ID)
+	for _, bp := range blueprints {
+		nodeList, _ := h.engine.DB().ListNodesForBlueprint(bp.ID)
 		for _, n := range nodeList {
-			compatNodes[ps.ID] = append(compatNodes[ps.ID], n.Name)
+			compatNodes[bp.ID] = append(compatNodes[bp.ID], n.Name)
+		}
+	}
+
+	binTypes, _ := h.engine.DB().ListBinTypes()
+
+	// Build blueprint -> bin type codes map
+	bpBinTypes := make(map[int64][]string)
+	for _, bp := range blueprints {
+		btList, _ := h.engine.DB().ListBinTypesForBlueprint(bp.ID)
+		for _, bt := range btList {
+			bpBinTypes[bp.ID] = append(bpBinTypes[bp.ID], bt.Code)
 		}
 	}
 
 	data := map[string]any{
-		"Page":          "payloads",
-		"Instances":     instances,
-		"PayloadStyles": styles,
-		"Nodes":         nodes,
-		"CompatNodes":   compatNodes,
+		"Page":        "payloads",
+		"Payloads":    payloads,
+		"Blueprints":  blueprints,
+		"Nodes":       nodes,
+		"Bins":        bins,
+		"BinTypes":    binTypes,
+		"CompatNodes": compatNodes,
+		"BPBinTypes":  bpBinTypes,
 	}
 	h.render(w, r, "payloads.html", data)
 }
 
-func (h *Handlers) handleInstanceCreate(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handlePayloadCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	styleID, err := strconv.ParseInt(r.FormValue("style_id"), 10, 64)
+	blueprintID, err := strconv.ParseInt(r.FormValue("blueprint_id"), 10, 64)
 	if err != nil {
-		http.Error(w, "invalid payload style", http.StatusBadRequest)
+		http.Error(w, "invalid blueprint", http.StatusBadRequest)
 		return
 	}
 
-	p := &store.PayloadInstance{
-		StyleID: styleID,
-		TagID:   r.FormValue("tag_id"),
-		Status:  r.FormValue("status"),
-		Notes:   r.FormValue("notes"),
+	p := &store.Payload{
+		BlueprintID: blueprintID,
+		Status:      r.FormValue("status"),
+		Notes:       r.FormValue("notes"),
 	}
 
-	if nodeStr := r.FormValue("node_id"); nodeStr != "" {
-		if nid, err := strconv.ParseInt(nodeStr, 10, 64); err == nil {
-			p.NodeID = &nid
+	if binStr := r.FormValue("bin_id"); binStr != "" {
+		if bid, err := strconv.ParseInt(binStr, 10, 64); err == nil {
+			p.BinID = &bid
 		}
 	}
 
@@ -69,7 +84,7 @@ func (h *Handlers) handleInstanceCreate(w http.ResponseWriter, r *http.Request) 
 		p.Status = "empty"
 	}
 
-	if err := h.engine.DB().CreateInstance(p); err != nil {
+	if err := h.engine.DB().CreatePayload(p); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -77,7 +92,7 @@ func (h *Handlers) handleInstanceCreate(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/payloads", http.StatusSeeOther)
 }
 
-func (h *Handlers) handleInstanceUpdate(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handlePayloadUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -89,31 +104,30 @@ func (h *Handlers) handleInstanceUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	p, err := h.engine.DB().GetInstance(id)
+	p, err := h.engine.DB().GetPayload(id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
-	styleID, err := strconv.ParseInt(r.FormValue("style_id"), 10, 64)
+	blueprintID, err := strconv.ParseInt(r.FormValue("blueprint_id"), 10, 64)
 	if err != nil {
-		http.Error(w, "invalid payload style", http.StatusBadRequest)
+		http.Error(w, "invalid blueprint", http.StatusBadRequest)
 		return
 	}
 
-	p.StyleID = styleID
-	p.TagID = r.FormValue("tag_id")
+	p.BlueprintID = blueprintID
 	p.Status = r.FormValue("status")
 	p.Notes = r.FormValue("notes")
-	p.NodeID = nil
+	p.BinID = nil
 
-	if nodeStr := r.FormValue("node_id"); nodeStr != "" {
-		if nid, err := strconv.ParseInt(nodeStr, 10, 64); err == nil {
-			p.NodeID = &nid
+	if binStr := r.FormValue("bin_id"); binStr != "" {
+		if bid, err := strconv.ParseInt(binStr, 10, 64); err == nil {
+			p.BinID = &bid
 		}
 	}
 
-	if err := h.engine.DB().UpdateInstance(p); err != nil {
+	if err := h.engine.DB().UpdatePayload(p); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -121,14 +135,14 @@ func (h *Handlers) handleInstanceUpdate(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/payloads", http.StatusSeeOther)
 }
 
-func (h *Handlers) handleInstanceDelete(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handlePayloadDelete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.FormValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.engine.DB().DeleteInstance(id); err != nil {
+	if err := h.engine.DB().DeletePayload(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -136,23 +150,23 @@ func (h *Handlers) handleInstanceDelete(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/payloads", http.StatusSeeOther)
 }
 
-func (h *Handlers) apiListInstances(w http.ResponseWriter, r *http.Request) {
-	instances, err := h.engine.DB().ListInstances()
+func (h *Handlers) apiListPayloads(w http.ResponseWriter, r *http.Request) {
+	payloads, err := h.engine.DB().ListPayloads()
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.jsonOK(w, instances)
+	h.jsonOK(w, payloads)
 }
 
-func (h *Handlers) apiGetInstance(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) apiGetPayload(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		h.jsonError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	p, err := h.engine.DB().GetInstance(id)
+	p, err := h.engine.DB().GetPayload(id)
 	if err != nil {
 		h.jsonError(w, "not found", http.StatusNotFound)
 		return
@@ -177,7 +191,7 @@ func (h *Handlers) apiListManifest(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) apiCreateManifestItem(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		InstanceID     int64   `json:"instance_id"`
+		PayloadID      int64   `json:"payload_id"`
 		PartNumber     string  `json:"part_number"`
 		Quantity       float64 `json:"quantity"`
 		ProductionDate string  `json:"production_date"`
@@ -189,7 +203,7 @@ func (h *Handlers) apiCreateManifestItem(w http.ResponseWriter, r *http.Request)
 	}
 
 	m := &store.ManifestItem{
-		InstanceID:     req.InstanceID,
+		PayloadID:      req.PayloadID,
 		PartNumber:     req.PartNumber,
 		Quantity:       req.Quantity,
 		ProductionDate: req.ProductionDate,
@@ -243,4 +257,135 @@ func (h *Handlers) apiDeleteManifestItem(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	h.jsonSuccess(w)
+}
+
+func (h *Handlers) apiPayloadAction(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID     int64  `json:"id"`
+		Action string `json:"action"`
+		Reason string `json:"reason"`
+	}
+	if !h.parseJSON(w, r, &req) {
+		return
+	}
+
+	p, err := h.engine.DB().GetPayload(req.ID)
+	if err != nil {
+		h.jsonError(w, "payload not found", http.StatusNotFound)
+		return
+	}
+
+	switch req.Action {
+	case "flag":
+		p.Status = "flagged"
+	case "maintenance":
+		p.Status = "maintenance"
+	case "retire":
+		p.Status = "retired"
+	case "activate":
+		p.Status = "available"
+	default:
+		h.jsonError(w, "unknown action: "+req.Action, http.StatusBadRequest)
+		return
+	}
+
+	p.Notes = req.Reason
+	if err := h.engine.DB().UpdatePayload(p); err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.jsonSuccess(w)
+}
+
+func (h *Handlers) apiBulkRegisterPayloads(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BlueprintID int64  `json:"blueprint_id"`
+		Count       int    `json:"count"`
+		Status      string `json:"status"`
+	}
+	if !h.parseJSON(w, r, &req) {
+		return
+	}
+
+	if req.Count <= 0 || req.Count > 100 {
+		h.jsonError(w, "count must be 1-100", http.StatusBadRequest)
+		return
+	}
+	if req.Status == "" {
+		req.Status = "empty"
+	}
+
+	var created []int64
+	for i := 0; i < req.Count; i++ {
+		p := &store.Payload{
+			BlueprintID: req.BlueprintID,
+			Status:      req.Status,
+		}
+		if err := h.engine.DB().CreatePayload(p); err != nil {
+			h.jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		created = append(created, p.ID)
+	}
+	h.jsonOK(w, map[string]any{"created": len(created), "ids": created})
+}
+
+func (h *Handlers) apiListPayloadEvents(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil {
+		h.jsonError(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	events, err := h.engine.DB().ListPayloadEvents(id, 50)
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.jsonOK(w, events)
+}
+
+func (h *Handlers) apiPayloadsByNode(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+	payloads, err := h.engine.DB().ListPayloadsByNode(id)
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.jsonOK(w, payloads)
+}
+
+func (h *Handlers) apiBulkRegisterBins(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BinTypeID int64  `json:"bin_type_id"`
+		Count     int    `json:"count"`
+		Prefix    string `json:"prefix"`
+		NodeID    *int64 `json:"node_id,omitempty"`
+	}
+	if !h.parseJSON(w, r, &req) {
+		return
+	}
+
+	if req.Count <= 0 || req.Count > 100 {
+		h.jsonError(w, "count must be 1-100", http.StatusBadRequest)
+		return
+	}
+
+	var created []int64
+	for i := 0; i < req.Count; i++ {
+		b := &store.Bin{
+			BinTypeID: req.BinTypeID,
+			Label:     fmt.Sprintf("%s%04d", req.Prefix, i+1),
+			Status:    "available",
+			NodeID:    req.NodeID,
+		}
+		if err := h.engine.DB().CreateBin(b); err != nil {
+			h.jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		created = append(created, b.ID)
+	}
+	h.jsonOK(w, map[string]any{"created": len(created), "ids": created})
 }

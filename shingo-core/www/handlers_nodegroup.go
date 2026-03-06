@@ -116,7 +116,7 @@ func (h *Handlers) apiReparentNode(w http.ResponseWriter, r *http.Request) {
 	// On adopt: clear direct station and style assignments (now inherited)
 	if req.ParentID != nil {
 		h.engine.DB().SetNodeStations(req.NodeID, nil)
-		h.engine.DB().SetNodePayloadStyles(req.NodeID, nil)
+		h.engine.DB().SetNodeBlueprints(req.NodeID, nil)
 	}
 
 	// Reindex siblings in new parent (only for lanes, not groups)

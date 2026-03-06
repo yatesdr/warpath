@@ -39,6 +39,10 @@ const (
 	SubjectTagVerifyRequest  = "tag.verify_request"
 	SubjectTagVerifyResponse = "tag.verify_response"
 
+	SubjectCatalogBlueprintsRequest  = "catalog.blueprints_request"
+	SubjectCatalogBlueprintsResponse = "catalog.blueprints_response"
+
+	// Backward-compatible aliases
 	SubjectCatalogStylesRequest  = "catalog.styles_request"
 	SubjectCatalogStylesResponse = "catalog.styles_response"
 )

@@ -24,7 +24,7 @@ type mockEmitter struct {
 
 type emitReceived struct {
 	orderID   int64
-	styleCode string
+	blueprintCode string
 }
 type emitDispatched struct {
 	orderID       int64
@@ -42,8 +42,8 @@ type emitCompleted struct {
 	orderID int64
 }
 
-func (m *mockEmitter) EmitOrderReceived(orderID int64, _, _, _, styleCode, _ string) {
-	m.received = append(m.received, emitReceived{orderID, styleCode})
+func (m *mockEmitter) EmitOrderReceived(orderID int64, _, _, _, blueprintCode, _ string) {
+	m.received = append(m.received, emitReceived{orderID, blueprintCode})
 }
 func (m *mockEmitter) EmitOrderDispatched(orderID int64, vendorOrderID, _, _ string) {
 	m.dispatched = append(m.dispatched, emitDispatched{orderID, vendorOrderID})
@@ -97,19 +97,19 @@ func testDB(t *testing.T) *store.DB {
 	return db
 }
 
-func setupTestData(t *testing.T, db *store.DB) (storageNode *store.Node, lineNode *store.Node, ps *store.PayloadStyle) {
+func setupTestData(t *testing.T, db *store.DB) (storageNode *store.Node, lineNode *store.Node, bp *store.Blueprint) {
 	t.Helper()
-	storageNode = &store.Node{Name: "STORAGE-A1", NodeType: "storage", Zone: "A", Capacity: 10, Enabled: true}
+	storageNode = &store.Node{Name: "STORAGE-A1", Zone: "A", Enabled: true}
 	if err := db.CreateNode(storageNode); err != nil {
 		t.Fatalf("create storage node: %v", err)
 	}
-	lineNode = &store.Node{Name: "LINE1-IN", NodeType: "line_side", Capacity: 5, Enabled: true}
+	lineNode = &store.Node{Name: "LINE1-IN", Enabled: true}
 	if err := db.CreateNode(lineNode); err != nil {
 		t.Fatalf("create line node: %v", err)
 	}
-	ps = &store.PayloadStyle{Name: "PART-A", Description: "Steel bracket tote", FormFactor: "tote", DefaultManifestJSON: "{}"}
-	if err := db.CreatePayloadStyle(ps); err != nil {
-		t.Fatalf("create payload style: %v", err)
+	bp = &store.Blueprint{Code: "PART-A", Description: "Steel bracket tote", DefaultManifestJSON: "{}"}
+	if err := db.CreateBlueprint(bp); err != nil {
+		t.Fatalf("create blueprint: %v", err)
 	}
 	return
 }
@@ -295,24 +295,28 @@ func TestHandleOrderCancel(t *testing.T) {
 	}
 }
 
-func TestHandleOrderCancel_UnclaimsInstances(t *testing.T) {
+func TestHandleOrderCancel_UnclaimsPayloads(t *testing.T) {
 	db := testDB(t)
-	storageNode, _, ps := setupTestData(t, db)
+	storageNode, _, bp := setupTestData(t, db)
 
 	order := &store.Order{EdgeUUID: "uuid-unclaim", StationID: "line-1", Status: StatusDispatched}
 	db.CreateOrder(order)
 
-	p := &store.PayloadInstance{StyleID: ps.ID, NodeID: &storageNode.ID, Status: "available"}
-	db.CreateInstance(p)
-	db.ClaimInstance(p.ID, order.ID)
+	// Create a bin at the storage node
+	bin := &store.Bin{BinTypeID: 1, Label: "BIN-UC-1", NodeID: &storageNode.ID, Status: "active"}
+	db.CreateBin(bin)
+
+	p := &store.Payload{BlueprintID: bp.ID, BinID: &bin.ID, Status: "available"}
+	db.CreatePayload(p)
+	db.ClaimPayload(p.ID, order.ID)
 
 	d, _ := newTestDispatcher(t, db, &mockBackend{})
 
 	env := testEnvelope()
 	d.HandleOrderCancel(env, &protocol.OrderCancel{OrderUUID: "uuid-unclaim", Reason: "test"})
 
-	// Verify instance unclaimed
-	got, _ := db.GetInstance(p.ID)
+	// Verify payload unclaimed
+	got, _ := db.GetPayload(p.ID)
 	if got.ClaimedBy != nil {
 		t.Errorf("ClaimedBy = %v, want nil", got.ClaimedBy)
 	}
@@ -340,28 +344,34 @@ func TestHandleOrderReceipt(t *testing.T) {
 	}
 }
 
-func TestFIFOInstanceSourceSelection(t *testing.T) {
+func TestFIFOPayloadSourceSelection(t *testing.T) {
 	db := testDB(t)
-	storageNode, _, ps := setupTestData(t, db)
+	storageNode, _, bp := setupTestData(t, db)
 
 	// Create another storage node
-	s2 := &store.Node{Name: "STORAGE-B1", NodeType: "storage", Capacity: 10, Enabled: true}
+	s2 := &store.Node{Name: "STORAGE-B1", Enabled: true}
 	db.CreateNode(s2)
 
-	// Older available instance at storageNode
-	p1 := &store.PayloadInstance{StyleID: ps.ID, NodeID: &storageNode.ID, Status: "available"}
-	db.CreateInstance(p1)
-	// Newer available instance at s2
-	p2 := &store.PayloadInstance{StyleID: ps.ID, NodeID: &s2.ID, Status: "available"}
-	db.CreateInstance(p2)
+	// Create bins at each storage node
+	bin1 := &store.Bin{BinTypeID: 1, Label: "BIN-FIFO-1", NodeID: &storageNode.ID, Status: "active"}
+	db.CreateBin(bin1)
+	bin2 := &store.Bin{BinTypeID: 1, Label: "BIN-FIFO-2", NodeID: &s2.ID, Status: "active"}
+	db.CreateBin(bin2)
+
+	// Older available payload at storageNode
+	p1 := &store.Payload{BlueprintID: bp.ID, BinID: &bin1.ID, Status: "available"}
+	db.CreatePayload(p1)
+	// Newer available payload at s2
+	p2 := &store.Payload{BlueprintID: bp.ID, BinID: &bin2.ID, Status: "available"}
+	db.CreatePayload(p2)
 
 	// FIFO should select oldest (p1) first
-	source, err := db.FindSourceInstanceFIFO("PART-A")
+	source, err := db.FindSourcePayloadFIFO("PART-A")
 	if err != nil {
-		t.Fatalf("FindSourceInstanceFIFO: %v", err)
+		t.Fatalf("FindSourcePayloadFIFO: %v", err)
 	}
 	if source.ID != p1.ID {
-		t.Errorf("source instance = %d, want %d (FIFO order)", source.ID, p1.ID)
+		t.Errorf("source payload = %d, want %d (FIFO order)", source.ID, p1.ID)
 	}
 }
 

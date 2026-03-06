@@ -9,10 +9,8 @@ import (
 type Node struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
-	NodeType    string    `json:"node_type"`
 	IsSynthetic bool      `json:"is_synthetic"`
 	Zone        string    `json:"zone"`
-	Capacity    int       `json:"capacity"`
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -24,7 +22,7 @@ type Node struct {
 	ParentName   string `json:"parent_name,omitempty"`
 }
 
-const nodeSelectCols = `n.id, n.name, n.node_type, n.is_synthetic, n.zone, n.capacity, n.enabled, n.created_at, n.updated_at, n.node_type_id, n.parent_id, COALESCE(nt.code, ''), COALESCE(nt.name, ''), COALESCE(pn.name, '')`
+const nodeSelectCols = `n.id, n.name, n.is_synthetic, n.zone, n.enabled, n.created_at, n.updated_at, n.node_type_id, n.parent_id, COALESCE(nt.code, ''), COALESCE(nt.name, ''), COALESCE(pn.name, '')`
 
 const nodeFromClause = `FROM nodes n LEFT JOIN node_types nt ON nt.id = n.node_type_id LEFT JOIN nodes pn ON pn.id = n.parent_id`
 
@@ -33,7 +31,7 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	var enabled, isSynthetic int
 	var createdAt, updatedAt any
 	var nodeTypeID, parentID sql.NullInt64
-	err := row.Scan(&n.ID, &n.Name, &n.NodeType, &isSynthetic, &n.Zone, &n.Capacity, &enabled, &createdAt, &updatedAt,
+	err := row.Scan(&n.ID, &n.Name, &isSynthetic, &n.Zone, &enabled, &createdAt, &updatedAt,
 		&nodeTypeID, &parentID, &n.NodeTypeCode, &n.NodeTypeName, &n.ParentName)
 	if err != nil {
 		return nil, err
@@ -64,8 +62,8 @@ func scanNodes(rows *sql.Rows) ([]*Node, error) {
 }
 
 func (db *DB) CreateNode(n *Node) error {
-	result, err := db.Exec(db.Q(`INSERT INTO nodes (name, node_type, is_synthetic, zone, capacity, enabled, node_type_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
-		n.Name, n.NodeType, boolToInt(n.IsSynthetic), n.Zone, n.Capacity, boolToInt(n.Enabled), nullableInt64(n.NodeTypeID), nullableInt64(n.ParentID))
+	result, err := db.Exec(db.Q(`INSERT INTO nodes (name, is_synthetic, zone, enabled, node_type_id, parent_id) VALUES (?, ?, ?, ?, ?, ?)`),
+		n.Name, boolToInt(n.IsSynthetic), n.Zone, boolToInt(n.Enabled), nullableInt64(n.NodeTypeID), nullableInt64(n.ParentID))
 	if err != nil {
 		return fmt.Errorf("create node: %w", err)
 	}
@@ -78,8 +76,8 @@ func (db *DB) CreateNode(n *Node) error {
 }
 
 func (db *DB) UpdateNode(n *Node) error {
-	_, err := db.Exec(db.Q(`UPDATE nodes SET name=?, node_type=?, is_synthetic=?, zone=?, capacity=?, enabled=?, node_type_id=?, parent_id=?, updated_at=datetime('now','localtime') WHERE id=?`),
-		n.Name, n.NodeType, boolToInt(n.IsSynthetic), n.Zone, n.Capacity, boolToInt(n.Enabled), nullableInt64(n.NodeTypeID), nullableInt64(n.ParentID), n.ID)
+	_, err := db.Exec(db.Q(`UPDATE nodes SET name=?, is_synthetic=?, zone=?, enabled=?, node_type_id=?, parent_id=?, updated_at=datetime('now','localtime') WHERE id=?`),
+		n.Name, boolToInt(n.IsSynthetic), n.Zone, boolToInt(n.Enabled), nullableInt64(n.NodeTypeID), nullableInt64(n.ParentID), n.ID)
 	if err != nil {
 		return fmt.Errorf("update node: %w", err)
 	}
@@ -110,26 +108,8 @@ func (db *DB) ListNodes() ([]*Node, error) {
 	return scanNodes(rows)
 }
 
-func (db *DB) ListNodesByType(nodeType string) ([]*Node, error) {
-	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s %s WHERE n.node_type=? ORDER BY n.name`, nodeSelectCols, nodeFromClause)), nodeType)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanNodes(rows)
-}
-
 func (db *DB) ListNodesByTypeID(nodeTypeID int64) ([]*Node, error) {
 	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s %s WHERE n.node_type_id=? ORDER BY n.name`, nodeSelectCols, nodeFromClause)), nodeTypeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanNodes(rows)
-}
-
-func (db *DB) ListEnabledStorageNodes() ([]*Node, error) {
-	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s %s WHERE n.node_type='storage' AND n.enabled=1 AND n.is_synthetic=0 ORDER BY n.name`, nodeSelectCols, nodeFromClause)))
 	if err != nil {
 		return nil, err
 	}

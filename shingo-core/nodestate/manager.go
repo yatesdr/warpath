@@ -20,20 +20,23 @@ func NewManager(db *store.DB) *Manager {
 	return &Manager{db: db}
 }
 
-// MoveInstance moves a payload instance between nodes in SQL and unclaims it.
-func (m *Manager) MoveInstance(instanceID, toNodeID int64) error {
-	if err := m.db.MoveInstance(instanceID, toNodeID); err != nil {
+// MoveBin moves a bin between nodes in SQL and unclaims the payload on it.
+func (m *Manager) MoveBin(binID, toNodeID int64) error {
+	if err := m.db.MoveBin(binID, toNodeID); err != nil {
 		return err
 	}
-	if err := m.db.UnclaimInstance(instanceID); err != nil {
-		m.dbg("MoveInstance: unclaim instance %d error (silently dropped): %v", instanceID, err)
+	// Unclaim any payload on this bin
+	payloads, err := m.db.ListPayloadsByBin(binID)
+	if err == nil {
+		for _, p := range payloads {
+			if p.ClaimedBy != nil {
+				if err := m.db.UnclaimPayload(p.ID); err != nil {
+					m.dbg("MoveBin: unclaim payload %d error (silently dropped): %v", p.ID, err)
+				}
+			}
+		}
 	}
 	return nil
-}
-
-// GetNodeState reads node state from SQL.
-func (m *Manager) GetNodeState(nodeID int64) (*NodeState, error) {
-	return m.getNodeStateFromSQL(nodeID)
 }
 
 // GetAllNodeStates reads all node states from SQL.
@@ -58,31 +61,30 @@ func (m *Manager) getNodeStateFromSQL(nodeID int64) (*NodeState, error) {
 	if err != nil {
 		return nil, err
 	}
-	instances, err := m.db.ListInstancesByNode(nodeID)
+	payloads, err := m.db.ListPayloadsByNode(nodeID)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]PayloadItem, len(instances))
-	for i, p := range instances {
+	items := make([]PayloadItem, len(payloads))
+	for i, p := range payloads {
 		items[i] = PayloadItem{
-			ID:          p.ID,
-			StyleID:     p.StyleID,
-			StyleName:   p.StyleName,
-			FormFactor:  p.FormFactor,
-			Status:      p.Status,
-			DeliveredAt: p.DeliveredAt,
-			Notes:       p.Notes,
-			ClaimedBy:   p.ClaimedBy,
+			ID:            p.ID,
+			BlueprintID:   p.BlueprintID,
+			BlueprintCode: p.BlueprintCode,
+			BinID:         p.BinID,
+			BinLabel:      p.BinLabel,
+			Status:        p.Status,
+			DeliveredAt:   p.DeliveredAt,
+			Notes:         p.Notes,
+			ClaimedBy:     p.ClaimedBy,
 		}
 	}
 
 	return &NodeState{
 		NodeID:    node.ID,
 		NodeName:  node.Name,
-		NodeType:  node.NodeType,
 		Zone:      node.Zone,
-		Capacity:  node.Capacity,
 		Enabled:   node.Enabled,
 		Items:     items,
 		ItemCount: len(items),
