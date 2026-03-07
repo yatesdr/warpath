@@ -203,7 +203,7 @@ func TestClient_EnvelopeEncoding(t *testing.T) {
 		&protocol.OrderRequest{
 			OrderUUID:       "test-uuid-123",
 			OrderType:       "retrieve",
-			PayloadTypeCode: "BIN-A",
+			PayloadCode: "BIN-A",
 			DeliveryNode:    "line-1-station",
 			Quantity:        1.0,
 		},

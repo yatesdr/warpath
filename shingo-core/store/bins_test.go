@@ -69,15 +69,15 @@ func TestUnclaimOrderBins(t *testing.T) {
 func TestFindEmptyCompatibleBin(t *testing.T) {
 	db := testDB(t)
 
-	// Setup: bin type, blueprint, bin type assignment
+	// Setup: bin type, payload, bin type assignment
 	bt := &BinType{Code: "TOTE-FEC", Description: "Compatible tote"}
 	db.CreateBinType(bt)
 
-	bp := &Blueprint{Code: "WIDGET-FEC", UOPCapacity: 50}
-	db.CreateBlueprint(bp)
+	bp := &Payload{Code: "WIDGET-FEC", UOPCapacity: 50}
+	db.CreatePayload(bp)
 
-	// Link blueprint to bin type
-	db.SetBlueprintBinTypes(bp.ID, []int64{bt.ID})
+	// Link payload to bin type
+	db.SetPayloadBinTypes(bp.ID, []int64{bt.ID})
 
 	// Create nodes in two zones
 	nodeA := &Node{Name: "STORE-A1", Enabled: true, Zone: "zone-a"}
@@ -129,10 +129,10 @@ func TestFindEmptyCompatibleBin(t *testing.T) {
 		t.Errorf("after claim: got bin %d, want bin %d (fallback)", found4.ID, binB.ID)
 	}
 
-	// Bins with payloads should be excluded
+	// Bins with manifests should be excluded
 	db.UnclaimBin(binA.ID)
-	payload := &Payload{BlueprintID: bp.ID, BinID: &binA.ID, ManifestConfirmed: true}
-	db.CreatePayload(payload)
+	db.SetBinManifest(binA.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(binA.ID)
 
 	found5, err := db.FindEmptyCompatibleBin("WIDGET-FEC", "zone-a")
 	if err != nil {
@@ -142,9 +142,9 @@ func TestFindEmptyCompatibleBin(t *testing.T) {
 		t.Errorf("after payload on binA: got bin %d, want bin %d", found5.ID, binB.ID)
 	}
 
-	// Incompatible blueprint should find nothing
+	// Incompatible payload should find nothing
 	_, err = db.FindEmptyCompatibleBin("NONEXISTENT", "zone-a")
 	if err == nil {
-		t.Error("expected error for nonexistent blueprint, got nil")
+		t.Error("expected error for nonexistent payload, got nil")
 	}
 }

@@ -58,8 +58,8 @@ func (h *Handlers) apiConfirmDelivery(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) apiCreateRetrieveOrder(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		PayloadID     int64  `json:"payload_id"`
-		BlueprintCode string `json:"blueprint_code"`
+		PayloadID   int64  `json:"payload_id"`
+		PayloadCode   string `json:"payload_code"`
 		RetrieveEmpty bool   `json:"retrieve_empty"`
 		Quantity      int64  `json:"quantity"`
 		DeliveryNode  string `json:"delivery_node"`
@@ -71,7 +71,6 @@ func (h *Handlers) apiCreateRetrieveOrder(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
 	var payloadID *int64
 	if req.PayloadID > 0 {
 		payloadID = &req.PayloadID
@@ -82,8 +81,8 @@ func (h *Handlers) apiCreateRetrieveOrder(w http.ResponseWriter, r *http.Request
 			if req.StagingNode == "" {
 				req.StagingNode = p.StagingNode
 			}
-			if req.BlueprintCode == "" {
-				req.BlueprintCode = p.BlueprintCode
+			if req.PayloadCode == "" {
+				req.PayloadCode = p.PayloadCode
 			}
 			req.RetrieveEmpty = p.RetrieveEmpty
 		}
@@ -99,17 +98,17 @@ func (h *Handlers) apiCreateRetrieveOrder(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, "count exceeds maximum of 5")
 			return
 		}
-		if req.BlueprintCode == "" || req.DeliveryNode == "" {
-			writeError(w, http.StatusBadRequest, "blueprint_code and delivery_node required for batch")
+		if req.PayloadCode == "" || req.DeliveryNode == "" {
+			writeError(w, http.StatusBadRequest, "payload_code and delivery_node required for batch")
 			return
 		}
-		h.createRetrieveBatch(w, req.BlueprintCode, req.DeliveryNode, count)
+		h.createRetrieveBatch(w, req.PayloadCode, req.DeliveryNode, count)
 		return
 	}
 
 	order, err := h.engine.OrderManager().CreateRetrieveOrder(
 		payloadID, req.RetrieveEmpty,
-		req.Quantity, req.DeliveryNode, req.StagingNode, req.LoadType, req.BlueprintCode,
+		req.Quantity, req.DeliveryNode, req.StagingNode, req.LoadType, req.PayloadCode,
 		h.engine.AppConfig().Web.AutoConfirm,
 	)
 	if err != nil {
@@ -119,7 +118,7 @@ func (h *Handlers) apiCreateRetrieveOrder(w http.ResponseWriter, r *http.Request
 	writeJSON(w, order)
 }
 
-func (h *Handlers) createRetrieveBatch(w http.ResponseWriter, blueprintCode, deliveryNode string, count int) {
+func (h *Handlers) createRetrieveBatch(w http.ResponseWriter, payloadCode, deliveryNode string, count int) {
 	type result struct {
 		OrderID int64  `json:"order_id,omitempty"`
 		UUID    string `json:"uuid,omitempty"`
@@ -129,7 +128,7 @@ func (h *Handlers) createRetrieveBatch(w http.ResponseWriter, blueprintCode, del
 	created := 0
 	for i := 0; i < count; i++ {
 		order, err := h.engine.OrderManager().CreateRetrieveOrder(
-			nil, true, 1, deliveryNode, "", "standard", blueprintCode,
+			nil, true, 1, deliveryNode, "", "standard", payloadCode,
 			h.engine.AppConfig().Web.AutoConfirm,
 		)
 		if err != nil {
@@ -254,9 +253,9 @@ func (h *Handlers) apiCreateComplexOrder(w http.ResponseWriter, r *http.Request)
 
 func (h *Handlers) apiCreateIngestOrder(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		PayloadID     int64                        `json:"payload_id"`
-		BlueprintCode string                       `json:"blueprint_code"`
-		BinLabel      string                       `json:"bin_label"`
+		PayloadID   int64                        `json:"payload_id"`
+		PayloadCode string                       `json:"payload_code"`
+		BinLabel    string                       `json:"bin_label"`
 		PickupNode    string                       `json:"pickup_node"`
 		Quantity      int64                        `json:"quantity"`
 		Manifest      []protocol.IngestManifestItem `json:"manifest"`
@@ -265,8 +264,8 @@ func (h *Handlers) apiCreateIngestOrder(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.BlueprintCode == "" {
-		writeError(w, http.StatusBadRequest, "blueprint_code is required")
+	if req.PayloadCode == "" {
+		writeError(w, http.StatusBadRequest, "payload_code is required")
 		return
 	}
 	if req.BinLabel == "" {
@@ -281,14 +280,14 @@ func (h *Handlers) apiCreateIngestOrder(w http.ResponseWriter, r *http.Request) 
 			if req.PickupNode == "" {
 				req.PickupNode = p.Location
 			}
-			if req.BlueprintCode == "" {
-				req.BlueprintCode = p.BlueprintCode
+			if req.PayloadCode == "" {
+				req.PayloadCode = p.PayloadCode
 			}
 		}
 	}
 
 	order, err := h.engine.OrderManager().CreateIngestOrder(
-		payloadID, req.BlueprintCode, req.BinLabel, req.PickupNode,
+		payloadID, req.PayloadCode, req.BinLabel, req.PickupNode,
 		req.Quantity, req.Manifest,
 		h.engine.AppConfig().Web.AutoConfirm,
 	)
@@ -996,7 +995,7 @@ func (h *Handlers) apiCreatePayload(w http.ResponseWriter, r *http.Request) {
 		Location        string  `json:"location"`
 		StagingNode     string  `json:"staging_node"`
 		Description     string  `json:"description"`
-		BlueprintCode   string  `json:"blueprint_code"`
+		PayloadCode     string  `json:"payload_code"`
 		Manifest        string  `json:"manifest"`
 		Multiplier      float64 `json:"multiplier"`
 		ProductionUnits int     `json:"production_units"`
@@ -1021,7 +1020,7 @@ func (h *Handlers) apiCreatePayload(w http.ResponseWriter, r *http.Request) {
 	if req.ReorderQty <= 0 {
 		req.ReorderQty = 1
 	}
-	id, err := h.engine.DB().CreatePayload(req.JobStyleID, req.Location, req.StagingNode, req.Description, req.Manifest, req.Multiplier, req.ProductionUnits, req.Remaining, req.ReorderPoint, req.ReorderQty, req.RetrieveEmpty, req.BlueprintCode, req.Role, req.AutoRemoveEmpties, req.AutoOrderEmpties)
+	id, err := h.engine.DB().CreatePayload(req.JobStyleID, req.Location, req.StagingNode, req.Description, req.Manifest, req.Multiplier, req.ProductionUnits, req.Remaining, req.ReorderPoint, req.ReorderQty, req.RetrieveEmpty, req.PayloadCode, req.Role, req.AutoRemoveEmpties, req.AutoOrderEmpties)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1039,7 +1038,7 @@ func (h *Handlers) apiUpdatePayload(w http.ResponseWriter, r *http.Request) {
 		Location        string  `json:"location"`
 		StagingNode     string  `json:"staging_node"`
 		Description     string  `json:"description"`
-		BlueprintCode   string  `json:"blueprint_code"`
+		PayloadCode     string  `json:"payload_code"`
 		Manifest        string  `json:"manifest"`
 		Multiplier      float64 `json:"multiplier"`
 		ProductionUnits int     `json:"production_units"`
@@ -1055,7 +1054,7 @@ func (h *Handlers) apiUpdatePayload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.engine.DB().UpdatePayload(id, req.Location, req.StagingNode, req.Description, req.Manifest, req.Multiplier, req.ProductionUnits, req.Remaining, req.ReorderPoint, req.ReorderQty, req.RetrieveEmpty, req.BlueprintCode, req.Role, req.AutoRemoveEmpties, req.AutoOrderEmpties); err != nil {
+	if err := h.engine.DB().UpdatePayload(id, req.Location, req.StagingNode, req.Description, req.Manifest, req.Multiplier, req.ProductionUnits, req.Remaining, req.ReorderPoint, req.ReorderQty, req.RetrieveEmpty, req.PayloadCode, req.Role, req.AutoRemoveEmpties, req.AutoOrderEmpties); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1255,8 +1254,8 @@ func (h *Handlers) apiSyncCoreNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
-func (h *Handlers) apiListBlueprintCatalog(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.engine.DB().ListBlueprintCatalog()
+func (h *Handlers) apiListPayloadCatalog(w http.ResponseWriter, r *http.Request) {
+	entries, err := h.engine.DB().ListPayloadCatalog()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1264,7 +1263,7 @@ func (h *Handlers) apiListBlueprintCatalog(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, entries)
 }
 
-func (h *Handlers) apiSyncBlueprintCatalog(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) apiSyncPayloadCatalog(w http.ResponseWriter, r *http.Request) {
 	h.engine.RequestCatalogSync()
 	writeJSON(w, map[string]string{"status": "ok"})
 }

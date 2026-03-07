@@ -8,32 +8,32 @@ import (
 	"shingocore/store"
 )
 
-// ErrBuried indicates the target payload exists but is blocked by shallower payloads.
-var ErrBuried = errors.New("payload is buried")
+// ErrBuried indicates the target bin exists but is blocked by shallower bins.
+var ErrBuried = errors.New("bin is buried")
 
-// BuriedError provides detail about a buried payload for reshuffle planning.
+// BuriedError provides detail about a buried bin for reshuffle planning.
 type BuriedError struct {
-	Payload *store.Payload
-	Slot    *store.Node
-	LaneID  int64
+	Bin    *store.Bin
+	Slot   *store.Node
+	LaneID int64
 }
 
 func (e *BuriedError) Error() string {
-	return fmt.Sprintf("payload %d is buried at slot %s in lane %d", e.Payload.ID, e.Slot.Name, e.LaneID)
+	return fmt.Sprintf("bin %d is buried at slot %s in lane %d", e.Bin.ID, e.Slot.Name, e.LaneID)
 }
 
 func (e *BuriedError) Unwrap() error { return ErrBuried }
 
 // Retrieval algorithm codes.
 const (
-	RetrieveFIFO = "FIFO" // oldest loaded/created timestamp, buried-payload reshuffle
-	RetrieveFAVL = "FAVL" // first available unclaimed payload, no reshuffle
+	RetrieveFIFO = "FIFO" // oldest loaded/created timestamp, buried-bin reshuffle
+	RetrieveFAVL = "FAVL" // first available unclaimed bin, no reshuffle
 )
 
 // Storage algorithm codes.
 const (
-	StoreLKND = "LKND" // Like Kind: consolidate matching blueprints, then emptiest
-	StoreDPTH = "DPTH" // Depth First: pack back-to-front regardless of blueprint
+	StoreLKND = "LKND" // Like Kind: consolidate matching payload codes, then emptiest
+	StoreDPTH = "DPTH" // Depth First: pack back-to-front regardless of payload
 )
 
 // GroupResolver handles NGRP → LANE → Slot and NGRP → direct child resolution.
@@ -51,33 +51,25 @@ func (r *GroupResolver) getGroupAlgorithm(groupID int64, key, defaultVal string)
 	return v
 }
 
-// ResolveRetrieve finds the best accessible payload across all lanes and direct children.
-func (r *GroupResolver) ResolveRetrieve(group *store.Node, blueprintID *int64) (*ResolveResult, error) {
+// ResolveRetrieve finds the best accessible bin across all lanes and direct children.
+func (r *GroupResolver) ResolveRetrieve(group *store.Node, payloadCode string) (*ResolveResult, error) {
 	algo := r.getGroupAlgorithm(group.ID, "retrieve_algorithm", RetrieveFIFO)
 	switch algo {
 	case RetrieveFAVL:
-		return r.resolveRetrieveFAVL(group, blueprintID)
+		return r.resolveRetrieveFAVL(group, payloadCode)
 	default:
-		return r.resolveRetrieveFIFO(group, blueprintID)
+		return r.resolveRetrieveFIFO(group, payloadCode)
 	}
 }
 
-// resolveRetrieveFIFO picks the oldest accessible payload by timestamp, with buried-payload reshuffle.
-func (r *GroupResolver) resolveRetrieveFIFO(group *store.Node, blueprintID *int64) (*ResolveResult, error) {
+// resolveRetrieveFIFO picks the oldest accessible bin by timestamp, with buried-bin reshuffle.
+func (r *GroupResolver) resolveRetrieveFIFO(group *store.Node, payloadCode string) (*ResolveResult, error) {
 	children, err := r.DB.ListChildNodes(group.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list children of %s: %w", group.Name, err)
 	}
 
-	var blueprintCode string
-	if blueprintID != nil {
-		bp, err := r.DB.GetBlueprint(*blueprintID)
-		if err == nil {
-			blueprintCode = bp.Code
-		}
-	}
-
-	var bestPayload *store.Payload
+	var bestBin *store.Bin
 	var bestNode *store.Node
 	var bestTime time.Time
 
@@ -91,78 +83,70 @@ func (r *GroupResolver) resolveRetrieveFIFO(group *store.Node, blueprintID *int6
 				continue
 			}
 
-			p, err := r.DB.FindSourcePayloadInLane(child.ID, blueprintCode)
+			b, err := r.DB.FindSourceBinInLane(child.ID, payloadCode)
 			if err != nil {
 				continue
 			}
 
-			pTime := p.CreatedAt
-			if p.LoadedAt != nil {
-				pTime = *p.LoadedAt
+			bTime := b.CreatedAt
+			if b.LoadedAt != nil {
+				bTime = *b.LoadedAt
 			}
 
-			if bestPayload == nil || pTime.Before(bestTime) {
-				bestPayload = p
-				bestTime = pTime
-				slot, _ := r.DB.GetNode(*p.NodeID)
+			if bestBin == nil || bTime.Before(bestTime) {
+				bestBin = b
+				bestTime = bTime
+				slot, _ := r.DB.GetNode(*b.NodeID)
 				bestNode = slot
 			}
 		} else if !child.IsSynthetic {
-			payloads, err := r.DB.ListPayloadsByNode(child.ID)
+			bins, err := r.DB.ListBinsByNode(child.ID)
 			if err != nil {
 				continue
 			}
-			for _, p := range payloads {
-				if p.ClaimedBy != nil || !p.ManifestConfirmed || p.BinStatus != "available" {
+			for _, b := range bins {
+				if b.ClaimedBy != nil || !b.ManifestConfirmed || b.Status != "available" {
 					continue
 				}
-				if blueprintID != nil && p.BlueprintID != *blueprintID {
+				if payloadCode != "" && b.PayloadCode != payloadCode {
 					continue
 				}
-				pTime := p.CreatedAt
-				if p.LoadedAt != nil {
-					pTime = *p.LoadedAt
+				bTime := b.CreatedAt
+				if b.LoadedAt != nil {
+					bTime = *b.LoadedAt
 				}
-				if bestPayload == nil || pTime.Before(bestTime) {
-					bestPayload = p
-					bestTime = pTime
+				if bestBin == nil || bTime.Before(bestTime) {
+					bestBin = b
+					bestTime = bTime
 					bestNode = child
 				}
 			}
 		}
 	}
 
-	if bestPayload != nil {
-		return &ResolveResult{Node: bestNode, Payload: bestPayload}, nil
+	if bestBin != nil {
+		return &ResolveResult{Node: bestNode, Bin: bestBin}, nil
 	}
 
-	// No accessible payload found — check if any are buried in lanes
+	// No accessible bin found — check if any are buried in lanes
 	for _, child := range children {
 		if !child.Enabled || child.NodeTypeCode != "LANE" {
 			continue
 		}
-		buried, slot, err := r.DB.FindBuriedPayload(child.ID, blueprintCode)
+		buried, slot, err := r.DB.FindBuriedBin(child.ID, payloadCode)
 		if err == nil && buried != nil {
-			return nil, &BuriedError{Payload: buried, Slot: slot, LaneID: child.ID}
+			return nil, &BuriedError{Bin: buried, Slot: slot, LaneID: child.ID}
 		}
 	}
 
-	return nil, fmt.Errorf("no payload of requested blueprint in node group %s", group.Name)
+	return nil, fmt.Errorf("no bin of requested payload in node group %s", group.Name)
 }
 
-// resolveRetrieveFAVL returns the first available unclaimed payload — no timestamp comparison, no reshuffle.
-func (r *GroupResolver) resolveRetrieveFAVL(group *store.Node, blueprintID *int64) (*ResolveResult, error) {
+// resolveRetrieveFAVL returns the first available unclaimed bin — no timestamp comparison, no reshuffle.
+func (r *GroupResolver) resolveRetrieveFAVL(group *store.Node, payloadCode string) (*ResolveResult, error) {
 	children, err := r.DB.ListChildNodes(group.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list children of %s: %w", group.Name, err)
-	}
-
-	var blueprintCode string
-	if blueprintID != nil {
-		bp, err := r.DB.GetBlueprint(*blueprintID)
-		if err == nil {
-			blueprintCode = bp.Code
-		}
 	}
 
 	for _, child := range children {
@@ -175,45 +159,45 @@ func (r *GroupResolver) resolveRetrieveFAVL(group *store.Node, blueprintID *int6
 				continue
 			}
 
-			p, err := r.DB.FindSourcePayloadInLane(child.ID, blueprintCode)
+			b, err := r.DB.FindSourceBinInLane(child.ID, payloadCode)
 			if err != nil {
 				continue
 			}
-			slot, _ := r.DB.GetNode(*p.NodeID)
-			return &ResolveResult{Node: slot, Payload: p}, nil
+			slot, _ := r.DB.GetNode(*b.NodeID)
+			return &ResolveResult{Node: slot, Bin: b}, nil
 		} else if !child.IsSynthetic {
-			payloads, err := r.DB.ListPayloadsByNode(child.ID)
+			bins, err := r.DB.ListBinsByNode(child.ID)
 			if err != nil {
 				continue
 			}
-			for _, p := range payloads {
-				if p.ClaimedBy != nil || !p.ManifestConfirmed || p.BinStatus != "available" {
+			for _, b := range bins {
+				if b.ClaimedBy != nil || !b.ManifestConfirmed || b.Status != "available" {
 					continue
 				}
-				if blueprintID != nil && p.BlueprintID != *blueprintID {
+				if payloadCode != "" && b.PayloadCode != payloadCode {
 					continue
 				}
-				return &ResolveResult{Node: child, Payload: p}, nil
+				return &ResolveResult{Node: child, Bin: b}, nil
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("no payload of requested blueprint in node group %s", group.Name)
+	return nil, fmt.Errorf("no bin of requested payload in node group %s", group.Name)
 }
 
-// ResolveStore finds the best slot for storing a payload in a node group.
-func (r *GroupResolver) ResolveStore(group *store.Node, blueprintID *int64, binTypeID *int64) (*ResolveResult, error) {
+// ResolveStore finds the best slot for storing a bin in a node group.
+func (r *GroupResolver) ResolveStore(group *store.Node, payloadCode string, binTypeID *int64) (*ResolveResult, error) {
 	algo := r.getGroupAlgorithm(group.ID, "store_algorithm", StoreLKND)
 	switch algo {
 	case StoreDPTH:
-		return r.resolveStoreDPTH(group, blueprintID, binTypeID)
+		return r.resolveStoreDPTH(group, payloadCode, binTypeID)
 	default:
-		return r.resolveStoreLKND(group, blueprintID, binTypeID)
+		return r.resolveStoreLKND(group, payloadCode, binTypeID)
 	}
 }
 
-// resolveStoreLKND consolidates matching blueprints first, then picks the emptiest slot.
-func (r *GroupResolver) resolveStoreLKND(group *store.Node, blueprintID *int64, binTypeID *int64) (*ResolveResult, error) {
+// resolveStoreLKND consolidates matching payload codes first, then picks the emptiest slot.
+func (r *GroupResolver) resolveStoreLKND(group *store.Node, payloadCode string, binTypeID *int64) (*ResolveResult, error) {
 	children, err := r.DB.ListChildNodes(group.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list children of %s: %w", group.Name, err)
@@ -237,13 +221,13 @@ func (r *GroupResolver) resolveStoreLKND(group *store.Node, blueprintID *int64, 
 				continue
 			}
 
-			// Skip lanes with blueprint restrictions that don't match
-			if blueprintID != nil {
-				laneBlueprints, _ := r.DB.GetEffectiveBlueprints(child.ID)
-				if len(laneBlueprints) > 0 {
+			// Skip lanes with payload restrictions that don't match
+			if payloadCode != "" {
+				lanePayloads, _ := r.DB.GetEffectivePayloads(child.ID)
+				if len(lanePayloads) > 0 {
 					match := false
-					for _, lb := range laneBlueprints {
-						if lb.ID == *blueprintID {
+					for _, lp := range lanePayloads {
+						if lp.Code == payloadCode {
 							match = true
 							break
 						}
@@ -261,7 +245,7 @@ func (r *GroupResolver) resolveStoreLKND(group *store.Node, blueprintID *int64, 
 				}
 			}
 
-			slot, err := r.DB.FindStoreSlotInLane(child.ID, 0)
+			slot, err := r.DB.FindStoreSlotInLane(child.ID)
 			if err != nil {
 				continue // lane is full
 			}
@@ -270,11 +254,11 @@ func (r *GroupResolver) resolveStoreLKND(group *store.Node, blueprintID *int64, 
 			slots, _ := r.DB.ListLaneSlots(child.ID)
 
 			hasMatch := false
-			if blueprintID != nil {
+			if payloadCode != "" {
 				for _, s := range slots {
-					payloads, _ := r.DB.ListPayloadsByNode(s.ID)
-					for _, p := range payloads {
-						if p.BlueprintID == *blueprintID {
+					bins, _ := r.DB.ListBinsByNode(s.ID)
+					for _, b := range bins {
+						if b.PayloadCode == payloadCode {
 							hasMatch = true
 							break
 						}
@@ -304,10 +288,10 @@ func (r *GroupResolver) resolveStoreLKND(group *store.Node, blueprintID *int64, 
 			}
 
 			hasMatch := false
-			if blueprintID != nil {
-				payloads, _ := r.DB.ListPayloadsByNode(child.ID)
-				for _, p := range payloads {
-					if p.BlueprintID == *blueprintID {
+			if payloadCode != "" {
+				bins, _ := r.DB.ListBinsByNode(child.ID)
+				for _, b := range bins {
+					if b.PayloadCode == payloadCode {
 						hasMatch = true
 						break
 					}
@@ -335,8 +319,8 @@ func (r *GroupResolver) resolveStoreLKND(group *store.Node, blueprintID *int64, 
 	return &ResolveResult{Node: best.node}, nil
 }
 
-// resolveStoreDPTH packs back-to-front regardless of blueprint. Prefers lanes over direct children.
-func (r *GroupResolver) resolveStoreDPTH(group *store.Node, blueprintID *int64, binTypeID *int64) (*ResolveResult, error) {
+// resolveStoreDPTH packs back-to-front regardless of payload. Prefers lanes over direct children.
+func (r *GroupResolver) resolveStoreDPTH(group *store.Node, payloadCode string, binTypeID *int64) (*ResolveResult, error) {
 	children, err := r.DB.ListChildNodes(group.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list children of %s: %w", group.Name, err)
@@ -351,13 +335,13 @@ func (r *GroupResolver) resolveStoreDPTH(group *store.Node, blueprintID *int64, 
 			continue
 		}
 
-		// Skip lanes with blueprint restrictions that don't match
-		if blueprintID != nil {
-			laneBlueprints, _ := r.DB.GetEffectiveBlueprints(child.ID)
-			if len(laneBlueprints) > 0 {
+		// Skip lanes with payload restrictions that don't match
+		if payloadCode != "" {
+			lanePayloads, _ := r.DB.GetEffectivePayloads(child.ID)
+			if len(lanePayloads) > 0 {
 				match := false
-				for _, lb := range laneBlueprints {
-					if lb.ID == *blueprintID {
+				for _, lp := range lanePayloads {
+					if lp.Code == payloadCode {
 						match = true
 						break
 					}
@@ -375,7 +359,7 @@ func (r *GroupResolver) resolveStoreDPTH(group *store.Node, blueprintID *int64, 
 			}
 		}
 
-		slot, err := r.DB.FindStoreSlotInLane(child.ID, 0)
+		slot, err := r.DB.FindStoreSlotInLane(child.ID)
 		if err != nil {
 			continue // lane is full
 		}

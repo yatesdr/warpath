@@ -22,19 +22,11 @@ func (d *Dispatcher) HandleComplexOrderRequest(env *protocol.Envelope, p *protoc
 		return
 	}
 
-	// Resolve blueprint
-	var blueprintID *int64
-	if p.BlueprintCode != "" {
-		bp, err := d.db.GetBlueprintByCode(p.BlueprintCode)
-		if err != nil {
-			d.sendError(env, p.OrderUUID, "blueprint_error", fmt.Sprintf("blueprint %q not found", p.BlueprintCode))
-			return
-		}
-		blueprintID = &bp.ID
-	}
+	// Resolve payload template
+	payloadCode := p.PayloadCode
 
 	// Resolve steps: validate nodes and resolve synthetic groups
-	resolvedSteps, err := d.resolveComplexSteps(p.Steps, blueprintID, env, p.OrderUUID)
+	resolvedSteps, err := d.resolveComplexSteps(p.Steps, payloadCode, env, p.OrderUUID)
 	if err != nil {
 		return // error already sent to edge
 	}
@@ -50,19 +42,16 @@ func (d *Dispatcher) HandleComplexOrderRequest(env *protocol.Envelope, p *protoc
 
 	// Create order record
 	order := &store.Order{
-		EdgeUUID:    p.OrderUUID,
-		StationID:   stationID,
-		OrderType:   OrderTypeComplex,
-		Status:      StatusPending,
-		Quantity:    p.Quantity,
-		Priority:    p.Priority,
-		PayloadDesc: p.PayloadDesc,
-		PickupNode:  pickupNode,
+		EdgeUUID:     p.OrderUUID,
+		StationID:    stationID,
+		OrderType:    OrderTypeComplex,
+		Status:       StatusPending,
+		Quantity:     p.Quantity,
+		Priority:     p.Priority,
+		PayloadDesc:  p.PayloadDesc,
+		PickupNode:   pickupNode,
 		DeliveryNode: deliveryNode,
-		StepsJSON:   string(stepsJSON),
-	}
-	if blueprintID != nil {
-		order.BlueprintID = blueprintID
+		StepsJSON:    string(stepsJSON),
 	}
 
 	if err := d.db.CreateOrder(order); err != nil {
@@ -71,7 +60,7 @@ func (d *Dispatcher) HandleComplexOrderRequest(env *protocol.Envelope, p *protoc
 		return
 	}
 	d.db.UpdateOrderStatus(order.ID, StatusPending, "complex order received")
-	d.emitter.EmitOrderReceived(order.ID, order.EdgeUUID, stationID, OrderTypeComplex, p.BlueprintCode, deliveryNode)
+	d.emitter.EmitOrderReceived(order.ID, order.EdgeUUID, stationID, OrderTypeComplex, payloadCode, deliveryNode)
 
 	// Split steps at the first "wait" action
 	preWait, hasWait := splitAtWait(resolvedSteps)
@@ -109,11 +98,6 @@ func (d *Dispatcher) HandleComplexOrderRequest(env *protocol.Envelope, p *protoc
 			Blocks:     blocks,
 			Priority:   order.Priority,
 		}
-		// Use CreateStagedOrder but the backend gets complete=false;
-		// we need a complete order. Use CreateTransportOrder pattern instead.
-		// Actually — for a multi-block order without wait, we still use SetOrder with complete=true.
-		// Let's just use the RDS client's CreateOrder directly via adapter.
-		// For simplicity, create as staged and then immediately release (empty release).
 		if _, err := d.backend.CreateStagedOrder(req); err != nil {
 			log.Printf("dispatch: fleet create order failed: %v", err)
 			d.failOrder(order, env, "fleet_failed", err.Error())
@@ -122,7 +106,6 @@ func (d *Dispatcher) HandleComplexOrderRequest(env *protocol.Envelope, p *protoc
 		// Mark complete immediately (no more blocks)
 		if err := d.backend.ReleaseOrder(vendorOrderID, nil); err != nil {
 			log.Printf("dispatch: fleet mark complete failed: %v", err)
-			// Order is created, don't fail it — it'll still work
 		}
 	}
 
@@ -184,12 +167,12 @@ type resolvedStep struct {
 }
 
 // resolveComplexSteps validates and resolves all steps, returning concrete node names.
-func (d *Dispatcher) resolveComplexSteps(steps []protocol.ComplexOrderStep, blueprintID *int64, env *protocol.Envelope, orderUUID string) ([]resolvedStep, error) {
+func (d *Dispatcher) resolveComplexSteps(steps []protocol.ComplexOrderStep, payloadCode string, env *protocol.Envelope, orderUUID string) ([]resolvedStep, error) {
 	var resolved []resolvedStep
 	for i, step := range steps {
 		switch step.Action {
 		case "pickup", "dropoff":
-			nodeName, err := d.resolveStepNode(step, blueprintID)
+			nodeName, err := d.resolveStepNode(step, payloadCode)
 			if err != nil {
 				d.sendError(env, orderUUID, "resolution_failed", fmt.Sprintf("step %d: %v", i, err))
 				return nil, err
@@ -207,7 +190,7 @@ func (d *Dispatcher) resolveComplexSteps(steps []protocol.ComplexOrderStep, blue
 }
 
 // resolveStepNode resolves a single step's node, handling both direct and synthetic nodes.
-func (d *Dispatcher) resolveStepNode(step protocol.ComplexOrderStep, blueprintID *int64) (string, error) {
+func (d *Dispatcher) resolveStepNode(step protocol.ComplexOrderStep, payloadCode string) (string, error) {
 	if step.Node != "" {
 		// Direct node: validate it exists
 		_, err := d.db.GetNodeByDotName(step.Node)
@@ -226,7 +209,7 @@ func (d *Dispatcher) resolveStepNode(step protocol.ComplexOrderStep, blueprintID
 		if step.Action == "dropoff" {
 			orderType = OrderTypeStore
 		}
-		result, err := d.resolver.Resolve(groupNode, orderType, blueprintID, nil)
+		result, err := d.resolver.Resolve(groupNode, orderType, payloadCode, nil)
 		if err != nil {
 			return "", fmt.Errorf("cannot resolve %s: %v", step.NodeGroup, err)
 		}

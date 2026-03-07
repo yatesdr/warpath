@@ -8,14 +8,13 @@ import (
 
 func (h *Handlers) apiCreateCorrection(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		CorrectionType string  `json:"correction_type"`
-		NodeID         int64   `json:"node_id"`
-		PayloadID     int64   `json:"payload_id"`
-		CatID          string  `json:"cat_id"`
-		Description    string  `json:"description"`
-		Quantity       int64   `json:"quantity"`
-		Reason         string  `json:"reason"`
-		ManifestItemID int64   `json:"manifest_item_id"`
+		CorrectionType string `json:"correction_type"`
+		NodeID         int64  `json:"node_id"`
+		BinID          int64  `json:"bin_id"`
+		CatID          string `json:"cat_id"`
+		Description    string `json:"description"`
+		Quantity       int64  `json:"quantity"`
+		Reason         string `json:"reason"`
 	}
 	if !h.parseJSON(w, r, &req) {
 		return
@@ -29,12 +28,11 @@ func (h *Handlers) apiCreateCorrection(w http.ResponseWriter, r *http.Request) {
 	id, err := h.engine.ApplyCorrection(engine.ApplyCorrectionRequest{
 		CorrectionType: req.CorrectionType,
 		NodeID:         req.NodeID,
-		PayloadID:     req.PayloadID,
+		BinID:          req.BinID,
 		CatID:          req.CatID,
 		Description:    req.Description,
 		Quantity:       req.Quantity,
 		Reason:         req.Reason,
-		ManifestItemID: req.ManifestItemID,
 		Actor:          actor,
 	})
 	if err != nil {
@@ -47,13 +45,12 @@ func (h *Handlers) apiCreateCorrection(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) apiApplyBatchCorrection(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		PayloadID int64 `json:"payload_id"`
-		NodeID    int64 `json:"node_id"`
-		Reason    string `json:"reason"`
-		Items     []struct {
-			ID       int64   `json:"id"`
-			CatID    string  `json:"cat_id"`
-			Quantity int64   `json:"quantity"`
+		BinID  int64  `json:"bin_id"`
+		NodeID int64  `json:"node_id"`
+		Reason string `json:"reason"`
+		Items  []struct {
+			CatID    string `json:"cat_id"`
+			Quantity int64  `json:"quantity"`
 		} `json:"items"`
 	}
 	if !h.parseJSON(w, r, &req) {
@@ -72,18 +69,17 @@ func (h *Handlers) apiApplyBatchCorrection(w http.ResponseWriter, r *http.Reques
 	items := make([]engine.BatchCorrectionItem, len(req.Items))
 	for i, it := range req.Items {
 		items[i] = engine.BatchCorrectionItem{
-			ID:       it.ID,
 			CatID:    it.CatID,
 			Quantity: it.Quantity,
 		}
 	}
 
 	err := h.engine.ApplyBatchCorrection(engine.BatchCorrectionRequest{
-		PayloadID: req.PayloadID,
-		NodeID:    req.NodeID,
-		Reason:    req.Reason,
-		Actor:     actor,
-		Items:     items,
+		BinID:  req.BinID,
+		NodeID: req.NodeID,
+		Reason: req.Reason,
+		Actor:  actor,
+		Items:  items,
 	})
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)

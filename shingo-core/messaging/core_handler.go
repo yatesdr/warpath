@@ -121,8 +121,8 @@ func (h *CoreHandler) HandleData(env *protocol.Envelope, p *protocol.Data) {
 			return
 		}
 		h.handleTagVerifyRequest(env, &req)
-	case protocol.SubjectCatalogStylesRequest, protocol.SubjectCatalogBlueprintsRequest:
-		h.handleCatalogBlueprintsRequest(env)
+	case protocol.SubjectCatalogPayloadsRequest:
+		h.handleCatalogPayloadsRequest(env)
 	default:
 		log.Printf("core_handler: unhandled data subject: %s", p.Subject)
 	}
@@ -248,8 +248,8 @@ func (h *CoreHandler) HandleOrderRelease(env *protocol.Envelope, p *protocol.Ord
 }
 
 func (h *CoreHandler) HandleOrderIngest(env *protocol.Envelope, p *protocol.OrderIngestRequest) {
-	log.Printf("core_handler: order ingest from %s: uuid=%s blueprint=%s bin=%s", env.Src.Station, p.OrderUUID, p.BlueprintCode, p.BinLabel)
-	h.dbg("-> order_ingest from=%s uuid=%s blueprint=%s bin=%s", env.Src.Station, p.OrderUUID, p.BlueprintCode, p.BinLabel)
+	log.Printf("core_handler: order ingest from %s: uuid=%s payload=%s bin=%s", env.Src.Station, p.OrderUUID, p.PayloadCode, p.BinLabel)
+	h.dbg("-> order_ingest from=%s uuid=%s payload=%s bin=%s", env.Src.Station, p.OrderUUID, p.PayloadCode, p.BinLabel)
 	h.dispatcher.HandleOrderIngest(env, p)
 }
 
@@ -318,23 +318,23 @@ func (h *CoreHandler) sendTagVerifyResponse(env *protocol.Envelope, resp *protoc
 	h.replyData(env, protocol.SubjectTagVerifyResponse, resp)
 }
 
-func (h *CoreHandler) handleCatalogBlueprintsRequest(env *protocol.Envelope) {
-	log.Printf("core_handler: catalog blueprints request from %s", env.Src.Station)
-	blueprints, err := h.db.ListBlueprints()
+func (h *CoreHandler) handleCatalogPayloadsRequest(env *protocol.Envelope) {
+	log.Printf("core_handler: catalog payloads request from %s", env.Src.Station)
+	payloads, err := h.db.ListPayloads()
 	if err != nil {
-		log.Printf("core_handler: list blueprints for catalog: %v", err)
+		log.Printf("core_handler: list payloads for catalog: %v", err)
 		return
 	}
-	infos := make([]protocol.CatalogBlueprintInfo, len(blueprints))
-	for i, bp := range blueprints {
-		infos[i] = protocol.CatalogBlueprintInfo{
-			ID: bp.ID, Name: bp.Code, Code: bp.Code,
-			Description: bp.Description,
-			UOPCapacity: bp.UOPCapacity,
+	infos := make([]protocol.CatalogPayloadInfo, len(payloads))
+	for i, p := range payloads {
+		infos[i] = protocol.CatalogPayloadInfo{
+			ID: p.ID, Name: p.Code, Code: p.Code,
+			Description: p.Description,
+			UOPCapacity: p.UOPCapacity,
 		}
 	}
-	h.replyData(env, protocol.SubjectCatalogBlueprintsResponse, &protocol.CatalogBlueprintsResponse{Blueprints: infos})
-	log.Printf("core_handler: sent blueprint catalog (%d blueprints) to %s", len(infos), env.Src.Station)
+	h.replyData(env, protocol.SubjectCatalogPayloadsResponse, &protocol.CatalogPayloadsResponse{Payloads: infos})
+	log.Printf("core_handler: sent payload catalog (%d payloads) to %s", len(infos), env.Src.Station)
 }
 
 func (h *CoreHandler) sendStaleNotification(stationID string) {

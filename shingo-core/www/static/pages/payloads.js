@@ -31,30 +31,30 @@ function getSelectedBinTypes(selectId) {
   return ids;
 }
 
-/* --- Blueprint modals --- */
-function openCreateBlueprintModal() {
-  document.getElementById('bpc-code').value = '';
-  document.getElementById('bpc-uop').value = '0';
-  document.getElementById('bpc-notes').value = '';
-  document.getElementById('bpc-manifest-rows').innerHTML = '';
-  var sel = document.getElementById('bpc-bin-types');
+/* --- Payload modals --- */
+function openCreatePayloadModal() {
+  document.getElementById('plc-code').value = '';
+  document.getElementById('plc-uop').value = '0';
+  document.getElementById('plc-notes').value = '';
+  document.getElementById('plc-manifest-rows').innerHTML = '';
+  var sel = document.getElementById('plc-bin-types');
   for (var i = 0; i < sel.options.length; i++) sel.options[i].selected = false;
-  showModal('bp-create-modal');
+  showModal('pl-create-modal');
 }
-function closeBPCreateModal() {
-  hideModal('bp-create-modal');
+function closePLCreateModal() {
+  hideModal('pl-create-modal');
 }
 
-function submitBPCreate(e) {
+function submitPLCreate(e) {
   e.preventDefault();
   var body = {
-    code: document.getElementById('bpc-code').value,
-    description: document.getElementById('bpc-notes').value,
-    uop_capacity: parseInt(document.getElementById('bpc-uop').value) || 0,
-    bin_type_ids: getSelectedBinTypes('bpc-bin-types'),
-    manifest: collectManifestRows('bpc-manifest-rows')
+    code: document.getElementById('plc-code').value,
+    description: document.getElementById('plc-notes').value,
+    uop_capacity: parseInt(document.getElementById('plc-uop').value) || 0,
+    bin_type_ids: getSelectedBinTypes('plc-bin-types'),
+    manifest: collectManifestRows('plc-manifest-rows')
   };
-  fetch('/api/blueprints/create', {
+  fetch('/api/payloads/templates/create', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
@@ -62,66 +62,64 @@ function submitBPCreate(e) {
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.error) { alert(data.error); return; }
-    location.href = '/blueprints';
+    location.href = '/payloads';
   })
   .catch(function(err) { alert('Error: ' + err); });
   return false;
 }
 
-function openEditBlueprintModal(btn) {
+function openEditPayloadModal(btn) {
   var d = btn.dataset;
-  var bpId = parseInt(d.id);
-  document.getElementById('bp-edit-id').value = d.id;
-  document.getElementById('bp-edit-code').value = d.code;
-  document.getElementById('bp-edit-uop').value = d.uop || '0';
-  document.getElementById('bp-edit-notes').value = d.notes || '';
-  document.getElementById('bpe-manifest-rows').innerHTML = '<span class="text-muted" style="font-size:0.8rem">Loading...</span>';
-  showModal('bp-edit-modal');
+  var plId = parseInt(d.id);
+  document.getElementById('pl-edit-id').value = d.id;
+  document.getElementById('pl-edit-code').value = d.code;
+  document.getElementById('pl-edit-uop').value = d.uop || '0';
+  document.getElementById('pl-edit-notes').value = d.notes || '';
+  document.getElementById('ple-manifest-rows').innerHTML = '<span class="text-muted" style="font-size:0.8rem">Loading...</span>';
+  showModal('pl-edit-modal');
 
-  // Load existing manifest items
-  fetch('/api/blueprints/manifest?id=' + bpId)
+  fetch('/api/payloads/templates/manifest?id=' + plId)
     .then(function(r) { return r.json(); })
     .then(function(resp) {
       var items = resp.data || resp || [];
-      var container = document.getElementById('bpe-manifest-rows');
+      var container = document.getElementById('ple-manifest-rows');
       container.innerHTML = '';
       if (items && items.length > 0) {
         items.forEach(function(item) {
-          addManifestRow('bpe-manifest-rows', item.part_number, item.quantity);
+          addManifestRow('ple-manifest-rows', item.part_number, item.quantity);
         });
       }
     })
     .catch(function() {
-      document.getElementById('bpe-manifest-rows').innerHTML = '<span class="text-muted" style="font-size:0.8rem">Error loading manifest</span>';
+      document.getElementById('ple-manifest-rows').innerHTML = '<span class="text-muted" style="font-size:0.8rem">Error loading manifest</span>';
     });
 
-  // Load existing bin type associations
-  fetch('/api/blueprints/bin-types?id=' + bpId)
+  fetch('/api/payloads/templates/bin-types?id=' + plId)
     .then(function(r) { return r.json(); })
     .then(function(resp) {
       var ids = resp.data || resp || [];
-      var sel = document.getElementById('bpe-bin-types');
+      var sel = document.getElementById('ple-bin-types');
       for (var i = 0; i < sel.options.length; i++) {
         sel.options[i].selected = ids.indexOf(parseInt(sel.options[i].value)) >= 0;
       }
     })
     .catch(function() {});
 }
-function closeBPEditModal() {
-  hideModal('bp-edit-modal');
+function closePLEditModal() {
+  hideModal('pl-edit-modal');
 }
 
-function submitBPEdit(e) {
+function submitPLEdit(e) {
   e.preventDefault();
   var body = {
-    id: parseInt(document.getElementById('bp-edit-id').value),
-    code: document.getElementById('bp-edit-code').value,
-    description: document.getElementById('bp-edit-notes').value,
-    uop_capacity: parseInt(document.getElementById('bp-edit-uop').value) || 0,
-    bin_type_ids: getSelectedBinTypes('bpe-bin-types'),
-    manifest: collectManifestRows('bpe-manifest-rows')
+    id: parseInt(document.getElementById('pl-edit-id').value),
+    code: document.getElementById('pl-edit-code').value,
+    description: document.getElementById('pl-edit-notes').value,
+    uop_capacity: parseInt(document.getElementById('pl-edit-uop').value) || 0,
+    bin_type_ids: getSelectedBinTypes('ple-bin-types'),
+    manifest: collectManifestRows('ple-manifest-rows')
   };
-  fetch('/api/blueprints/update', {
+  fetch('/api/payloads/templates/update', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
@@ -129,7 +127,7 @@ function submitBPEdit(e) {
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.error) { alert(data.error); return; }
-    location.href = '/blueprints';
+    location.href = '/payloads';
   })
   .catch(function(err) { alert('Error: ' + err); });
   return false;
@@ -138,6 +136,6 @@ function submitBPEdit(e) {
 /* --- Keyboard shortcuts --- */
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
-    closeBPCreateModal(); closeBPEditModal();
+    closePLCreateModal(); closePLEditModal();
   }
 });

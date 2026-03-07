@@ -105,22 +105,22 @@ func TestLaneQueries(t *testing.T) {
 	db.CreateNode(slot3)
 	db.SetNodeProperty(slot3.ID, "depth", "3")
 
-	// Create bin type, blueprint, bins, and payloads
+	// Create bin type, payload template, bins with manifests
 	bt := &BinType{Code: "TOTE", Description: "Tote"}
 	db.CreateBinType(bt)
 
-	bp := &Blueprint{Code: "LANE-TOTE", UOPCapacity: 50}
-	db.CreateBlueprint(bp)
+	bp := &Payload{Code: "LANE-TOTE", UOPCapacity: 50}
+	db.CreatePayload(bp)
 
 	binFront := &Bin{BinTypeID: bt.ID, Label: "LT-001", NodeID: &slot1.ID, Status: "available"}
 	db.CreateBin(binFront)
 	binBack := &Bin{BinTypeID: bt.ID, Label: "LT-003", NodeID: &slot3.ID, Status: "available"}
 	db.CreateBin(binBack)
 
-	pFront := &Payload{BlueprintID: bp.ID, BinID: &binFront.ID, ManifestConfirmed: true, UOPRemaining: 50}
-	db.CreatePayload(pFront)
-	pBack := &Payload{BlueprintID: bp.ID, BinID: &binBack.ID, ManifestConfirmed: true, UOPRemaining: 50}
-	db.CreatePayload(pBack)
+	db.SetBinManifest(binFront.ID, `{"items":[]}`, bp.Code, 50)
+	db.ConfirmBinManifest(binFront.ID)
+	db.SetBinManifest(binBack.ID, `{"items":[]}`, bp.Code, 50)
+	db.ConfirmBinManifest(binBack.ID)
 
 	// ListLaneSlots: should return slots ordered by depth ascending
 	slots, err := db.ListLaneSlots(lanNode.ID)
@@ -174,17 +174,17 @@ func TestLaneQueries(t *testing.T) {
 		t.Error("slot3 should NOT be accessible (blocked by slot1)")
 	}
 
-	// FindSourcePayloadInLane: should return the payload at depth 1 (front)
-	srcPayload, err := db.FindSourcePayloadInLane(lanNode.ID, "LANE-TOTE")
+	// FindSourceBinInLane: should return the bin at depth 1 (front)
+	srcBin, err := db.FindSourceBinInLane(lanNode.ID, "LANE-TOTE")
 	if err != nil {
-		t.Fatalf("FindSourcePayloadInLane: %v", err)
+		t.Fatalf("FindSourceBinInLane: %v", err)
 	}
-	if srcPayload.ID != pFront.ID {
-		t.Errorf("source payload ID = %d, want %d (front)", srcPayload.ID, pFront.ID)
+	if srcBin.ID != binFront.ID {
+		t.Errorf("source bin ID = %d, want %d (front)", srcBin.ID, binFront.ID)
 	}
 
 	// FindStoreSlotInLane: should return slot at depth 2 (deepest empty)
-	storeSlot, err := db.FindStoreSlotInLane(lanNode.ID, bp.ID)
+	storeSlot, err := db.FindStoreSlotInLane(lanNode.ID)
 	if err != nil {
 		t.Fatalf("FindStoreSlotInLane: %v", err)
 	}
@@ -201,13 +201,13 @@ func TestLaneQueries(t *testing.T) {
 		t.Errorf("lane count = %d, want 2", laneCount)
 	}
 
-	// FindBuriedPayload: should return the payload at depth 3 (blocked by depth 1)
-	buriedPayload, buriedSlot, err := db.FindBuriedPayload(lanNode.ID, "LANE-TOTE")
+	// FindBuriedBin: should return the bin at depth 3 (blocked by depth 1)
+	buriedBin, buriedSlot, err := db.FindBuriedBin(lanNode.ID, "LANE-TOTE")
 	if err != nil {
-		t.Fatalf("FindBuriedPayload: %v", err)
+		t.Fatalf("FindBuriedBin: %v", err)
 	}
-	if buriedPayload.ID != pBack.ID {
-		t.Errorf("buried payload ID = %d, want %d", buriedPayload.ID, pBack.ID)
+	if buriedBin.ID != binBack.ID {
+		t.Errorf("buried bin ID = %d, want %d", buriedBin.ID, binBack.ID)
 	}
 	if buriedSlot.ID != slot3.ID {
 		t.Errorf("buried slot ID = %d, want %d", buriedSlot.ID, slot3.ID)

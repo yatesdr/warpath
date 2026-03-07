@@ -7,23 +7,30 @@ import (
 )
 
 type Bin struct {
-	ID              int64      `json:"id"`
-	BinTypeID       int64      `json:"bin_type_id"`
-	Label           string     `json:"label"`
-	Description     string     `json:"description"`
-	NodeID          *int64     `json:"node_id,omitempty"`
-	Status          string     `json:"status"`
-	ClaimedBy       *int64     `json:"claimed_by,omitempty"`
-	StagedAt        *time.Time `json:"staged_at,omitempty"`
-	StagedExpiresAt *time.Time `json:"staged_expires_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID                int64      `json:"id"`
+	BinTypeID         int64      `json:"bin_type_id"`
+	Label             string     `json:"label"`
+	Description       string     `json:"description"`
+	NodeID            *int64     `json:"node_id,omitempty"`
+	Status            string     `json:"status"`
+	ClaimedBy         *int64     `json:"claimed_by,omitempty"`
+	StagedAt          *time.Time `json:"staged_at,omitempty"`
+	StagedExpiresAt   *time.Time `json:"staged_expires_at,omitempty"`
+	PayloadCode       string     `json:"payload_code"`
+	Manifest          *string    `json:"manifest,omitempty"`
+	UOPRemaining      int        `json:"uop_remaining"`
+	ManifestConfirmed bool       `json:"manifest_confirmed"`
+	LoadedAt          *time.Time `json:"loaded_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 	// Joined fields
 	BinTypeCode string `json:"bin_type_code"`
 	NodeName    string `json:"node_name"`
 }
 
-const binJoinQuery = `SELECT b.id, b.bin_type_id, b.label, b.description, b.node_id, b.status, b.claimed_by, b.staged_at, b.staged_expires_at, b.created_at, b.updated_at,
+const binJoinQuery = `SELECT b.id, b.bin_type_id, b.label, b.description, b.node_id, b.status, b.claimed_by, b.staged_at, b.staged_expires_at,
+	b.payload_code, b.manifest, b.uop_remaining, b.manifest_confirmed, b.loaded_at,
+	b.created_at, b.updated_at,
 	bt.code, COALESCE(n.name, '')
 	FROM bins b
 	JOIN bin_types bt ON bt.id = b.bin_type_id
@@ -32,9 +39,12 @@ const binJoinQuery = `SELECT b.id, b.bin_type_id, b.label, b.description, b.node
 func scanBin(row interface{ Scan(...any) error }) (*Bin, error) {
 	var b Bin
 	var nodeID, claimedBy sql.NullInt64
-	var stagedAt, stagedExpiresAt, createdAt, updatedAt any
+	var manifest sql.NullString
+	var stagedAt, stagedExpiresAt, loadedAt, createdAt, updatedAt any
 	err := row.Scan(&b.ID, &b.BinTypeID, &b.Label, &b.Description, &nodeID, &b.Status, &claimedBy,
-		&stagedAt, &stagedExpiresAt, &createdAt, &updatedAt, &b.BinTypeCode, &b.NodeName)
+		&stagedAt, &stagedExpiresAt,
+		&b.PayloadCode, &manifest, &b.UOPRemaining, &b.ManifestConfirmed, &loadedAt,
+		&createdAt, &updatedAt, &b.BinTypeCode, &b.NodeName)
 	if err != nil {
 		return nil, err
 	}
@@ -44,8 +54,12 @@ func scanBin(row interface{ Scan(...any) error }) (*Bin, error) {
 	if claimedBy.Valid {
 		b.ClaimedBy = &claimedBy.Int64
 	}
+	if manifest.Valid {
+		b.Manifest = &manifest.String
+	}
 	b.StagedAt = parseTimePtr(stagedAt)
 	b.StagedExpiresAt = parseTimePtr(stagedExpiresAt)
+	b.LoadedAt = parseTimePtr(loadedAt)
 	b.CreatedAt = parseTime(createdAt)
 	b.UpdatedAt = parseTime(updatedAt)
 	return &b, nil
@@ -153,13 +167,12 @@ type NodeTileState struct {
 // NodeTileStates returns per-node tile rendering state for all nodes that have bins.
 func (db *DB) NodeTileStates() (map[int64]NodeTileState, error) {
 	rows, err := db.Query(`SELECT b.node_id,
-		MAX(CASE WHEN p.id IS NOT NULL AND p.manifest_confirmed = 1 THEN 1 ELSE 0 END),
-		MAX(CASE WHEN p.id IS NULL OR p.manifest_confirmed = 0 THEN 1 ELSE 0 END),
+		MAX(CASE WHEN b.manifest IS NOT NULL AND b.manifest_confirmed = 1 THEN 1 ELSE 0 END),
+		MAX(CASE WHEN b.manifest IS NULL OR b.manifest_confirmed = 0 THEN 1 ELSE 0 END),
 		MAX(CASE WHEN b.claimed_by IS NOT NULL THEN 1 ELSE 0 END),
 		MAX(CASE WHEN b.status = 'staged' THEN 1 ELSE 0 END),
 		MAX(CASE WHEN b.status IN ('maintenance', 'flagged') THEN 1 ELSE 0 END)
 		FROM bins b
-		LEFT JOIN payloads p ON p.bin_id = b.id
 		WHERE b.node_id IS NOT NULL
 		GROUP BY b.node_id`)
 	if err != nil {
@@ -190,9 +203,9 @@ func (db *DB) MoveBin(binID, toNodeID int64) error {
 	return err
 }
 
-// ListAvailableBins returns bins not currently assigned to a payload (available for new payloads).
+// ListAvailableBins returns bins with no manifest (empty, available for loading).
 func (db *DB) ListAvailableBins() ([]*Bin, error) {
-	rows, err := db.Query(db.Q(fmt.Sprintf(`%s WHERE b.id NOT IN (SELECT bin_id FROM payloads WHERE bin_id IS NOT NULL) ORDER BY b.id`, binJoinQuery)))
+	rows, err := db.Query(db.Q(fmt.Sprintf(`%s WHERE (b.manifest IS NULL OR b.payload_code = '') ORDER BY b.id`, binJoinQuery)))
 	if err != nil {
 		return nil, err
 	}
@@ -227,25 +240,25 @@ func (db *DB) UnclaimOrderBins(orderID int64) {
 	db.Exec(db.Q(`UPDATE bins SET claimed_by=NULL, updated_at=datetime('now') WHERE claimed_by=?`), orderID)
 }
 
-// FindEmptyCompatibleBin finds an unclaimed, available bin with no payload that is
-// compatible with the given blueprint (via blueprint_bin_types) at an enabled physical node.
+// FindEmptyCompatibleBin finds an unclaimed, available bin with no manifest that is
+// compatible with the given payload code (via payload_bin_types) at an enabled physical node.
 // Prefers bins in the given zone, then falls back to any zone.
-func (db *DB) FindEmptyCompatibleBin(blueprintCode, preferZone string) (*Bin, error) {
+func (db *DB) FindEmptyCompatibleBin(payloadCode, preferZone string) (*Bin, error) {
 	// Zone-preferred query
 	if preferZone != "" {
 		row := db.QueryRow(db.Q(fmt.Sprintf(`%s
-			JOIN blueprint_bin_types bbt ON bbt.bin_type_id = b.bin_type_id
-			JOIN blueprints bp ON bp.id = bbt.blueprint_id
-			WHERE bp.code = ?
+			JOIN payload_bin_types pbt ON pbt.bin_type_id = b.bin_type_id
+			JOIN payloads p ON p.id = pbt.payload_id
+			WHERE p.code = ?
 			  AND b.status = 'available'
 			  AND b.claimed_by IS NULL
 			  AND b.node_id IS NOT NULL
 			  AND n.enabled = 1
 			  AND n.is_synthetic = 0
 			  AND n.zone = ?
-			  AND b.id NOT IN (SELECT bin_id FROM payloads WHERE bin_id IS NOT NULL)
+			  AND (b.manifest IS NULL OR b.payload_code = '')
 			ORDER BY b.id ASC
-			LIMIT 1`, binJoinQuery)), blueprintCode, preferZone)
+			LIMIT 1`, binJoinQuery)), payloadCode, preferZone)
 		bin, err := scanBin(row)
 		if err == nil {
 			return bin, nil
@@ -253,17 +266,17 @@ func (db *DB) FindEmptyCompatibleBin(blueprintCode, preferZone string) (*Bin, er
 	}
 	// Any zone fallback
 	row := db.QueryRow(db.Q(fmt.Sprintf(`%s
-		JOIN blueprint_bin_types bbt ON bbt.bin_type_id = b.bin_type_id
-		JOIN blueprints bp ON bp.id = bbt.blueprint_id
-		WHERE bp.code = ?
+		JOIN payload_bin_types pbt ON pbt.bin_type_id = b.bin_type_id
+		JOIN payloads p ON p.id = pbt.payload_id
+		WHERE p.code = ?
 		  AND b.status = 'available'
 		  AND b.claimed_by IS NULL
 		  AND b.node_id IS NOT NULL
 		  AND n.enabled = 1
 		  AND n.is_synthetic = 0
-		  AND b.id NOT IN (SELECT bin_id FROM payloads WHERE bin_id IS NOT NULL)
+		  AND (b.manifest IS NULL OR b.payload_code = '')
 		ORDER BY b.id ASC
-		LIMIT 1`, binJoinQuery)), blueprintCode)
+		LIMIT 1`, binJoinQuery)), payloadCode)
 	return scanBin(row)
 }
 

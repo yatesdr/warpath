@@ -1,154 +1,59 @@
 package www
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"shingocore/store"
 )
 
-func (h *Handlers) apiListBlueprints(w http.ResponseWriter, r *http.Request) {
-	blueprints, err := h.engine.DB().ListBlueprints()
+func (h *Handlers) handlePayloadsPage(w http.ResponseWriter, r *http.Request) {
+	payloads, err := h.engine.DB().ListPayloads()
 	if err != nil {
-		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.jsonOK(w, blueprints)
-}
 
-func (h *Handlers) handleBlueprints(w http.ResponseWriter, r *http.Request) {
-	blueprints, _ := h.engine.DB().ListBlueprints()
-
-	// Build compatible nodes map: blueprint_id -> [node names]
 	compatNodes := make(map[int64][]string)
-	for _, bp := range blueprints {
-		nodeList, _ := h.engine.DB().ListNodesForBlueprint(bp.ID)
+	for _, p := range payloads {
+		nodeList, err := h.engine.DB().ListNodesForPayload(p.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		for _, n := range nodeList {
-			compatNodes[bp.ID] = append(compatNodes[bp.ID], n.Name)
+			compatNodes[p.ID] = append(compatNodes[p.ID], n.Name)
 		}
 	}
 
-	binTypes, _ := h.engine.DB().ListBinTypes()
+	binTypes, err := h.engine.DB().ListBinTypes()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	// Build blueprint -> bin type codes map
-	bpBinTypes := make(map[int64][]string)
-	for _, bp := range blueprints {
-		btList, _ := h.engine.DB().ListBinTypesForBlueprint(bp.ID)
+	payloadBinTypes := make(map[int64][]string)
+	for _, p := range payloads {
+		btList, err := h.engine.DB().ListBinTypesForPayload(p.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		for _, bt := range btList {
-			bpBinTypes[bp.ID] = append(bpBinTypes[bp.ID], bt.Code)
+			payloadBinTypes[p.ID] = append(payloadBinTypes[p.ID], bt.Code)
 		}
 	}
 
 	data := map[string]any{
-		"Page":        "blueprints",
-		"Blueprints":  blueprints,
-		"BinTypes":    binTypes,
-		"CompatNodes": compatNodes,
-		"BPBinTypes":  bpBinTypes,
+		"Page":            "payloads",
+		"Payloads":        payloads,
+		"BinTypes":        binTypes,
+		"CompatNodes":     compatNodes,
+		"PayloadBinTypes": payloadBinTypes,
 	}
-	h.render(w, r, "blueprints.html", data)
-}
-
-func (h *Handlers) handlePayloadCreate(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	blueprintID, err := strconv.ParseInt(r.FormValue("blueprint_id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid blueprint", http.StatusBadRequest)
-		return
-	}
-
-	p := &store.Payload{
-		BlueprintID: blueprintID,
-		Notes:       r.FormValue("notes"),
-	}
-
-	if binStr := r.FormValue("bin_id"); binStr != "" {
-		if bid, err := strconv.ParseInt(binStr, 10, 64); err == nil {
-			p.BinID = &bid
-		}
-	}
-
-	// Set UOP from blueprint capacity
-	if bp, err := h.engine.DB().GetBlueprint(blueprintID); err == nil && bp.UOPCapacity > 0 {
-		p.UOPRemaining = bp.UOPCapacity
-	}
-
-	// Mark confirmed if requested
-	if r.FormValue("manifest_confirmed") == "1" {
-		p.ManifestConfirmed = true
-		now := time.Now()
-		p.LoadedAt = &now
-	}
-
-	if err := h.engine.DB().CreatePayloadWithManifest(p); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/payloads", http.StatusSeeOther)
-}
-
-func (h *Handlers) handlePayloadUpdate(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	id, err := strconv.ParseInt(r.FormValue("id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	p, err := h.engine.DB().GetPayload(id)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-
-	blueprintID, err := strconv.ParseInt(r.FormValue("blueprint_id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid blueprint", http.StatusBadRequest)
-		return
-	}
-
-	p.BlueprintID = blueprintID
-	p.Notes = r.FormValue("notes")
-	p.BinID = nil
-
-	if binStr := r.FormValue("bin_id"); binStr != "" {
-		if bid, err := strconv.ParseInt(binStr, 10, 64); err == nil {
-			p.BinID = &bid
-		}
-	}
-
-	if err := h.engine.DB().UpdatePayload(p); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/payloads", http.StatusSeeOther)
-}
-
-func (h *Handlers) handlePayloadDelete(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.FormValue("id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.engine.DB().DeletePayload(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/payloads", http.StatusSeeOther)
+	h.render(w, r, "payloads.html", data)
 }
 
 func (h *Handlers) apiListPayloads(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +80,7 @@ func (h *Handlers) apiGetPayload(w http.ResponseWriter, r *http.Request) {
 	h.jsonOK(w, p)
 }
 
+// apiListManifest returns the manifest for a payload template (PayloadManifestItem).
 func (h *Handlers) apiListManifest(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -182,7 +88,7 @@ func (h *Handlers) apiListManifest(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	items, err := h.engine.DB().ListManifestItems(id)
+	items, err := h.engine.DB().ListPayloadManifest(id)
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -190,62 +96,49 @@ func (h *Handlers) apiListManifest(w http.ResponseWriter, r *http.Request) {
 	h.jsonOK(w, items)
 }
 
+// apiCreateManifestItem adds a manifest item to a payload template.
 func (h *Handlers) apiCreateManifestItem(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		PayloadID      int64   `json:"payload_id"`
-		PartNumber     string  `json:"part_number"`
-		Quantity       int64   `json:"quantity"`
-		ProductionDate string  `json:"production_date"`
-		LotCode        string  `json:"lot_code"`
-		Notes          string  `json:"notes"`
+		PayloadID  int64  `json:"payload_id"`
+		PartNumber string `json:"part_number"`
+		Quantity   int64  `json:"quantity"`
+		Notes      string `json:"notes"`
 	}
 	if !h.parseJSON(w, r, &req) {
 		return
 	}
 
-	m := &store.ManifestItem{
-		PayloadID:      req.PayloadID,
-		PartNumber:     req.PartNumber,
-		Quantity:       req.Quantity,
-		ProductionDate: req.ProductionDate,
-		LotCode:        req.LotCode,
-		Notes:          req.Notes,
+	m := &store.PayloadManifestItem{
+		PayloadID:  req.PayloadID,
+		PartNumber: req.PartNumber,
+		Quantity:   req.Quantity,
 	}
-	if err := h.engine.DB().CreateManifestItem(m); err != nil {
+	if err := h.engine.DB().CreatePayloadManifestItem(m); err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.jsonOK(w, m)
 }
 
+// apiUpdateManifestItem updates a manifest item on a payload template.
 func (h *Handlers) apiUpdateManifestItem(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID             int64   `json:"id"`
-		PartNumber     string  `json:"part_number"`
-		Quantity       int64   `json:"quantity"`
-		ProductionDate string  `json:"production_date"`
-		LotCode        string  `json:"lot_code"`
-		Notes          string  `json:"notes"`
+		ID         int64  `json:"id"`
+		PartNumber string `json:"part_number"`
+		Quantity   int64  `json:"quantity"`
 	}
 	if !h.parseJSON(w, r, &req) {
 		return
 	}
 
-	m := &store.ManifestItem{
-		ID:             req.ID,
-		PartNumber:     req.PartNumber,
-		Quantity:       req.Quantity,
-		ProductionDate: req.ProductionDate,
-		LotCode:        req.LotCode,
-		Notes:          req.Notes,
-	}
-	if err := h.engine.DB().UpdateManifestItem(m); err != nil {
+	if err := h.engine.DB().UpdatePayloadManifestItem(req.ID, req.PartNumber, req.Quantity); err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.jsonSuccess(w)
 }
 
+// apiDeleteManifestItem removes a manifest item from a payload template.
 func (h *Handlers) apiDeleteManifestItem(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID int64 `json:"id"`
@@ -253,73 +146,38 @@ func (h *Handlers) apiDeleteManifestItem(w http.ResponseWriter, r *http.Request)
 	if !h.parseJSON(w, r, &req) {
 		return
 	}
-	if err := h.engine.DB().DeleteManifestItem(req.ID); err != nil {
+	if err := h.engine.DB().DeletePayloadManifestItem(req.ID); err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.jsonSuccess(w)
 }
 
+// apiConfirmManifest confirms a bin's manifest.
 func (h *Handlers) apiConfirmManifest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID int64 `json:"id"`
+		ID int64 `json:"id"` // bin ID
 	}
 	if !h.parseJSON(w, r, &req) {
 		return
 	}
 
-	p, err := h.engine.DB().GetPayload(req.ID)
-	if err != nil {
-		h.jsonError(w, "payload not found", http.StatusNotFound)
-		return
-	}
-
-	p.ManifestConfirmed = true
-	now := time.Now()
-	p.LoadedAt = &now
-
-	if err := h.engine.DB().UpdatePayload(p); err != nil {
+	if err := h.engine.DB().ConfirmBinManifest(req.ID); err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.jsonSuccess(w)
 }
 
-func (h *Handlers) apiBulkRegisterPayloads(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		BlueprintID int64 `json:"blueprint_id"`
-		Count       int   `json:"count"`
-	}
-	if !h.parseJSON(w, r, &req) {
-		return
-	}
-
-	if req.Count <= 0 || req.Count > 100 {
-		h.jsonError(w, "count must be 1-100", http.StatusBadRequest)
-		return
-	}
-
-	var created []int64
-	for i := 0; i < req.Count; i++ {
-		p := &store.Payload{
-			BlueprintID: req.BlueprintID,
-		}
-		if err := h.engine.DB().CreatePayload(p); err != nil {
-			h.jsonError(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		created = append(created, p.ID)
-	}
-	h.jsonOK(w, map[string]any{"created": len(created), "ids": created})
-}
-
+// apiListPayloadEvents returns audit log entries for a bin (replaces old payload events).
 func (h *Handlers) apiListPayloadEvents(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil {
 		h.jsonError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	events, err := h.engine.DB().ListPayloadEvents(id, 50)
+	// Use the audit log for bin events
+	events, err := h.engine.DB().ListEntityAudit("bin", id)
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -327,17 +185,71 @@ func (h *Handlers) apiListPayloadEvents(w http.ResponseWriter, r *http.Request) 
 	h.jsonOK(w, events)
 }
 
+// apiPayloadsByNode returns bins at a node (replaces old payloads-by-node).
 func (h *Handlers) apiPayloadsByNode(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.parseIDParam(w, r, "id")
 	if !ok {
 		return
 	}
-	payloads, err := h.engine.DB().ListPayloadsByNode(id)
+	bins, err := h.engine.DB().ListBinsByNode(id)
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.jsonOK(w, payloads)
+	h.jsonOK(w, bins)
+}
+
+// apiBinManifest returns the parsed manifest for a bin.
+func (h *Handlers) apiBinManifest(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		h.jsonError(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	manifest, err := h.engine.DB().GetBinManifest(id)
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.jsonOK(w, manifest)
+}
+
+// apiSetBinManifest updates a bin's manifest from JSON.
+func (h *Handlers) apiSetBinManifest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BinID       int64              `json:"bin_id"`
+		PayloadCode string             `json:"payload_code"`
+		UOPRemaining int               `json:"uop_remaining"`
+		Items       []store.ManifestEntry `json:"items"`
+	}
+	if !h.parseJSON(w, r, &req) {
+		return
+	}
+
+	manifest := store.BinManifest{Items: req.Items}
+	manifestJSON, _ := json.Marshal(manifest)
+	if err := h.engine.DB().SetBinManifest(req.BinID, string(manifestJSON), req.PayloadCode, req.UOPRemaining); err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.jsonSuccess(w)
+}
+
+// apiClearBinManifest empties a bin's manifest.
+func (h *Handlers) apiClearBinManifest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BinID int64 `json:"bin_id"`
+	}
+	if !h.parseJSON(w, r, &req) {
+		return
+	}
+
+	if err := h.engine.DB().ClearBinManifest(req.BinID); err != nil {
+		h.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.jsonSuccess(w)
 }
 
 func (h *Handlers) apiBulkRegisterBins(w http.ResponseWriter, r *http.Request) {

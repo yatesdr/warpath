@@ -45,31 +45,17 @@ type EdgeHeartbeatAck struct {
 
 // OrderRequest is a new transport order from edge.
 type OrderRequest struct {
-	OrderUUID       string  `json:"order_uuid"`
-	OrderType       string  `json:"order_type"`
-	BlueprintCode   string  `json:"blueprint_code,omitempty"`
-	StyleCode       string  `json:"style_code,omitempty"`       // deprecated: use BlueprintCode
-	PayloadTypeCode string  `json:"payload_type_code,omitempty"` // deprecated: use BlueprintCode
-	PayloadDesc     string  `json:"payload_desc,omitempty"`
-	Quantity        int64   `json:"quantity"`
-	DeliveryNode    string  `json:"delivery_node,omitempty"`
-	PickupNode      string  `json:"pickup_node,omitempty"`
-	StagingNode     string  `json:"staging_node,omitempty"`
-	LoadType        string  `json:"load_type,omitempty"`
-	Priority        int     `json:"priority,omitempty"`
-	RetrieveEmpty   bool    `json:"retrieve_empty,omitempty"`
-}
-
-// EffectiveBlueprintCode returns the blueprint code to use, checking BlueprintCode first,
-// then falling back to StyleCode and PayloadTypeCode for backward compatibility.
-func (r *OrderRequest) EffectiveBlueprintCode() string {
-	if r.BlueprintCode != "" {
-		return r.BlueprintCode
-	}
-	if r.StyleCode != "" {
-		return r.StyleCode
-	}
-	return r.PayloadTypeCode
+	OrderUUID     string `json:"order_uuid"`
+	OrderType     string `json:"order_type"`
+	PayloadCode   string `json:"payload_code,omitempty"`
+	PayloadDesc   string `json:"payload_desc,omitempty"`
+	Quantity      int64  `json:"quantity"`
+	DeliveryNode  string `json:"delivery_node,omitempty"`
+	PickupNode    string `json:"pickup_node,omitempty"`
+	StagingNode   string `json:"staging_node,omitempty"`
+	LoadType      string `json:"load_type,omitempty"`
+	Priority      int    `json:"priority,omitempty"`
+	RetrieveEmpty bool   `json:"retrieve_empty,omitempty"`
 }
 
 // OrderCancel cancels an existing order.
@@ -156,12 +142,12 @@ type ComplexOrderStep struct {
 
 // ComplexOrderRequest is a multi-step transport order from edge.
 type ComplexOrderRequest struct {
-	OrderUUID     string             `json:"order_uuid"`
-	BlueprintCode string             `json:"blueprint_code,omitempty"`
-	PayloadDesc   string             `json:"payload_desc,omitempty"`
-	Quantity      int64              `json:"quantity"`
-	Priority      int                `json:"priority,omitempty"`
-	Steps         []ComplexOrderStep `json:"steps"`
+	OrderUUID   string             `json:"order_uuid"`
+	PayloadCode string             `json:"payload_code,omitempty"`
+	PayloadDesc string             `json:"payload_desc,omitempty"`
+	Quantity    int64              `json:"quantity"`
+	Priority    int                `json:"priority,omitempty"`
+	Steps       []ComplexOrderStep `json:"steps"`
 }
 
 // OrderRelease signals that a staged (dwelling) order should resume.
@@ -178,14 +164,14 @@ type OrderStaged struct {
 // --- Origination payloads: Edge -> Core ---
 
 // OrderIngestRequest submits a newly filled bin for storage.
-// Core creates a payload on the bin (with manifest) and dispatches a store order.
+// Core sets the bin manifest and dispatches a store order.
 type OrderIngestRequest struct {
-	OrderUUID     string               `json:"order_uuid"`
-	BlueprintCode string               `json:"blueprint_code"`
-	BinLabel      string               `json:"bin_label"`
-	PickupNode    string               `json:"pickup_node"`
-	Quantity      int64                `json:"quantity"`
-	Manifest      []IngestManifestItem `json:"manifest,omitempty"`
+	OrderUUID   string               `json:"order_uuid"`
+	PayloadCode string               `json:"payload_code"`
+	BinLabel    string               `json:"bin_label"`
+	PickupNode  string               `json:"pickup_node"`
+	Quantity    int64                `json:"quantity"`
+	Manifest    []IngestManifestItem `json:"manifest,omitempty"`
 }
 
 // IngestManifestItem describes a single item in an ingest manifest.
@@ -260,13 +246,13 @@ type TagVerifyResponse struct {
 	Detail    string `json:"detail,omitempty"`
 }
 
-// --- Blueprint Catalog ---
+// --- Payload Catalog ---
 
-// CatalogBlueprintsRequest is sent by edge to request the blueprint catalog.
-type CatalogBlueprintsRequest struct{}
+// CatalogPayloadsRequest is sent by edge to request the payload catalog.
+type CatalogPayloadsRequest struct{}
 
-// CatalogBlueprintInfo describes a single blueprint in the catalog.
-type CatalogBlueprintInfo struct {
+// CatalogPayloadInfo describes a single payload template in the catalog.
+type CatalogPayloadInfo struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Code        string `json:"code"`
@@ -274,12 +260,8 @@ type CatalogBlueprintInfo struct {
 	UOPCapacity int    `json:"uop_capacity"`
 }
 
-// CatalogBlueprintsResponse carries the core's blueprint catalog.
-type CatalogBlueprintsResponse struct {
-	Blueprints []CatalogBlueprintInfo `json:"blueprints"`
+// CatalogPayloadsResponse carries the core's payload catalog.
+type CatalogPayloadsResponse struct {
+	Payloads []CatalogPayloadInfo `json:"payloads"`
 }
 
-// Backward-compatible aliases for edge clients that still use "style" terminology.
-type CatalogStylesRequest = CatalogBlueprintsRequest
-type CatalogStyleInfo = CatalogBlueprintInfo
-type CatalogStylesResponse = CatalogBlueprintsResponse

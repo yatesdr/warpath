@@ -162,9 +162,9 @@ func main() {
 		// Wire node sync so edge UI can trigger a re-request
 		eng.SetNodeSyncFunc(hb.RequestNodeSync)
 
-		// Wire blueprint catalog sync
-		edgeHandler.SetBlueprintCatalogHandler(func(blueprints []protocol.CatalogBlueprintInfo) {
-			eng.HandleBlueprintCatalog(blueprints)
+		// Wire payload catalog sync
+		edgeHandler.SetPayloadCatalogHandler(func(entries []protocol.CatalogPayloadInfo) {
+			eng.HandlePayloadCatalog(entries)
 		})
 		eng.SetCatalogSyncFunc(hb.RequestCatalogSync)
 

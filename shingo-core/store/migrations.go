@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
 
@@ -146,6 +147,7 @@ func (db *DB) migrate() error {
 	db.migrateDeliveryNodeIndex()
 	db.migrateStagedBinExpiry()
 	db.migratePayloadSimplify()
+	db.migrateBinCentric()
 	return nil
 }
 
@@ -166,11 +168,19 @@ func (db *DB) migrateQuantitiesToInteger() {
 	alters := []string{
 		`ALTER TABLE orders ALTER COLUMN quantity TYPE BIGINT USING quantity::bigint`,
 		`ALTER TABLE corrections ALTER COLUMN quantity TYPE BIGINT USING quantity::bigint`,
-		`ALTER TABLE blueprint_manifest ALTER COLUMN quantity TYPE BIGINT USING quantity::bigint`,
-		`ALTER TABLE manifest_items ALTER COLUMN quantity TYPE BIGINT USING quantity::bigint`,
 		`ALTER TABLE demands ALTER COLUMN demand_qty TYPE BIGINT USING demand_qty::bigint`,
 		`ALTER TABLE demands ALTER COLUMN produced_qty TYPE BIGINT USING produced_qty::bigint`,
 		`ALTER TABLE production_log ALTER COLUMN quantity TYPE BIGINT USING quantity::bigint`,
+	}
+	// These tables may have been renamed; try both old and new names
+	if db.tableExists("blueprint_manifest") {
+		alters = append(alters, `ALTER TABLE blueprint_manifest ALTER COLUMN quantity TYPE BIGINT USING quantity::bigint`)
+	}
+	if db.tableExists("payload_manifest") {
+		alters = append(alters, `ALTER TABLE payload_manifest ALTER COLUMN quantity TYPE BIGINT USING quantity::bigint`)
+	}
+	if db.tableExists("manifest_items") {
+		alters = append(alters, `ALTER TABLE manifest_items ALTER COLUMN quantity TYPE BIGINT USING quantity::bigint`)
 	}
 	for _, ddl := range alters {
 		db.Exec(ddl)
@@ -814,4 +824,244 @@ func (db *DB) migrateDropCapacity() {
 	case "postgres":
 		db.Exec(`ALTER TABLE nodes DROP COLUMN IF EXISTS capacity`)
 	}
+}
+
+// migrateBinCentric performs the bin-centric refactor:
+// - Renames blueprints → payloads (template table)
+// - Renames blueprint_manifest → payload_manifest
+// - Renames blueprint_bin_types → payload_bin_types
+// - Renames node_blueprints → node_payloads
+// - Adds manifest columns to bins
+// - Migrates old payloads (instance) data into bins
+// - Updates orders: blueprint_id → payload_id
+// - Updates corrections and cms_transactions
+// - Drops old payloads, manifest_items, payload_events tables
+func (db *DB) migrateBinCentric() {
+	// Guard: if the new payloads table already has a 'code' column, migration is done
+	if db.tableExists("payloads") && db.columnExists("payloads", "code") {
+		// Already migrated — just ensure cleanup is complete
+		db.migrateBinCentricCleanup()
+		return
+	}
+
+	// Guard: blueprints table must exist for migration
+	if !db.tableExists("blueprints") {
+		return
+	}
+
+	// ── Step 1: Add manifest columns to bins ─────────────────────────────
+	binCols := []struct{ name, sqliteDef, pgDef string }{
+		{"payload_code", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"},
+		{"manifest", "TEXT", "JSONB"},
+		{"uop_remaining", "INTEGER NOT NULL DEFAULT 0", "INTEGER NOT NULL DEFAULT 0"},
+		{"manifest_confirmed", "INTEGER NOT NULL DEFAULT 0", "BOOLEAN NOT NULL DEFAULT FALSE"},
+		{"loaded_at", "TEXT", "TIMESTAMPTZ"},
+	}
+	for _, c := range binCols {
+		if !db.columnExists("bins", c.name) {
+			switch db.driver {
+			case "sqlite":
+				db.Exec(fmt.Sprintf(`ALTER TABLE bins ADD COLUMN %s %s`, c.name, c.sqliteDef))
+			case "postgres":
+				db.Exec(fmt.Sprintf(`ALTER TABLE bins ADD COLUMN %s %s`, c.name, c.pgDef))
+			}
+		}
+	}
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_payload_code ON bins(payload_code)`)
+
+	// ── Step 2: Migrate old payloads (instance) data into bins ────────────
+	// Join old payloads → blueprints to get code, copy manifest_items as JSON
+	if db.tableExists("payloads") && db.columnExists("payloads", "blueprint_id") {
+		db.migrateBinCentricPayloadData()
+	}
+
+	// ── Step 3: Drop old payloads table (instance), rename blueprints → payloads ─
+	// We need to rename carefully since "payloads" name is occupied by the old instance table
+	db.Exec(`DROP TABLE IF EXISTS manifest_items`)
+	db.Exec(`DROP TABLE IF EXISTS payload_events`)
+
+	// Drop old payloads (instance table)
+	if db.tableExists("payloads") && db.columnExists("payloads", "blueprint_id") {
+		db.Exec(`DROP TABLE IF EXISTS payloads`)
+	}
+
+	// Rename blueprints → payloads
+	if db.tableExists("blueprints") && !db.tableExists("payloads") {
+		db.Exec(`ALTER TABLE blueprints RENAME TO payloads`)
+	}
+
+	// ── Step 4: Rename junction/manifest tables ───────────────────────────
+	if db.tableExists("blueprint_manifest") && !db.tableExists("payload_manifest") {
+		db.Exec(`ALTER TABLE blueprint_manifest RENAME TO payload_manifest`)
+	}
+	// Rename FK column in payload_manifest
+	if db.tableExists("payload_manifest") && db.columnExists("payload_manifest", "blueprint_id") {
+		db.Exec(`ALTER TABLE payload_manifest RENAME COLUMN blueprint_id TO payload_id`)
+	}
+
+	if db.tableExists("blueprint_bin_types") && !db.tableExists("payload_bin_types") {
+		db.Exec(`ALTER TABLE blueprint_bin_types RENAME TO payload_bin_types`)
+	}
+	// Rename FK column in payload_bin_types
+	if db.tableExists("payload_bin_types") && db.columnExists("payload_bin_types", "blueprint_id") {
+		db.Exec(`ALTER TABLE payload_bin_types RENAME COLUMN blueprint_id TO payload_id`)
+	}
+
+	if db.tableExists("node_blueprints") && !db.tableExists("node_payloads") {
+		db.Exec(`ALTER TABLE node_blueprints RENAME TO node_payloads`)
+	}
+	// Rename FK column in node_payloads
+	if db.tableExists("node_payloads") && db.columnExists("node_payloads", "blueprint_id") {
+		db.Exec(`ALTER TABLE node_payloads RENAME COLUMN blueprint_id TO payload_id`)
+	}
+
+	// ── Step 5: Update orders table ───────────────────────────────────────
+	// Copy blueprint_id → payload_id (reusing the column)
+	if db.columnExists("orders", "blueprint_id") {
+		// First set payload_id from blueprint_id where not already set
+		db.Exec(db.Q(`UPDATE orders SET payload_id = blueprint_id WHERE blueprint_id IS NOT NULL AND payload_id IS NULL`))
+		// Drop blueprint_id and old payload_id (which pointed to old instance table)
+		switch db.driver {
+		case "sqlite":
+			db.Exec(`ALTER TABLE orders DROP COLUMN blueprint_id`)
+		case "postgres":
+			db.Exec(`ALTER TABLE orders DROP COLUMN IF EXISTS blueprint_id`)
+		}
+	}
+
+	// ── Step 6: Update corrections table ──────────────────────────────────
+	if db.tableExists("corrections") && db.columnExists("corrections", "payload_id") {
+		// Add bin_id if missing
+		if !db.columnExists("corrections", "bin_id") {
+			switch db.driver {
+			case "sqlite":
+				db.Exec(`ALTER TABLE corrections ADD COLUMN bin_id INTEGER REFERENCES bins(id)`)
+			case "postgres":
+				db.Exec(`ALTER TABLE corrections ADD COLUMN bin_id BIGINT REFERENCES bins(id)`)
+			}
+		}
+		// Drop old payload_id and manifest_item_id
+		switch db.driver {
+		case "sqlite":
+			db.Exec(`ALTER TABLE corrections DROP COLUMN payload_id`)
+			if db.columnExists("corrections", "manifest_item_id") {
+				db.Exec(`ALTER TABLE corrections DROP COLUMN manifest_item_id`)
+			}
+		case "postgres":
+			db.Exec(`ALTER TABLE corrections DROP COLUMN IF EXISTS payload_id`)
+			db.Exec(`ALTER TABLE corrections DROP COLUMN IF EXISTS manifest_item_id`)
+		}
+	}
+
+	// ── Step 7: Update cms_transactions table ─────────────────────────────
+	if db.tableExists("cms_transactions") {
+		if db.columnExists("cms_transactions", "blueprint_code") {
+			db.Exec(`ALTER TABLE cms_transactions RENAME COLUMN blueprint_code TO payload_code`)
+		}
+		if db.columnExists("cms_transactions", "payload_id") {
+			switch db.driver {
+			case "sqlite":
+				db.Exec(`ALTER TABLE cms_transactions DROP COLUMN payload_id`)
+			case "postgres":
+				db.Exec(`ALTER TABLE cms_transactions DROP COLUMN IF EXISTS payload_id`)
+			}
+		}
+	}
+
+	db.migrateBinCentricCleanup()
+}
+
+// migrateBinCentricPayloadData copies data from old payloads+manifest_items into bins.
+func (db *DB) migrateBinCentricPayloadData() {
+	// Update bins with payload_code, uop_remaining, manifest_confirmed, loaded_at
+	// from old payloads table joined with blueprints
+	db.Exec(db.Q(`
+		UPDATE bins SET
+			payload_code = COALESCE((
+				SELECT bp.code FROM payloads p
+				JOIN blueprints bp ON bp.id = p.blueprint_id
+				WHERE p.bin_id = bins.id
+			), ''),
+			uop_remaining = COALESCE((
+				SELECT p.uop_remaining FROM payloads p WHERE p.bin_id = bins.id
+			), 0),
+			manifest_confirmed = COALESCE((
+				SELECT p.manifest_confirmed FROM payloads p WHERE p.bin_id = bins.id
+			), 0),
+			loaded_at = (
+				SELECT p.loaded_at FROM payloads p WHERE p.bin_id = bins.id
+			)
+		WHERE EXISTS (SELECT 1 FROM payloads p WHERE p.bin_id = bins.id)
+	`))
+
+	// Build manifest JSON from manifest_items for each bin
+	if !db.tableExists("manifest_items") {
+		return
+	}
+	rows, err := db.Query(db.Q(`
+		SELECT p.bin_id, mi.part_number, mi.quantity, COALESCE(mi.lot_code, ''), COALESCE(mi.notes, '')
+		FROM manifest_items mi
+		JOIN payloads p ON p.id = mi.payload_id
+		WHERE p.bin_id IS NOT NULL
+		ORDER BY p.bin_id, mi.id
+	`))
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type manifestRow struct {
+		binID      int64
+		partNumber string
+		quantity   int64
+		lotCode    string
+		notes      string
+	}
+	var items []manifestRow
+	for rows.Next() {
+		var r manifestRow
+		if rows.Scan(&r.binID, &r.partNumber, &r.quantity, &r.lotCode, &r.notes) == nil {
+			items = append(items, r)
+		}
+	}
+	rows.Close()
+
+	// Group by bin_id and build JSON
+	binItems := make(map[int64][]manifestRow)
+	for _, item := range items {
+		binItems[item.binID] = append(binItems[item.binID], item)
+	}
+	for binID, mItems := range binItems {
+		manifest := BinManifest{Items: make([]ManifestEntry, len(mItems))}
+		for i, mi := range mItems {
+			manifest.Items[i] = ManifestEntry{
+				CatID:    mi.partNumber,
+				Quantity: mi.quantity,
+				LotCode:  mi.lotCode,
+				Notes:    mi.notes,
+			}
+		}
+		manifestJSON, _ := json.Marshal(manifest)
+		db.Exec(db.Q(`UPDATE bins SET manifest = ? WHERE id = ?`), string(manifestJSON), binID)
+	}
+}
+
+// migrateBinCentricCleanup drops leftover tables/columns from the old schema.
+func (db *DB) migrateBinCentricCleanup() {
+	db.Exec(`DROP TABLE IF EXISTS manifest_items`)
+	db.Exec(`DROP TABLE IF EXISTS payload_events`)
+	// Drop old blueprint tables if still present (shouldn't be, but be safe)
+	if db.tableExists("blueprints") && db.tableExists("payloads") && db.columnExists("payloads", "code") {
+		db.Exec(`DROP TABLE IF EXISTS blueprint_manifest`)
+		db.Exec(`DROP TABLE IF EXISTS blueprint_bin_types`)
+		db.Exec(`DROP TABLE IF EXISTS node_blueprints`)
+		db.Exec(`DROP TABLE IF EXISTS blueprints`)
+	}
+	// Drop old indexes
+	db.Exec(`DROP INDEX IF EXISTS idx_payloads_blueprint`)
+	db.Exec(`DROP INDEX IF EXISTS idx_payloads_bin`)
+	db.Exec(`DROP INDEX IF EXISTS idx_payloads_bin_unique`)
+	db.Exec(`DROP INDEX IF EXISTS idx_blueprint_manifest_bp`)
+	db.Exec(`DROP INDEX IF EXISTS idx_payload_events_payload`)
+	db.Exec(`DROP INDEX IF EXISTS idx_manifest_payload`)
 }

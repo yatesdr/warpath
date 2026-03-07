@@ -6,7 +6,8 @@ import (
 	"time"
 )
 
-type Blueprint struct {
+// Payload represents a payload template defining bin contents and UOP capacity.
+type Payload struct {
 	ID                  int64     `json:"id"`
 	Code                string    `json:"code"`
 	Description         string    `json:"description"`
@@ -16,80 +17,80 @@ type Blueprint struct {
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
-const blueprintSelectCols = `id, code, description, uop_capacity, default_manifest_json, created_at, updated_at`
+const payloadSelectCols = `id, code, description, uop_capacity, default_manifest_json, created_at, updated_at`
 
-func scanBlueprint(row interface{ Scan(...any) error }) (*Blueprint, error) {
-	var bp Blueprint
+func scanPayload(row interface{ Scan(...any) error }) (*Payload, error) {
+	var p Payload
 	var createdAt, updatedAt any
-	err := row.Scan(&bp.ID, &bp.Code, &bp.Description,
-		&bp.UOPCapacity, &bp.DefaultManifestJSON, &createdAt, &updatedAt)
+	err := row.Scan(&p.ID, &p.Code, &p.Description,
+		&p.UOPCapacity, &p.DefaultManifestJSON, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
-	bp.CreatedAt = parseTime(createdAt)
-	bp.UpdatedAt = parseTime(updatedAt)
-	return &bp, nil
+	p.CreatedAt = parseTime(createdAt)
+	p.UpdatedAt = parseTime(updatedAt)
+	return &p, nil
 }
 
-func scanBlueprints(rows *sql.Rows) ([]*Blueprint, error) {
-	var blueprints []*Blueprint
+func scanPayloads(rows *sql.Rows) ([]*Payload, error) {
+	var payloads []*Payload
 	for rows.Next() {
-		bp, err := scanBlueprint(rows)
+		p, err := scanPayload(rows)
 		if err != nil {
 			return nil, err
 		}
-		blueprints = append(blueprints, bp)
+		payloads = append(payloads, p)
 	}
-	return blueprints, rows.Err()
+	return payloads, rows.Err()
 }
 
-func (db *DB) CreateBlueprint(bp *Blueprint) error {
-	result, err := db.Exec(db.Q(`INSERT INTO blueprints (code, description, uop_capacity, default_manifest_json) VALUES (?, ?, ?, ?)`),
-		bp.Code, bp.Description, bp.UOPCapacity, bp.DefaultManifestJSON)
+func (db *DB) CreatePayload(p *Payload) error {
+	result, err := db.Exec(db.Q(`INSERT INTO payloads (code, description, uop_capacity, default_manifest_json) VALUES (?, ?, ?, ?)`),
+		p.Code, p.Description, p.UOPCapacity, p.DefaultManifestJSON)
 	if err != nil {
-		return fmt.Errorf("create blueprint: %w", err)
+		return fmt.Errorf("create payload: %w", err)
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("create blueprint last id: %w", err)
+		return fmt.Errorf("create payload last id: %w", err)
 	}
-	bp.ID = id
+	p.ID = id
 	return nil
 }
 
-func (db *DB) UpdateBlueprint(bp *Blueprint) error {
-	_, err := db.Exec(db.Q(`UPDATE blueprints SET code=?, description=?, uop_capacity=?, default_manifest_json=?, updated_at=datetime('now') WHERE id=?`),
-		bp.Code, bp.Description, bp.UOPCapacity, bp.DefaultManifestJSON, bp.ID)
+func (db *DB) UpdatePayload(p *Payload) error {
+	_, err := db.Exec(db.Q(`UPDATE payloads SET code=?, description=?, uop_capacity=?, default_manifest_json=?, updated_at=datetime('now') WHERE id=?`),
+		p.Code, p.Description, p.UOPCapacity, p.DefaultManifestJSON, p.ID)
 	return err
 }
 
-func (db *DB) DeleteBlueprint(id int64) error {
-	_, err := db.Exec(db.Q(`DELETE FROM blueprints WHERE id=?`), id)
+func (db *DB) DeletePayload(id int64) error {
+	_, err := db.Exec(db.Q(`DELETE FROM payloads WHERE id=?`), id)
 	return err
 }
 
-func (db *DB) GetBlueprint(id int64) (*Blueprint, error) {
-	row := db.QueryRow(db.Q(fmt.Sprintf(`SELECT %s FROM blueprints WHERE id=?`, blueprintSelectCols)), id)
-	return scanBlueprint(row)
+func (db *DB) GetPayload(id int64) (*Payload, error) {
+	row := db.QueryRow(db.Q(fmt.Sprintf(`SELECT %s FROM payloads WHERE id=?`, payloadSelectCols)), id)
+	return scanPayload(row)
 }
 
-func (db *DB) GetBlueprintByCode(code string) (*Blueprint, error) {
-	row := db.QueryRow(db.Q(fmt.Sprintf(`SELECT %s FROM blueprints WHERE code=?`, blueprintSelectCols)), code)
-	return scanBlueprint(row)
+func (db *DB) GetPayloadByCode(code string) (*Payload, error) {
+	row := db.QueryRow(db.Q(fmt.Sprintf(`SELECT %s FROM payloads WHERE code=?`, payloadSelectCols)), code)
+	return scanPayload(row)
 }
 
-func (db *DB) ListBlueprints() ([]*Blueprint, error) {
-	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s FROM blueprints ORDER BY code`, blueprintSelectCols)))
+func (db *DB) ListPayloads() ([]*Payload, error) {
+	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s FROM payloads ORDER BY code`, payloadSelectCols)))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanBlueprints(rows)
+	return scanPayloads(rows)
 }
 
-// ListBinTypesForBlueprint returns all bin types associated with a blueprint.
-func (db *DB) ListBinTypesForBlueprint(blueprintID int64) ([]*BinType, error) {
-	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s FROM bin_types WHERE id IN (SELECT bin_type_id FROM blueprint_bin_types WHERE blueprint_id=?) ORDER BY code`, binTypeSelectCols)), blueprintID)
+// ListBinTypesForPayload returns all bin types associated with a payload template.
+func (db *DB) ListBinTypesForPayload(payloadID int64) ([]*BinType, error) {
+	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s FROM bin_types WHERE id IN (SELECT bin_type_id FROM payload_bin_types WHERE payload_id=?) ORDER BY code`, binTypeSelectCols)), payloadID)
 	if err != nil {
 		return nil, err
 	}
@@ -97,15 +98,16 @@ func (db *DB) ListBinTypesForBlueprint(blueprintID int64) ([]*BinType, error) {
 	return scanBinTypes(rows)
 }
 
-// SetBlueprintBinTypes replaces all bin type associations for a blueprint.
-func (db *DB) SetBlueprintBinTypes(blueprintID int64, binTypeIDs []int64) error {
-	if _, err := db.Exec(db.Q(`DELETE FROM blueprint_bin_types WHERE blueprint_id=?`), blueprintID); err != nil {
+// SetPayloadBinTypes replaces all bin type associations for a payload template.
+func (db *DB) SetPayloadBinTypes(payloadID int64, binTypeIDs []int64) error {
+	if _, err := db.Exec(db.Q(`DELETE FROM payload_bin_types WHERE payload_id=?`), payloadID); err != nil {
 		return err
 	}
 	for _, btID := range binTypeIDs {
-		if _, err := db.Exec(db.Q(`INSERT INTO blueprint_bin_types (blueprint_id, bin_type_id) VALUES (?, ?)`), blueprintID, btID); err != nil {
+		if _, err := db.Exec(db.Q(`INSERT INTO payload_bin_types (payload_id, bin_type_id) VALUES (?, ?)`), payloadID, btID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+

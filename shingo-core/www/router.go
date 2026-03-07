@@ -47,7 +47,7 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		"templates/config.html",
 		"templates/rds_explorer.html",
 		"templates/robots.html",
-		"templates/blueprints.html",
+		"templates/payloads.html",
 		"templates/bins.html",
 		"templates/demand.html",
 		"templates/test-orders.html",
@@ -107,9 +107,9 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		r.Get("/orders/enriched", h.apiGetOrderEnriched)
 		r.Get("/robots", h.apiRobotsStatus)
 		r.Get("/nodes/bin-types", h.apiGetNodeBinTypes)
-		r.Get("/blueprints", h.apiListBlueprints)
-		r.Get("/blueprints/manifest", h.apiGetBlueprintManifest)
-		r.Get("/blueprints/bin-types", h.apiGetBlueprintBinTypes)
+		r.Get("/payloads/templates", h.apiListPayloads)
+		r.Get("/payloads/templates/manifest", h.apiGetPayloadManifestTemplate)
+		r.Get("/payloads/templates/bin-types", h.apiGetPayloadBinTypes)
 		r.Get("/payloads", h.apiListPayloads)
 		r.Get("/payloads/detail", h.apiGetPayload)
 		r.Get("/payloads/manifest", h.apiListManifest)
@@ -147,17 +147,16 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 			r.Get("/test-commands", h.apiTestCommandsList)
 			r.Get("/test-commands/status", h.apiTestCommandStatus)
 
-			r.Post("/blueprints/create", h.apiCreateBlueprint)
-			r.Post("/blueprints/update", h.apiUpdateBlueprint)
-			r.Post("/blueprints/manifest", h.apiSaveBlueprintManifest)
-			r.Post("/blueprints/bin-types", h.apiSaveBlueprintBinTypes)
+			r.Post("/payloads/templates/create", h.apiCreatePayloadTemplate)
+			r.Post("/payloads/templates/update", h.apiUpdatePayloadTemplate)
+			r.Post("/payloads/templates/manifest", h.apiSavePayloadManifestTemplate)
+			r.Post("/payloads/templates/bin-types", h.apiSavePayloadBinTypes)
 
 			r.Post("/payloads/manifest/create", h.apiCreateManifestItem)
 			r.Post("/payloads/manifest/update", h.apiUpdateManifestItem)
 			r.Post("/payloads/manifest/delete", h.apiDeleteManifestItem)
 
 			r.Post("/payloads/confirm-manifest", h.apiConfirmManifest)
-			r.Post("/payloads/bulk-register", h.apiBulkRegisterPayloads)
 			r.Get("/payloads/events", h.apiListPayloadEvents)
 			r.Post("/bins/bulk-register", h.apiBulkRegisterBins)
 			r.Post("/bins/action", h.apiBinAction)
@@ -200,10 +199,7 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 
 		// Protected pages
 		r.Get("/test-orders", h.handleTestOrders)
-		r.Get("/blueprints", h.handleBlueprints)
-		r.Get("/payloads", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/blueprints", http.StatusMovedPermanently)
-		})
+		r.Get("/payloads", h.handlePayloadsPage)
 		r.Get("/bins", h.handleBins)
 		r.Get("/diagnostics", h.handleDiagnostics)
 		r.Get("/config", h.handleConfig)
@@ -217,12 +213,7 @@ func NewRouter(eng *engine.Engine, dbg *debuglog.Logger) (http.Handler, func()) 
 		r.Post("/nodes/sync-fleet", h.handleNodeSyncFleet)
 		r.Post("/nodes/sync-scene", h.handleSceneSync)
 
-		// Blueprint management
-		r.Post("/blueprints/create", h.handleBlueprintCreate)
-		r.Post("/blueprints/update", h.handleBlueprintUpdate)
-		r.Post("/blueprints/delete", h.handleBlueprintDelete)
-
-		// Payload management
+		// Payload template management
 		r.Post("/payloads/create", h.handlePayloadCreate)
 		r.Post("/payloads/update", h.handlePayloadUpdate)
 		r.Post("/payloads/delete", h.handlePayloadDelete)

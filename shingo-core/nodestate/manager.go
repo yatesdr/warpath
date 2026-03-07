@@ -50,22 +50,20 @@ func (m *Manager) getNodeStateFromSQL(nodeID int64) (*NodeState, error) {
 	if err != nil {
 		return nil, err
 	}
-	payloads, err := m.db.ListPayloadsByNode(nodeID)
+	bins, err := m.db.ListBinsByNode(nodeID)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]PayloadItem, len(payloads))
-	for i, p := range payloads {
-		items[i] = PayloadItem{
-			ID:                p.ID,
-			BlueprintID:       p.BlueprintID,
-			BlueprintCode:     p.BlueprintCode,
-			BinID:             p.BinID,
-			BinLabel:          p.BinLabel,
-			ManifestConfirmed: p.ManifestConfirmed,
-			Notes:             p.Notes,
-			ClaimedBy:         p.ClaimedBy,
+	items := make([]BinItem, len(bins))
+	for i, b := range bins {
+		items[i] = BinItem{
+			ID:                b.ID,
+			PayloadCode:       b.PayloadCode,
+			Label:             b.Label,
+			ManifestConfirmed: b.ManifestConfirmed,
+			UOPRemaining:      b.UOPRemaining,
+			ClaimedBy:         b.ClaimedBy,
 		}
 	}
 

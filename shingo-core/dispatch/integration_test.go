@@ -41,19 +41,13 @@ func TestDispatcher_RetrieveOrder_FullLifecycle(t *testing.T) {
 	db := testDB(t)
 	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create a bin at the storage node and an available payload
+	// Create a bin at the storage node with a manifest
 	bin := &store.Bin{BinTypeID: 1, Label: "BIN-RET-1", NodeID: &storageNode.ID, Status: "available"}
 	if err := db.CreateBin(bin); err != nil {
 		t.Fatalf("create bin: %v", err)
 	}
-	payload := &store.Payload{
-		BlueprintID: bp.ID,
-		BinID:       &bin.ID,
-		ManifestConfirmed: true,
-	}
-	if err := db.CreatePayload(payload); err != nil {
-		t.Fatalf("create payload: %v", err)
-	}
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 
 	backend := newMockTrackingBackend()
 	d, emitter := newTestDispatcher(t, db, backend)
@@ -64,7 +58,7 @@ func TestDispatcher_RetrieveOrder_FullLifecycle(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "retrieve-uuid-1",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
 	})
@@ -113,13 +107,13 @@ func TestDispatcher_RetrieveOrder_FullLifecycle(t *testing.T) {
 		t.Error("completed at should be set")
 	}
 
-	// Verify payload was claimed
-	payload2, err := db.GetPayload(payload.ID)
+	// Verify bin was claimed
+	claimedBin, err := db.GetBin(bin.ID)
 	if err != nil {
-		t.Fatalf("get payload: %v", err)
+		t.Fatalf("get bin: %v", err)
 	}
-	if payload2.ClaimedBy == nil {
-		t.Error("payload should be claimed")
+	if claimedBin.ClaimedBy == nil {
+		t.Error("bin should be claimed")
 	}
 }
 
@@ -127,17 +121,11 @@ func TestDispatcher_MoveOrder_FullLifecycle(t *testing.T) {
 	db := testDB(t)
 	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create a bin at storage node and an available payload
+	// Create a bin at storage node with a manifest
 	bin := &store.Bin{BinTypeID: 1, Label: "BIN-MOV-1", NodeID: &storageNode.ID, Status: "available"}
 	db.CreateBin(bin)
-	payload := &store.Payload{
-		BlueprintID: bp.ID,
-		BinID:       &bin.ID,
-		ManifestConfirmed: true,
-	}
-	if err := db.CreatePayload(payload); err != nil {
-		t.Fatalf("create payload: %v", err)
-	}
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 
 	backend := newMockTrackingBackend()
 	d, emitter := newTestDispatcher(t, db, backend)
@@ -148,7 +136,7 @@ func TestDispatcher_MoveOrder_FullLifecycle(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "move-uuid-1",
 		OrderType:       OrderTypeMove,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		PickupNode:      storageNode.Name,
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
@@ -183,17 +171,11 @@ func TestDispatcher_StoreOrder_FullLifecycle(t *testing.T) {
 	db := testDB(t)
 	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create a bin at line-side and an available payload
+	// Create a bin at line-side with a manifest
 	bin := &store.Bin{BinTypeID: 1, Label: "BIN-STO-1", NodeID: &lineNode.ID, Status: "available"}
 	db.CreateBin(bin)
-	payload := &store.Payload{
-		BlueprintID: bp.ID,
-		BinID:       &bin.ID,
-		ManifestConfirmed: true,
-	}
-	if err := db.CreatePayload(payload); err != nil {
-		t.Fatalf("create payload: %v", err)
-	}
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 
 	backend := newMockTrackingBackend()
 	d, emitter := newTestDispatcher(t, db, backend)
@@ -204,7 +186,7 @@ func TestDispatcher_StoreOrder_FullLifecycle(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "store-uuid-1",
 		OrderType:       OrderTypeStore,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		PickupNode:      lineNode.Name,
 		Quantity:        1.0,
 	})
@@ -232,36 +214,32 @@ func TestDispatcher_CancelOrder(t *testing.T) {
 	db := testDB(t)
 	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create a bin at storage and an available payload
+	// Create a bin with a manifest
 	bin := &store.Bin{BinTypeID: 1, Label: "BIN-CAN-1", NodeID: &storageNode.ID, Status: "available"}
 	db.CreateBin(bin)
-	payload := &store.Payload{
-		BlueprintID: bp.ID,
-		BinID:       &bin.ID,
-		ManifestConfirmed: true,
-	}
-	db.CreatePayload(payload)
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 
 	backend := newMockTrackingBackend()
 	d, emitter := newTestDispatcher(t, db, backend)
 
 	env := testEnvelope()
 
-	// Submit retrieve order — dispatch will claim the payload
+	// Submit retrieve order — dispatch will claim the bin
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "cancel-uuid-1",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
 	})
 
 	order, _ := db.GetOrderByUUID("cancel-uuid-1")
 
-	// Verify payload was claimed by this order
-	claimed, _ := db.GetPayload(payload.ID)
+	// Verify bin was claimed by this order
+	claimed, _ := db.GetBin(bin.ID)
 	if claimed.ClaimedBy == nil || *claimed.ClaimedBy != order.ID {
-		t.Fatalf("payload should be claimed by order %d before cancel", order.ID)
+		t.Fatalf("bin should be claimed by order %d before cancel", order.ID)
 	}
 
 	// Cancel the order
@@ -276,10 +254,10 @@ func TestDispatcher_CancelOrder(t *testing.T) {
 		t.Errorf("status = %q, want %q", order2.Status, StatusCancelled)
 	}
 
-	// Verify payload was unclaimed by the cancel
-	unclaimed, _ := db.GetPayload(payload.ID)
+	// Verify bin was unclaimed by the cancel
+	unclaimed, _ := db.GetBin(bin.ID)
 	if unclaimed.ClaimedBy != nil {
-		t.Errorf("payload should be unclaimed after cancel, but ClaimedBy = %v", unclaimed.ClaimedBy)
+		t.Errorf("bin should be unclaimed after cancel, but ClaimedBy = %v", unclaimed.ClaimedBy)
 	}
 
 	// Verify cancelled event was emitted
@@ -296,15 +274,11 @@ func TestDispatcher_RedirectOrder(t *testing.T) {
 	lineNode2 := &store.Node{Name: "LINE2-IN", Enabled: true}
 	db.CreateNode(lineNode2)
 
-	// Create a bin and an available payload
+	// Create a bin with a manifest
 	bin := &store.Bin{BinTypeID: 1, Label: "BIN-RED-1", NodeID: &storageNode.ID, Status: "available"}
 	db.CreateBin(bin)
-	payload := &store.Payload{
-		BlueprintID: bp.ID,
-		BinID:       &bin.ID,
-		ManifestConfirmed: true,
-	}
-	db.CreatePayload(payload)
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 
 	backend := newMockTrackingBackend()
 	d, _ := newTestDispatcher(t, db, backend)
@@ -315,7 +289,7 @@ func TestDispatcher_RedirectOrder(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "redirect-uuid-1",
 		OrderType:       OrderTypeMove,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		PickupNode:      storageNode.Name,
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
@@ -365,12 +339,13 @@ func TestDispatcher_SyntheticNodeResolution(t *testing.T) {
 	occBin := &store.Bin{BinTypeID: 1, Label: "BIN-SYN-OCC", NodeID: &child2.ID, Status: "available"}
 	db.CreateBin(occBin)
 
-	// Create source payload at a separate node for FIFO to find
+	// Create source bin at a separate node for FIFO to find
 	srcNode := &store.Node{Name: "SRC-SYN", Enabled: true}
 	db.CreateNode(srcNode)
 	srcBin := &store.Bin{BinTypeID: 1, Label: "BIN-SYN-SRC", NodeID: &srcNode.ID, Status: "available"}
 	db.CreateBin(srcBin)
-	db.CreatePayload(&store.Payload{BlueprintID: bp.ID, BinID: &srcBin.ID, ManifestConfirmed: true})
+	db.SetBinManifest(srcBin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(srcBin.ID)
 
 	// Create dispatcher with resolver
 	backend := newMockTrackingBackend()
@@ -385,7 +360,7 @@ func TestDispatcher_SyntheticNodeResolution(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "syn-retrieve-1",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    parentNode.Name,
 		Quantity:        1.0,
 	})
@@ -440,11 +415,11 @@ func TestDispatcher_MultiOrderToSyntheticNGRP(t *testing.T) {
 	db.SetNodeParent(slot2.ID, zone.ID)
 	db.SetNodeParent(slot3.ID, zone.ID)
 
-	// Create source payloads in a supermarket (blueprint A x2, blueprint B x1)
-	bpA := &store.Blueprint{Code: "PART-MULTI-A", DefaultManifestJSON: "{}"}
-	bpB := &store.Blueprint{Code: "PART-MULTI-B", DefaultManifestJSON: "{}"}
-	db.CreateBlueprint(bpA)
-	db.CreateBlueprint(bpB)
+	// Create source payloads in a supermarket (payload A x2, payload B x1)
+	bpA := &store.Payload{Code: "PART-MULTI-A", DefaultManifestJSON: "{}"}
+	bpB := &store.Payload{Code: "PART-MULTI-B", DefaultManifestJSON: "{}"}
+	db.CreatePayload(bpA)
+	db.CreatePayload(bpB)
 
 	supermarket := &store.Node{Name: "SM-MULTI", Zone: "W", Enabled: true}
 	db.CreateNode(supermarket)
@@ -455,9 +430,12 @@ func TestDispatcher_MultiOrderToSyntheticNGRP(t *testing.T) {
 	db.CreateBin(binA1)
 	db.CreateBin(binA2)
 	db.CreateBin(binB1)
-	db.CreatePayload(&store.Payload{BlueprintID: bpA.ID, BinID: &binA1.ID, ManifestConfirmed: true})
-	db.CreatePayload(&store.Payload{BlueprintID: bpA.ID, BinID: &binA2.ID, ManifestConfirmed: true})
-	db.CreatePayload(&store.Payload{BlueprintID: bpB.ID, BinID: &binB1.ID, ManifestConfirmed: true})
+	db.SetBinManifest(binA1.ID, `{"items":[]}`, bpA.Code, 100)
+	db.ConfirmBinManifest(binA1.ID)
+	db.SetBinManifest(binA2.ID, `{"items":[]}`, bpA.Code, 100)
+	db.ConfirmBinManifest(binA2.ID)
+	db.SetBinManifest(binB1.ID, `{"items":[]}`, bpB.Code, 100)
+	db.ConfirmBinManifest(binB1.ID)
 
 	backend := newMockTrackingBackend()
 	emitter := &mockEmitter{}
@@ -465,27 +443,27 @@ func TestDispatcher_MultiOrderToSyntheticNGRP(t *testing.T) {
 	d := NewDispatcher(db, backend, emitter, "core", "shingo.dispatch", resolver)
 	env := testEnvelope()
 
-	// Order 1: blueprint A -> PRESS-A1
+	// Order 1: payload A -> PRESS-A1
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "multi-1",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-MULTI-A",
+		PayloadCode: "PART-MULTI-A",
 		DeliveryNode:    zone.Name,
 		Quantity:        1,
 	})
-	// Order 2: blueprint A -> PRESS-A1
+	// Order 2: payload A -> PRESS-A1
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "multi-2",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-MULTI-A",
+		PayloadCode: "PART-MULTI-A",
 		DeliveryNode:    zone.Name,
 		Quantity:        1,
 	})
-	// Order 3: blueprint B -> PRESS-A1
+	// Order 3: payload B -> PRESS-A1
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "multi-3",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-MULTI-B",
+		PayloadCode: "PART-MULTI-B",
 		DeliveryNode:    zone.Name,
 		Quantity:        1,
 	})
@@ -521,7 +499,7 @@ func TestDispatcher_MultiOrderToSyntheticNGRP(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "multi-4",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-MULTI-A",
+		PayloadCode: "PART-MULTI-A",
 		DeliveryNode:    zone.Name,
 		Quantity:        1,
 	})
@@ -559,11 +537,11 @@ func TestDispatcher_RetrieveEmptyToSyntheticNGRP(t *testing.T) {
 	occBin := &store.Bin{BinTypeID: 1, Label: "OCC-1", NodeID: &slot1.ID, Status: "available"}
 	db.CreateBin(occBin)
 
-	// Create blueprint with bin type compatibility
-	bp := &store.Blueprint{Code: "EMPTY-BP", DefaultManifestJSON: "{}"}
-	db.CreateBlueprint(bp)
+	// Create payload with bin type compatibility
+	bp := &store.Payload{Code: "EMPTY-BP", DefaultManifestJSON: "{}"}
+	db.CreatePayload(bp)
 	bt, _ := db.GetBinTypeByCode("DEFAULT")
-	db.SetBlueprintBinTypes(bp.ID, []int64{bt.ID})
+	db.SetPayloadBinTypes(bp.ID, []int64{bt.ID})
 
 	// Create an empty compatible bin somewhere (source)
 	srcNode := &store.Node{Name: "EMPTY-SRC", Enabled: true}
@@ -580,7 +558,7 @@ func TestDispatcher_RetrieveEmptyToSyntheticNGRP(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "empty-1",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "EMPTY-BP",
+		PayloadCode: "EMPTY-BP",
 		DeliveryNode:    zone.Name,
 		RetrieveEmpty:   true,
 		Quantity:        1,
@@ -617,12 +595,13 @@ func TestDispatcher_DotNotationBypassesResolver(t *testing.T) {
 	db.CreateNode(child)
 	db.SetNodeParent(child.ID, zone.ID)
 
-	// Create source payload
+	// Create source bin
 	srcNode := &store.Node{Name: "DOT-SRC", Enabled: true}
 	db.CreateNode(srcNode)
 	bin := &store.Bin{BinTypeID: 1, Label: "DOT-BIN-1", NodeID: &srcNode.ID, Status: "available"}
 	db.CreateBin(bin)
-	db.CreatePayload(&store.Payload{BlueprintID: bp.ID, BinID: &bin.ID, ManifestConfirmed: true})
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 
 	backend := newMockTrackingBackend()
 	emitter := &mockEmitter{}
@@ -634,7 +613,7 @@ func TestDispatcher_DotNotationBypassesResolver(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "dot-1",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    "DOT-ZONE.SLOT-X",
 		Quantity:        1,
 	})
@@ -658,11 +637,11 @@ func TestDispatcher_FleetFailure(t *testing.T) {
 	db := testDB(t)
 	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create a bin and an available payload
+	// Create a bin with a manifest
 	bin := &store.Bin{BinTypeID: 1, Label: "BIN-FF-1", NodeID: &storageNode.ID, Status: "available"}
 	db.CreateBin(bin)
-	payload := &store.Payload{BlueprintID: bp.ID, BinID: &bin.ID, ManifestConfirmed: true}
-	db.CreatePayload(payload)
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 
 	// Use mockBackend (returns errors for all fleet ops)
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
@@ -672,7 +651,7 @@ func TestDispatcher_FleetFailure(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "fleet-fail-1",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
 	})
@@ -697,10 +676,10 @@ func TestDispatcher_FleetFailure(t *testing.T) {
 		t.Errorf("status = %q, want %q", order.Status, StatusFailed)
 	}
 
-	// Verify payload was unclaimed after fleet failure
-	p, _ := db.GetPayload(payload.ID)
-	if p.ClaimedBy != nil {
-		t.Errorf("payload should be unclaimed after fleet failure, ClaimedBy = %v", p.ClaimedBy)
+	// Verify bin was unclaimed after fleet failure
+	b, _ := db.GetBin(bin.ID)
+	if b.ClaimedBy != nil {
+		t.Errorf("bin should be unclaimed after fleet failure, ClaimedBy = %v", b.ClaimedBy)
 	}
 }
 
@@ -708,16 +687,16 @@ func TestDispatcher_PriorityHandling(t *testing.T) {
 	db := testDB(t)
 	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create bins and available payloads
+	// Create bins with manifests
 	bin1 := &store.Bin{BinTypeID: 1, Label: "BIN-PRI-1", NodeID: &storageNode.ID, Status: "available"}
 	db.CreateBin(bin1)
-	payload1 := &store.Payload{BlueprintID: bp.ID, BinID: &bin1.ID, ManifestConfirmed: true}
-	db.CreatePayload(payload1)
+	db.SetBinManifest(bin1.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin1.ID)
 
 	bin2 := &store.Bin{BinTypeID: 1, Label: "BIN-PRI-2", NodeID: &storageNode.ID, Status: "available"}
 	db.CreateBin(bin2)
-	payload2 := &store.Payload{BlueprintID: bp.ID, BinID: &bin2.ID, ManifestConfirmed: true}
-	db.CreatePayload(payload2)
+	db.SetBinManifest(bin2.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin2.ID)
 
 	backend := newMockTrackingBackend()
 	d, _ := newTestDispatcher(t, db, backend)
@@ -728,7 +707,7 @@ func TestDispatcher_PriorityHandling(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "low-priority",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
 		Priority:        0,
@@ -738,7 +717,7 @@ func TestDispatcher_PriorityHandling(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "high-priority",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
 		Priority:        10,
@@ -760,11 +739,11 @@ func TestHandleRetrieve_BinTracking(t *testing.T) {
 	db := testDB(t)
 	storageNode, lineNode, bp := setupTestData(t, db)
 
-	// Create bin + payload
+	// Create bin with manifest
 	bin := &store.Bin{BinTypeID: 1, Label: "BIN-BT-1", NodeID: &storageNode.ID, Status: "available"}
 	db.CreateBin(bin)
-	payload := &store.Payload{BlueprintID: bp.ID, BinID: &bin.ID, ManifestConfirmed: true}
-	db.CreatePayload(payload)
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 
 	backend := newMockTrackingBackend()
 	d, _ := newTestDispatcher(t, db, backend)
@@ -773,7 +752,7 @@ func TestHandleRetrieve_BinTracking(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-bin-track",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
 	})
@@ -805,9 +784,9 @@ func TestHandleOrderIngest(t *testing.T) {
 	db := testDB(t)
 	storageNode, _, bp := setupTestData(t, db)
 
-	// Set up blueprint_bin_types for compatible empty bin
+	// Set up payload_bin_types for compatible empty bin
 	bt, _ := db.GetBinTypeByCode("DEFAULT")
-	db.SetBlueprintBinTypes(bp.ID, []int64{bt.ID})
+	db.SetPayloadBinTypes(bp.ID, []int64{bt.ID})
 
 	// Create an empty bin at the station (simulating a bin at a produce location)
 	produceNode := &store.Node{Name: "PRODUCE-1", Enabled: true}
@@ -825,7 +804,7 @@ func TestHandleOrderIngest(t *testing.T) {
 	env := testEnvelope()
 	d.HandleOrderIngest(env, &protocol.OrderIngestRequest{
 		OrderUUID:     "uuid-ingest-1",
-		BlueprintCode: bp.Code,
+		PayloadCode: bp.Code,
 		BinLabel:      "BIN-ING-1",
 		PickupNode:    "PRODUCE-1",
 		Quantity:      100,
@@ -840,17 +819,14 @@ func TestHandleOrderIngest(t *testing.T) {
 		t.Fatalf("received events = %d, want 1", len(emitter.received))
 	}
 
-	// Should have created a payload on the bin
-	payloads, _ := db.ListPayloadsByBin(bin.ID)
-	if len(payloads) != 1 {
-		t.Fatalf("payloads on bin = %d, want 1", len(payloads))
-	}
-	if payloads[0].BlueprintID != bp.ID {
-		t.Errorf("payload blueprint = %d, want %d", payloads[0].BlueprintID, bp.ID)
-	}
-
-	// Bin should be claimed
+	// Bin should have manifest set
 	gotBin, _ := db.GetBin(bin.ID)
+	if gotBin.PayloadCode != bp.Code {
+		t.Errorf("bin payload_code = %q, want %q", gotBin.PayloadCode, bp.Code)
+	}
+	if !gotBin.ManifestConfirmed {
+		t.Error("bin manifest should be confirmed after ingest")
+	}
 	if gotBin.ClaimedBy == nil {
 		t.Fatal("bin should be claimed after ingest")
 	}

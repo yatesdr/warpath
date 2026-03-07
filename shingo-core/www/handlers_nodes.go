@@ -22,11 +22,6 @@ func (h *Handlers) apiListNodes(w http.ResponseWriter, r *http.Request) {
 	h.jsonOK(w, nodes)
 }
 
-type nodeInventoryItem struct {
-	Bin     *store.Bin     `json:"bin"`
-	Payload *store.Payload `json:"payload,omitempty"`
-}
-
 func (h *Handlers) apiNodePayloads(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.parseIDParam(w, r, "id")
 	if !ok {
@@ -37,22 +32,7 @@ func (h *Handlers) apiNodePayloads(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	payloads, _ := h.engine.DB().ListPayloadsByNode(id)
-	payloadByBin := make(map[int64]*store.Payload, len(payloads))
-	for _, p := range payloads {
-		if p.BinID != nil {
-			payloadByBin[*p.BinID] = p
-		}
-	}
-
-	items := make([]nodeInventoryItem, 0, len(bins))
-	for _, b := range bins {
-		items = append(items, nodeInventoryItem{
-			Bin:     b,
-			Payload: payloadByBin[b.ID],
-		})
-	}
-	h.jsonOK(w, items)
+	h.jsonOK(w, bins)
 }
 
 func (h *Handlers) apiNodeState(w http.ResponseWriter, r *http.Request) {
@@ -308,7 +288,7 @@ func (h *Handlers) apiNodeOccupancy(w http.ResponseWriter, r *http.Request) {
 	h.jsonOK(w, results)
 }
 
-// apiNodeDetail returns extended node info (stations, blueprints, properties, children).
+// apiNodeDetail returns extended node info (stations, payloads, properties, children).
 func (h *Handlers) apiNodeDetail(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil {

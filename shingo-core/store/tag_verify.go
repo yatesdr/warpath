@@ -8,7 +8,7 @@ type TagVerifyResult struct {
 }
 
 // VerifyTag performs best-effort QR tag verification for an order.
-// It looks up the claimed payload's bin, learns new tags, and logs events.
+// It looks up the order's bin, learns new tags, and logs audit events.
 // Returns match=true even on mismatch/missing (best-effort: never blocks orders).
 func (db *DB) VerifyTag(orderUUID, tagID, location string) *TagVerifyResult {
 	order, err := db.GetOrderByUUID(orderUUID)
@@ -16,20 +16,11 @@ func (db *DB) VerifyTag(orderUUID, tagID, location string) *TagVerifyResult {
 		return &TagVerifyResult{Match: true, Detail: "order not found — accepting scan"}
 	}
 
-	if order.PayloadID == nil {
-		return &TagVerifyResult{Match: true, Detail: "no payload tracking — accepting scan"}
-	}
-
-	payload, err := db.GetPayload(*order.PayloadID)
-	if err != nil {
-		return &TagVerifyResult{Match: true, Detail: "payload not found — accepting scan"}
-	}
-
-	if payload.BinID == nil {
+	if order.BinID == nil {
 		return &TagVerifyResult{Match: true, Detail: "no bin assigned — accepting scan"}
 	}
 
-	bin, err := db.GetBin(*payload.BinID)
+	bin, err := db.GetBin(*order.BinID)
 	if err != nil {
 		return &TagVerifyResult{Match: true, Detail: "bin not found — accepting scan"}
 	}
@@ -38,25 +29,16 @@ func (db *DB) VerifyTag(orderUUID, tagID, location string) *TagVerifyResult {
 		// Learn the tag on first scan by updating bin label
 		bin.Label = tagID
 		db.UpdateBin(bin)
-		db.CreatePayloadEvent(&PayloadEvent{
-			PayloadID: payload.ID, EventType: PayloadEventTagScanned,
-			Detail: "tag learned from scan: " + tagID, Actor: "system",
-		})
+		db.AppendAudit("bin", bin.ID, "tag_scanned", "", "tag learned from scan: "+tagID, "system")
 		return &TagVerifyResult{Match: true, Detail: "tag learned: " + tagID}
 	}
 
 	if bin.Label == tagID {
-		db.CreatePayloadEvent(&PayloadEvent{
-			PayloadID: payload.ID, EventType: PayloadEventTagScanned,
-			Detail: "tag verified at " + location, Actor: "system",
-		})
+		db.AppendAudit("bin", bin.ID, "tag_scanned", "", "tag verified at "+location, "system")
 		return &TagVerifyResult{Match: true, Detail: "tag match"}
 	}
 
 	// Tag mismatch — best-effort: log but proceed
-	db.CreatePayloadEvent(&PayloadEvent{
-		PayloadID: payload.ID, EventType: PayloadEventTagMismatch,
-		Detail: "expected " + bin.Label + " got " + tagID, Actor: "system",
-	})
+	db.AppendAudit("bin", bin.ID, "tag_mismatch", bin.Label, tagID, "system")
 	return &TagVerifyResult{Match: false, Expected: bin.Label, Detail: "tag mismatch — proceeding (best-effort)"}
 }

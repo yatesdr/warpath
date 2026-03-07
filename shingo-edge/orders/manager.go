@@ -57,8 +57,8 @@ func (m *Manager) dst() protocol.Address {
 }
 
 // CreateRetrieveOrder creates a new retrieve order and enqueues it to the outbox.
-// If blueprintCode is empty and payloadID is set, it is derived from the payload.
-func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quantity int64, deliveryNode, stagingNode, loadType, blueprintCode string, autoConfirm bool) (*store.Order, error) {
+// If payloadCode is empty and payloadID is set, it is derived from the payload.
+func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quantity int64, deliveryNode, stagingNode, loadType, payloadCode string, autoConfirm bool) (*store.Order, error) {
 	orderUUID := uuid.New().String()
 
 	orderID, err := m.db.CreateOrder(orderUUID, TypeRetrieve,
@@ -68,13 +68,13 @@ func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quan
 		return nil, fmt.Errorf("create order: %w", err)
 	}
 
-	// Look up payload description and blueprint code for message
+	// Look up payload description and payload code for message
 	var payloadDesc string
 	if payloadID != nil {
 		if p, err := m.db.GetPayload(*payloadID); err == nil {
 			payloadDesc = p.Description
-			if blueprintCode == "" {
-				blueprintCode = p.BlueprintCode
+			if payloadCode == "" {
+				payloadCode = p.PayloadCode
 			}
 		}
 	}
@@ -84,7 +84,7 @@ func (m *Manager) CreateRetrieveOrder(payloadID *int64, retrieveEmpty bool, quan
 		OrderUUID:     orderUUID,
 		OrderType:     TypeRetrieve,
 		PayloadDesc:   payloadDesc,
-		BlueprintCode: blueprintCode,
+		PayloadCode: payloadCode,
 		RetrieveEmpty: retrieveEmpty,
 		Quantity:      quantity,
 		DeliveryNode:  deliveryNode,
@@ -136,12 +136,12 @@ func (m *Manager) CreateMoveOrder(payloadID *int64, quantity int64, pickupNode, 
 		return nil, fmt.Errorf("create move order: %w", err)
 	}
 
-	// Look up payload description and blueprint code for message
-	var payloadDesc, blueprintCode string
+	// Look up payload description and payload code for message
+	var payloadDesc, payloadCode string
 	if payloadID != nil {
 		if p, err := m.db.GetPayload(*payloadID); err == nil {
 			payloadDesc = p.Description
-			blueprintCode = p.BlueprintCode
+			payloadCode = p.PayloadCode
 		}
 	}
 
@@ -150,7 +150,7 @@ func (m *Manager) CreateMoveOrder(payloadID *int64, quantity int64, pickupNode, 
 		OrderUUID:     orderUUID,
 		OrderType:     TypeMove,
 		PayloadDesc:   payloadDesc,
-		BlueprintCode: blueprintCode,
+		PayloadCode: payloadCode,
 		Quantity:      quantity,
 		DeliveryNode:  deliveryNode,
 		PickupNode:    pickupNode,
@@ -193,19 +193,19 @@ func (m *Manager) CreateComplexOrder(payloadID *int64, quantity int64, steps []p
 		return nil, fmt.Errorf("store steps: %w", err)
 	}
 
-	// Look up payload description and blueprint code for message
-	var payloadDesc, blueprintCode string
+	// Look up payload description and payload code for message
+	var payloadDesc, payloadCode string
 	if payloadID != nil {
 		if p, err := m.db.GetPayload(*payloadID); err == nil {
 			payloadDesc = p.Description
-			blueprintCode = p.BlueprintCode
+			payloadCode = p.PayloadCode
 		}
 	}
 
 	// Build and enqueue protocol envelope
 	env, err := protocol.NewEnvelope(protocol.TypeComplexOrderRequest, m.src(), m.dst(), &protocol.ComplexOrderRequest{
 		OrderUUID:     orderUUID,
-		BlueprintCode: blueprintCode,
+		PayloadCode: payloadCode,
 		PayloadDesc:   payloadDesc,
 		Quantity:      quantity,
 		Steps:         steps,
@@ -228,7 +228,7 @@ func (m *Manager) CreateComplexOrder(payloadID *int64, quantity int64, steps []p
 }
 
 // CreateIngestOrder creates a new ingest order for originating a payload on a bin at a produce station.
-func (m *Manager) CreateIngestOrder(payloadID *int64, blueprintCode, binLabel, pickupNode string, quantity int64, manifest []protocol.IngestManifestItem, autoConfirm bool) (*store.Order, error) {
+func (m *Manager) CreateIngestOrder(payloadID *int64, payloadCode, binLabel, pickupNode string, quantity int64, manifest []protocol.IngestManifestItem, autoConfirm bool) (*store.Order, error) {
 	orderUUID := uuid.New().String()
 
 	orderID, err := m.db.CreateOrder(orderUUID, TypeIngest,
@@ -241,7 +241,7 @@ func (m *Manager) CreateIngestOrder(payloadID *int64, blueprintCode, binLabel, p
 	// Build and enqueue protocol envelope
 	env, err := protocol.NewEnvelope(protocol.TypeOrderIngest, m.src(), m.dst(), &protocol.OrderIngestRequest{
 		OrderUUID:     orderUUID,
-		BlueprintCode: blueprintCode,
+		PayloadCode: payloadCode,
 		BinLabel:      binLabel,
 		PickupNode:    pickupNode,
 		Quantity:      quantity,
@@ -258,7 +258,7 @@ func (m *Manager) CreateIngestOrder(payloadID *int64, blueprintCode, binLabel, p
 		log.Printf("auto-submit ingest order %s: %v", orderUUID, err)
 	}
 
-	m.debug("create: type=%s id=%d uuid=%s blueprint=%s bin=%s", TypeIngest, orderID, orderUUID, blueprintCode, binLabel)
+	m.debug("create: type=%s id=%d uuid=%s payload=%s bin=%s", TypeIngest, orderID, orderUUID, payloadCode, binLabel)
 	m.emitter.EmitOrderCreated(orderID, orderUUID, TypeIngest)
 
 	return m.db.GetOrder(orderID)

@@ -365,7 +365,7 @@ function loadInventory(nodeID) {
       items.forEach(function(item) {
         var b = item.bin;
         var p = item.payload;
-        var payloadInfo = p ? ('<span style="cursor:pointer;text-decoration:underline" onclick="expandPayloadManifest(' + p.id + ')">#' + p.id + ' ' + escapeHtml(p.blueprint_code) + '</span>') : '<span class="text-muted">empty</span>';
+        var payloadInfo = p ? ('<span style="cursor:pointer;text-decoration:underline" onclick="expandPayloadManifest(' + p.id + ')">#' + p.id + ' ' + escapeHtml(p.payload_code) + '</span>') : '<span class="text-muted">empty</span>';
         // Bin status badges
         var binBadges = '<span class="badge badge-' + escapeHtml(b.status) + '">' + escapeHtml(b.status) + '</span>';
         if (b.claimed_by) binBadges += ' <span class="badge badge-claimed">claimed</span>';
@@ -689,7 +689,7 @@ function loadGroupLayout(nodeID) {
             cls = node.payload.claimed_by ? 'sm-claimed' : 'sm-occupied';
             label = '#' + node.payload.id;
           }
-          html += '<span class="sm-cell ' + cls + '" title="' + escapeHtml(node.name) + (node.payload ? ' — ' + escapeHtml(node.payload.blueprint_code || '') : '') + '">' + label + '</span>';
+          html += '<span class="sm-cell ' + cls + '" title="' + escapeHtml(node.name) + (node.payload ? ' — ' + escapeHtml(node.payload.payload_code || '') : '') + '">' + label + '</span>';
         });
         html += '</div>';
       }
@@ -703,7 +703,7 @@ function loadGroupLayout(nodeID) {
             cls = slot.payload.claimed_by ? 'sm-claimed' : 'sm-occupied';
             label = '#' + slot.payload.id;
           }
-          html += '<span class="sm-cell ' + cls + '" title="' + escapeHtml(slot.name) + (slot.payload ? ' — ' + escapeHtml(slot.payload.blueprint_code || '') : '') + '">' + label + '</span>';
+          html += '<span class="sm-cell ' + cls + '" title="' + escapeHtml(slot.name) + (slot.payload ? ' — ' + escapeHtml(slot.payload.payload_code || '') : '') + '">' + label + '</span>';
         });
         html += '</div>';
       });

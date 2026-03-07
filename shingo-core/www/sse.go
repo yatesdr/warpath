@@ -132,9 +132,9 @@ func (h *EventHub) SetupEngineListeners(eng *engine.Engine) {
 	}, engine.EventOrderCancelled)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
-		ev := evt.Payload.(engine.PayloadChangedEvent)
-		h.Broadcast("payload-update", sseJSON(map[string]any{"node_id": ev.NodeID, "action": ev.Action, "payload_id": ev.PayloadID}))
-	}, engine.EventPayloadChanged)
+		ev := evt.Payload.(engine.BinContentsChangedEvent)
+		h.Broadcast("payload-update", sseJSON(map[string]any{"node_id": ev.NodeID, "action": ev.Action, "bin_id": ev.BinID}))
+	}, engine.EventBinContentsChanged)
 
 	eng.Events.SubscribeTypes(func(evt engine.Event) {
 		ev := evt.Payload.(engine.CorrectionAppliedEvent)

@@ -105,7 +105,7 @@ type PayloadReorderEvent struct {
 	Location      string `json:"location"`
 	StagingNode   string `json:"staging_node"`
 	Description   string `json:"description"`
-	BlueprintCode string `json:"blueprint_code"`
+	PayloadCode string `json:"payload_code"`
 	Remaining     int    `json:"remaining"`
 	ReorderPoint  int    `json:"reorder_point"`
 	ReorderQty    int    `json:"reorder_qty"`
@@ -210,7 +210,7 @@ type PayloadNeedsEmptyBinEvent struct {
 	JobStyleID    int64  `json:"job_style_id"`
 	Location      string `json:"location"`
 	StagingNode   string `json:"staging_node"`
-	BlueprintCode string `json:"blueprint_code"`
+	PayloadCode string `json:"payload_code"`
 }
 
 // OrderFailedEvent is emitted when an order transitions to failed state.

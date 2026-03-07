@@ -88,7 +88,7 @@
       '<td>' + t.qty_before + '</td>' +
       '<td>' + t.qty_after + '</td>' +
       '<td>' + escapeHtml(t.bin_label || '-') + '</td>' +
-      '<td>' + escapeHtml(t.blueprint_code || '') + '</td>' +
+      '<td>' + escapeHtml(t.payload_code || '') + '</td>' +
       '<td>' + escapeHtml(t.source_type || '') + '</td>' +
       '<td>' + escapeHtml(t.notes || '') + '</td>';
     return tr;

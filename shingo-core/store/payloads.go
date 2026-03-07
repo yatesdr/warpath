@@ -1,199 +1,98 @@
 package store
 
 import (
-	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 )
 
-type Payload struct {
-	ID                int64      `json:"id"`
-	BlueprintID       int64      `json:"blueprint_id"`
-	BinID             *int64     `json:"bin_id,omitempty"`
-	UOPRemaining      int        `json:"uop_remaining"`
-	ManifestConfirmed bool       `json:"manifest_confirmed"`
-	LoadedAt          *time.Time `json:"loaded_at,omitempty"`
-	Notes             string     `json:"notes"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
-	// Joined fields (read-only, from bin)
-	ClaimedBy     *int64 `json:"claimed_by,omitempty"`
-	BinStatus     string `json:"bin_status"`
-	BlueprintCode string `json:"blueprint_code"`
-	BinLabel      string `json:"bin_label"`
-	NodeName      string `json:"node_name"`
-	NodeID        *int64 `json:"node_id,omitempty"`
+// ManifestEntry describes a single item in a bin's manifest JSON.
+type ManifestEntry struct {
+	CatID    string `json:"catid"`
+	Quantity int64  `json:"qty"`
+	LotCode  string `json:"lot_code,omitempty"`
+	Notes    string `json:"notes,omitempty"`
 }
 
-const payloadJoinQuery = `SELECT p.id, p.blueprint_id, p.bin_id, p.uop_remaining, p.manifest_confirmed, p.loaded_at, p.notes, p.created_at, p.updated_at,
-	b.claimed_by, COALESCE(b.status, ''), bp.code, COALESCE(b.label, ''), COALESCE(n.name, ''), b.node_id
-	FROM payloads p
-	JOIN blueprints bp ON bp.id = p.blueprint_id
-	LEFT JOIN bins b ON b.id = p.bin_id
-	LEFT JOIN nodes n ON n.id = b.node_id`
-
-func scanPayload(row interface{ Scan(...any) error }) (*Payload, error) {
-	var p Payload
-	var binID, claimedBy, nodeID sql.NullInt64
-	var loadedAt, createdAt, updatedAt any
-
-	err := row.Scan(&p.ID, &p.BlueprintID, &binID, &p.UOPRemaining, &p.ManifestConfirmed, &loadedAt, &p.Notes, &createdAt, &updatedAt,
-		&claimedBy, &p.BinStatus, &p.BlueprintCode, &p.BinLabel, &p.NodeName, &nodeID)
-	if err != nil {
-		return nil, err
-	}
-
-	if binID.Valid {
-		p.BinID = &binID.Int64
-	}
-	if claimedBy.Valid {
-		p.ClaimedBy = &claimedBy.Int64
-	}
-	if nodeID.Valid {
-		p.NodeID = &nodeID.Int64
-	}
-	p.LoadedAt = parseTimePtr(loadedAt)
-	p.CreatedAt = parseTime(createdAt)
-	p.UpdatedAt = parseTime(updatedAt)
-	return &p, nil
+// BinManifest is the parsed form of a bin's manifest JSON field.
+type BinManifest struct {
+	Items []ManifestEntry `json:"items"`
 }
 
-func scanPayloads(rows *sql.Rows) ([]*Payload, error) {
-	var payloads []*Payload
-	for rows.Next() {
-		p, err := scanPayload(rows)
-		if err != nil {
-			return nil, err
-		}
-		payloads = append(payloads, p)
-	}
-	return payloads, rows.Err()
-}
-
-func (db *DB) CreatePayload(p *Payload) error {
-	result, err := db.Exec(db.Q(`INSERT INTO payloads (blueprint_id, bin_id, uop_remaining, manifest_confirmed, loaded_at, notes) VALUES (?, ?, ?, ?, ?, ?)`),
-		p.BlueprintID, nullableInt64(p.BinID), p.UOPRemaining, p.ManifestConfirmed, nullableTime(p.LoadedAt), p.Notes)
-	if err != nil {
-		return fmt.Errorf("create payload: %w", err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("create payload last id: %w", err)
-	}
-	p.ID = id
-	db.logPayloadEvent(id, PayloadEventCreated, fmt.Sprintf("blueprint_id=%d confirmed=%v", p.BlueprintID, p.ManifestConfirmed))
-	return nil
-}
-
-// CreatePayloadWithManifest creates a payload and copies the blueprint's manifest
-// items into the payload's manifest in a single transaction.
-func (db *DB) CreatePayloadWithManifest(p *Payload) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	result, err := tx.Exec(db.Q(`INSERT INTO payloads (blueprint_id, bin_id, uop_remaining, manifest_confirmed, loaded_at, notes) VALUES (?, ?, ?, ?, ?, ?)`),
-		p.BlueprintID, nullableInt64(p.BinID), p.UOPRemaining, p.ManifestConfirmed, nullableTime(p.LoadedAt), p.Notes)
-	if err != nil {
-		return fmt.Errorf("create payload: %w", err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("create payload last id: %w", err)
-	}
-	p.ID = id
-
-	// Copy blueprint manifest items
-	rows, err := tx.Query(db.Q(`SELECT part_number, quantity, description FROM blueprint_manifest WHERE blueprint_id=? ORDER BY id`), p.BlueprintID)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var partNumber, description string
-			var quantity int64
-			if err := rows.Scan(&partNumber, &quantity, &description); err != nil {
-				continue
-			}
-			tx.Exec(db.Q(`INSERT INTO manifest_items (payload_id, part_number, quantity, notes) VALUES (?, ?, ?, ?)`),
-				p.ID, partNumber, quantity, description)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit payload+manifest: %w", err)
-	}
-
-	db.logPayloadEvent(id, PayloadEventCreated, fmt.Sprintf("blueprint_id=%d confirmed=%v", p.BlueprintID, p.ManifestConfirmed))
-	return nil
-}
-
-func (db *DB) UpdatePayload(p *Payload) error {
-	_, err := db.Exec(db.Q(`UPDATE payloads SET blueprint_id=?, bin_id=?, uop_remaining=?, manifest_confirmed=?, loaded_at=?, notes=?, updated_at=datetime('now') WHERE id=?`),
-		p.BlueprintID, nullableInt64(p.BinID), p.UOPRemaining, p.ManifestConfirmed, nullableTime(p.LoadedAt), p.Notes, p.ID)
+// SetBinManifest populates a bin's contents from a payload template.
+func (db *DB) SetBinManifest(binID int64, manifestJSON string, payloadCode string, uopRemaining int) error {
+	_, err := db.Exec(db.Q(`UPDATE bins SET payload_code=?, manifest=?, uop_remaining=?, manifest_confirmed=0, updated_at=datetime('now') WHERE id=?`),
+		payloadCode, manifestJSON, uopRemaining, binID)
 	return err
 }
 
-func (db *DB) DeletePayload(id int64) error {
-	_, err := db.Exec(db.Q(`DELETE FROM payloads WHERE id=?`), id)
+// ConfirmBinManifest marks a bin's manifest as confirmed by an operator.
+func (db *DB) ConfirmBinManifest(binID int64) error {
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	_, err := db.Exec(db.Q(`UPDATE bins SET manifest_confirmed=1, loaded_at=?, updated_at=datetime('now') WHERE id=?`),
+		now, binID)
 	return err
 }
 
-func (db *DB) GetPayload(id int64) (*Payload, error) {
-	row := db.QueryRow(db.Q(fmt.Sprintf(`%s WHERE p.id=?`, payloadJoinQuery)), id)
-	return scanPayload(row)
+// ClearBinManifest empties a bin's manifest (bin is now empty).
+func (db *DB) ClearBinManifest(binID int64) error {
+	_, err := db.Exec(db.Q(`UPDATE bins SET payload_code='', manifest=NULL, uop_remaining=0, manifest_confirmed=0, loaded_at=NULL, updated_at=datetime('now') WHERE id=?`),
+		binID)
+	return err
 }
 
-func (db *DB) ListPayloads() ([]*Payload, error) {
-	rows, err := db.Query(db.Q(fmt.Sprintf(`%s ORDER BY p.id DESC`, payloadJoinQuery)))
+// ParseManifest parses a bin's manifest JSON into a BinManifest struct.
+func (b *Bin) ParseManifest() (*BinManifest, error) {
+	if b.Manifest == nil || *b.Manifest == "" {
+		return &BinManifest{}, nil
+	}
+	var m BinManifest
+	if err := json.Unmarshal([]byte(*b.Manifest), &m); err != nil {
+		return nil, fmt.Errorf("parse manifest: %w", err)
+	}
+	return &m, nil
+}
+
+// GetBinManifest fetches a bin and parses its manifest.
+func (db *DB) GetBinManifest(binID int64) (*BinManifest, error) {
+	bin, err := db.GetBin(binID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanPayloads(rows)
+	return bin.ParseManifest()
 }
 
-// ListPayloadsByNode returns payloads at a node via bin join.
-func (db *DB) ListPayloadsByNode(nodeID int64) ([]*Payload, error) {
-	rows, err := db.Query(db.Q(fmt.Sprintf(`%s WHERE b.node_id=? ORDER BY p.id DESC`, payloadJoinQuery)), nodeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanPayloads(rows)
-}
-
-// FindSourcePayloadFIFO finds the best unclaimed payload at an enabled storage node using FIFO.
-func (db *DB) FindSourcePayloadFIFO(blueprintCode string) (*Payload, error) {
+// FindSourceBinFIFO finds the best unclaimed bin at an enabled storage node
+// matching the given payload code, using FIFO ordering.
+func (db *DB) FindSourceBinFIFO(payloadCode string) (*Bin, error) {
 	row := db.QueryRow(db.Q(fmt.Sprintf(`%s
-		WHERE bp.code = ?
+		WHERE b.payload_code = ?
 		  AND n.enabled = 1
 		  AND n.is_synthetic = 0
 		  AND b.claimed_by IS NULL
-		  AND p.manifest_confirmed = 1
-		  AND COALESCE(b.status, 'available') NOT IN ('staged', 'maintenance', 'flagged', 'retired')
-		ORDER BY COALESCE(p.loaded_at, p.created_at) ASC
-		LIMIT 1`, payloadJoinQuery)), blueprintCode)
-	return scanPayload(row)
+		  AND b.manifest_confirmed = 1
+		  AND b.status NOT IN ('staged', 'maintenance', 'flagged', 'retired')
+		ORDER BY COALESCE(b.loaded_at, b.created_at) ASC
+		LIMIT 1`, binJoinQuery)), payloadCode)
+	return scanBin(row)
 }
 
-// FindStorageDestination finds the best storage node for a payload's blueprint.
-// Each physical node holds at most one bin.
-func (db *DB) FindStorageDestination(blueprintID int64) (*Node, error) {
-	// Try consolidation: storage nodes that already have bins with payloads of this blueprint.
+// FindStorageDestination finds the best storage node for a bin.
+// Prefers nodes with existing bins of the same payload code, then empty nodes.
+func (db *DB) FindStorageDestination(payloadCode string) (*Node, error) {
+	// Try consolidation: storage nodes with bins of same payload code
 	row := db.QueryRow(db.Q(fmt.Sprintf(`
 		SELECT %s %s WHERE n.id = (
 			SELECT sn.id
 			FROM nodes sn
-			JOIN bins match_b ON match_b.node_id = sn.id
-			JOIN payloads match_p ON match_p.bin_id = match_b.id AND match_p.blueprint_id = ?
+			JOIN bins match_b ON match_b.node_id = sn.id AND match_b.payload_code = ?
 			LEFT JOIN bins total_b ON total_b.node_id = sn.id
 			WHERE sn.enabled = 1 AND sn.is_synthetic = 0
 			GROUP BY sn.id
 			HAVING COUNT(DISTINCT total_b.id) < 1
 			ORDER BY COUNT(DISTINCT match_b.id) DESC
 			LIMIT 1
-		)`, nodeSelectCols, nodeFromClause)), blueprintID)
+		)`, nodeSelectCols, nodeFromClause)), payloadCode)
 	n, err := scanNode(row)
 	if err == nil {
 		return n, nil
@@ -214,13 +113,45 @@ func (db *DB) FindStorageDestination(blueprintID int64) (*Node, error) {
 	return scanNode(row)
 }
 
-// ListPayloadsByBin returns all payloads associated with a specific bin.
-func (db *DB) ListPayloadsByBin(binID int64) ([]*Payload, error) {
-	rows, err := db.Query(db.Q(fmt.Sprintf(`%s WHERE p.bin_id=?`, payloadJoinQuery)), binID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanPayloads(rows)
+// DecrementBinUOP reduces the uop_remaining on a bin.
+func (db *DB) DecrementBinUOP(binID int64, delta int) error {
+	_, err := db.Exec(db.Q(`UPDATE bins SET uop_remaining = MAX(0, uop_remaining - ?), updated_at=datetime('now') WHERE id=?`),
+		delta, binID)
+	return err
 }
 
+// SetBinManifestFromTemplate sets a bin's manifest from a payload template's
+// manifest items and marks it as confirmed.
+func (db *DB) SetBinManifestFromTemplate(binID int64, payloadCode string, uopCapacity int) error {
+	// Look up the payload template
+	p, err := db.GetPayloadByCode(payloadCode)
+	if err != nil {
+		return fmt.Errorf("payload template %q: %w", payloadCode, err)
+	}
+
+	// Get the template manifest items
+	items, err := db.ListPayloadManifest(p.ID)
+	if err != nil {
+		return fmt.Errorf("payload manifest: %w", err)
+	}
+
+	// Build manifest JSON from template items
+	manifest := BinManifest{Items: make([]ManifestEntry, len(items))}
+	for i, item := range items {
+		manifest.Items[i] = ManifestEntry{
+			CatID:    item.PartNumber,
+			Quantity: item.Quantity,
+		}
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return fmt.Errorf("marshal manifest: %w", err)
+	}
+
+	uop := uopCapacity
+	if uop == 0 {
+		uop = p.UOPCapacity
+	}
+
+	return db.SetBinManifest(binID, string(manifestJSON), payloadCode, uop)
+}

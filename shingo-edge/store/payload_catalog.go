@@ -2,7 +2,7 @@ package store
 
 import "time"
 
-type BlueprintCatalogEntry struct {
+type PayloadCatalogEntry struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Code        string    `json:"code"`
@@ -11,8 +11,8 @@ type BlueprintCatalogEntry struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-func (db *DB) UpsertBlueprintCatalog(entry *BlueprintCatalogEntry) error {
-	_, err := db.Exec(`INSERT INTO blueprint_catalog (id, name, code, description, uop_capacity, updated_at)
+func (db *DB) UpsertPayloadCatalog(entry *PayloadCatalogEntry) error {
+	_, err := db.Exec(`INSERT INTO payload_catalog (id, name, code, description, uop_capacity, updated_at)
 		VALUES (?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name, code=excluded.code,
 		description=excluded.description, uop_capacity=excluded.uop_capacity, updated_at=datetime('now')`,
@@ -20,16 +20,16 @@ func (db *DB) UpsertBlueprintCatalog(entry *BlueprintCatalogEntry) error {
 	return err
 }
 
-func (db *DB) ListBlueprintCatalog() ([]*BlueprintCatalogEntry, error) {
-	rows, err := db.Query(`SELECT id, name, code, description, uop_capacity, updated_at FROM blueprint_catalog ORDER BY name`)
+func (db *DB) ListPayloadCatalog() ([]*PayloadCatalogEntry, error) {
+	rows, err := db.Query(`SELECT id, name, code, description, uop_capacity, updated_at FROM payload_catalog ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var entries []*BlueprintCatalogEntry
+	var entries []*PayloadCatalogEntry
 	for rows.Next() {
-		e := &BlueprintCatalogEntry{}
+		e := &PayloadCatalogEntry{}
 		if err := rows.Scan(&e.ID, &e.Name, &e.Code, &e.Description, &e.UOPCapacity, &e.UpdatedAt); err != nil {
 			continue
 		}
@@ -38,9 +38,9 @@ func (db *DB) ListBlueprintCatalog() ([]*BlueprintCatalogEntry, error) {
 	return entries, nil
 }
 
-func (db *DB) GetBlueprintByName(name string) (*BlueprintCatalogEntry, error) {
-	e := &BlueprintCatalogEntry{}
-	err := db.QueryRow(`SELECT id, name, code, description, uop_capacity, updated_at FROM blueprint_catalog WHERE name=?`, name).
+func (db *DB) GetPayloadCatalogByName(name string) (*PayloadCatalogEntry, error) {
+	e := &PayloadCatalogEntry{}
+	err := db.QueryRow(`SELECT id, name, code, description, uop_capacity, updated_at FROM payload_catalog WHERE name=?`, name).
 		Scan(&e.ID, &e.Name, &e.Code, &e.Description, &e.UOPCapacity, &e.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -48,12 +48,13 @@ func (db *DB) GetBlueprintByName(name string) (*BlueprintCatalogEntry, error) {
 	return e, nil
 }
 
-func (db *DB) GetBlueprintByCode(code string) (*BlueprintCatalogEntry, error) {
-	e := &BlueprintCatalogEntry{}
-	err := db.QueryRow(`SELECT id, name, code, description, uop_capacity, updated_at FROM blueprint_catalog WHERE code=?`, code).
+func (db *DB) GetPayloadCatalogByCode(code string) (*PayloadCatalogEntry, error) {
+	e := &PayloadCatalogEntry{}
+	err := db.QueryRow(`SELECT id, name, code, description, uop_capacity, updated_at FROM payload_catalog WHERE code=?`, code).
 		Scan(&e.ID, &e.Name, &e.Code, &e.Description, &e.UOPCapacity, &e.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return e, nil
 }
+

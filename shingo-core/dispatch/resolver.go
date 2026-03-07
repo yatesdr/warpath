@@ -6,15 +6,15 @@ import (
 	"shingocore/store"
 )
 
-// ResolveResult carries the resolved node and optionally a specific payload.
+// ResolveResult carries the resolved node and optionally a specific bin.
 type ResolveResult struct {
-	Node    *store.Node
-	Payload *store.Payload // set when resolver identified a specific payload
+	Node *store.Node
+	Bin  *store.Bin // set when resolver identified a specific bin
 }
 
 // NodeResolver resolves a synthetic node to a physical child node.
 type NodeResolver interface {
-	Resolve(syntheticNode *store.Node, orderType string, blueprintID *int64, binTypeID *int64) (*ResolveResult, error)
+	Resolve(syntheticNode *store.Node, orderType string, payloadCode string, binTypeID *int64) (*ResolveResult, error)
 }
 
 // DefaultResolver resolves synthetic nodes using the database.
@@ -25,7 +25,7 @@ type DefaultResolver struct {
 }
 
 // Resolve selects the best physical child of a synthetic node for the given order type.
-func (r *DefaultResolver) Resolve(syntheticNode *store.Node, orderType string, blueprintID *int64, binTypeID *int64) (*ResolveResult, error) {
+func (r *DefaultResolver) Resolve(syntheticNode *store.Node, orderType string, payloadCode string, binTypeID *int64) (*ResolveResult, error) {
 	children, err := r.DB.ListChildNodes(syntheticNode.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list children of %s: %w", syntheticNode.Name, err)
@@ -39,21 +39,21 @@ func (r *DefaultResolver) Resolve(syntheticNode *store.Node, orderType string, b
 		gr := &GroupResolver{DB: r.DB, LaneLock: r.LaneLock}
 		switch orderType {
 		case OrderTypeRetrieve:
-			return gr.ResolveRetrieve(syntheticNode, blueprintID)
+			return gr.ResolveRetrieve(syntheticNode, payloadCode)
 		case OrderTypeStore:
-			return gr.ResolveStore(syntheticNode, blueprintID, binTypeID)
+			return gr.ResolveStore(syntheticNode, payloadCode, binTypeID)
 		}
 	}
 
 	switch orderType {
 	case OrderTypeRetrieve:
-		node, err := r.resolveRetrieve(children, blueprintID)
+		node, err := r.resolveRetrieve(children, payloadCode)
 		if err != nil {
 			return nil, err
 		}
 		return &ResolveResult{Node: node}, nil
 	case OrderTypeStore:
-		node, err := r.resolveStore(children, blueprintID)
+		node, err := r.resolveStore(children, payloadCode)
 		if err != nil {
 			return nil, err
 		}
@@ -68,31 +68,31 @@ func (r *DefaultResolver) Resolve(syntheticNode *store.Node, orderType string, b
 	}
 }
 
-// resolveRetrieve finds the child node with the oldest unclaimed payload of the requested blueprint.
-func (r *DefaultResolver) resolveRetrieve(children []*store.Node, blueprintID *int64) (*store.Node, error) {
+// resolveRetrieve finds the child node with the oldest unclaimed bin matching the payload code.
+func (r *DefaultResolver) resolveRetrieve(children []*store.Node, payloadCode string) (*store.Node, error) {
 	for _, child := range children {
 		if !child.Enabled {
 			continue
 		}
-		payloads, err := r.DB.ListPayloadsByNode(child.ID)
+		bins, err := r.DB.ListBinsByNode(child.ID)
 		if err != nil {
 			continue
 		}
-		for _, p := range payloads {
-			if p.ClaimedBy != nil || !p.ManifestConfirmed || p.BinStatus != "available" {
+		for _, b := range bins {
+			if b.ClaimedBy != nil || !b.ManifestConfirmed || b.Status != "available" {
 				continue
 			}
-			if blueprintID != nil && p.BlueprintID != *blueprintID {
+			if payloadCode != "" && b.PayloadCode != payloadCode {
 				continue
 			}
 			return child, nil
 		}
 	}
-	return nil, fmt.Errorf("no child node has an available unclaimed payload")
+	return nil, fmt.Errorf("no child node has an available unclaimed bin")
 }
 
 // resolveStore finds the best child node for storage (consolidation-first, then emptiest).
-func (r *DefaultResolver) resolveStore(children []*store.Node, blueprintID *int64) (*store.Node, error) {
+func (r *DefaultResolver) resolveStore(children []*store.Node, payloadCode string) (*store.Node, error) {
 	type candidate struct {
 		node     *store.Node
 		count    int
@@ -114,10 +114,10 @@ func (r *DefaultResolver) resolveStore(children []*store.Node, blueprintID *int6
 		}
 
 		hasMatch := false
-		if blueprintID != nil {
-			payloads, _ := r.DB.ListPayloadsByNode(child.ID)
-			for _, p := range payloads {
-				if p.BlueprintID == *blueprintID {
+		if payloadCode != "" {
+			bins, _ := r.DB.ListBinsByNode(child.ID)
+			for _, b := range bins {
+				if b.PayloadCode == payloadCode {
 					hasMatch = true
 					break
 				}

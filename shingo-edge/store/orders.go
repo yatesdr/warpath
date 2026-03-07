@@ -31,7 +31,7 @@ type Order struct {
 	// Joined fields
 	PayloadDesc     string `json:"payload_desc"`
 	PayloadLocation string `json:"payload_location"`
-	BlueprintCode   string `json:"blueprint_code"`
+	PayloadCode   string `json:"payload_code"`
 	LineName        string `json:"line_name"`
 }
 
@@ -49,7 +49,7 @@ const orderSelectCols = `o.id, o.uuid, o.order_type, o.status, o.payload_id, o.r
 	o.delivery_node, o.staging_node, o.pickup_node, o.load_type,
 	o.waybill_id, o.external_ref, o.final_count,
 	o.count_confirmed, o.eta, o.auto_confirm, o.staged_expire_at, o.created_at, o.updated_at,
-	COALESCE(p.description, ''), COALESCE(p.location, ''), COALESCE(p.blueprint_code, ''), COALESCE(pl.name, '')`
+	COALESCE(p.description, ''), COALESCE(p.location, ''), COALESCE(p.payload_code, ''), COALESCE(pl.name, '')`
 
 const orderJoin = `FROM orders o
 	LEFT JOIN payloads p ON p.id = o.payload_id
@@ -104,7 +104,7 @@ func scanOrders(rows *sql.Rows) ([]Order, error) {
 			&o.DeliveryNode, &o.StagingNode, &o.PickupNode, &o.LoadType,
 			&o.WaybillID, &o.ExternalRef, &o.FinalCount,
 			&o.CountConfirmed, &o.ETA, &o.AutoConfirm, &stagedExpireAt, &createdAt, &updatedAt,
-			&o.PayloadDesc, &o.PayloadLocation, &o.BlueprintCode, &o.LineName); err != nil {
+			&o.PayloadDesc, &o.PayloadLocation, &o.PayloadCode, &o.LineName); err != nil {
 			return nil, err
 		}
 		if stagedExpireAt.Valid {
@@ -125,7 +125,7 @@ func scanOrder(o *Order, scanner interface{ Scan(...interface{}) error }) error 
 		&o.DeliveryNode, &o.StagingNode, &o.PickupNode, &o.LoadType,
 		&o.WaybillID, &o.ExternalRef, &o.FinalCount,
 		&o.CountConfirmed, &o.ETA, &o.AutoConfirm, &stagedExpireAt, &createdAt, &updatedAt,
-		&o.PayloadDesc, &o.PayloadLocation, &o.BlueprintCode, &o.LineName); err != nil {
+		&o.PayloadDesc, &o.PayloadLocation, &o.PayloadCode, &o.LineName); err != nil {
 		return err
 	}
 	if stagedExpireAt.Valid {

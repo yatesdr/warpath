@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS payloads (
     reorder_qty      INTEGER NOT NULL DEFAULT 1,
     retrieve_empty   INTEGER NOT NULL DEFAULT 1,
     status           TEXT NOT NULL DEFAULT 'active',
-    blueprint_code   TEXT NOT NULL DEFAULT '',
+    payload_code     TEXT NOT NULL DEFAULT '',
     auto_reorder     INTEGER NOT NULL DEFAULT 1,
     role             TEXT NOT NULL DEFAULT 'consume',
     auto_remove_empties INTEGER NOT NULL DEFAULT 0,
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS hourly_counts (
     UNIQUE(line_id, job_style_id, count_date, hour)
 );
 
-CREATE TABLE IF NOT EXISTS blueprint_catalog (
+CREATE TABLE IF NOT EXISTS payload_catalog (
     id           INTEGER PRIMARY KEY,
     name         TEXT NOT NULL,
     code         TEXT NOT NULL DEFAULT '',
@@ -184,9 +184,12 @@ func (db *DB) migrate() error {
 	db.Exec("ALTER TABLE payloads ADD COLUMN blueprint_code TEXT NOT NULL DEFAULT ''")
 	// Migrate has_description → drop (SQLite may not support DROP COLUMN on older versions)
 	db.Exec("ALTER TABLE payloads DROP COLUMN has_description")
-	// Rename style_catalog → blueprint_catalog and drop form_factor
+	// Rename style_catalog → blueprint_catalog → payload_catalog and drop form_factor
 	db.Exec("ALTER TABLE style_catalog RENAME TO blueprint_catalog")
 	db.Exec("ALTER TABLE blueprint_catalog DROP COLUMN form_factor")
+	db.Exec("ALTER TABLE blueprint_catalog RENAME TO payload_catalog")
+	// Rename blueprint_code → payload_code on payloads table
+	db.Exec("ALTER TABLE payloads RENAME COLUMN blueprint_code TO payload_code")
 	db.Exec("ALTER TABLE payloads ADD COLUMN auto_reorder INTEGER NOT NULL DEFAULT 1")
 	db.Exec("ALTER TABLE location_nodes RENAME COLUMN node_type TO process")
 

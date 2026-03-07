@@ -82,15 +82,15 @@ func (e *Engine) wireEventHandlers() {
 	// When an order is received, audit it
 	e.Events.SubscribeTypes(func(evt Event) {
 		ev := evt.Payload.(OrderReceivedEvent)
-		e.logFn("engine: order %d received from %s: %s %s -> %s", ev.OrderID, ev.StationID, ev.OrderType, ev.BlueprintCode, ev.DeliveryNode)
-		e.db.AppendAudit("order", ev.OrderID, "received", "", fmt.Sprintf("%s %s from %s", ev.OrderType, ev.BlueprintCode, ev.StationID), "system")
+		e.logFn("engine: order %d received from %s: %s %s -> %s", ev.OrderID, ev.StationID, ev.OrderType, ev.PayloadCode, ev.DeliveryNode)
+		e.db.AppendAudit("order", ev.OrderID, "received", "", fmt.Sprintf("%s %s from %s", ev.OrderType, ev.PayloadCode, ev.StationID), "system")
 	}, EventOrderReceived)
 
-	// Payload changes: audit
+	// Bin contents changes: audit
 	e.Events.SubscribeTypes(func(evt Event) {
-		ev := evt.Payload.(PayloadChangedEvent)
-		e.db.AppendAudit("payload", ev.PayloadID, ev.Action, "", fmt.Sprintf("blueprint=%s node=%d", ev.BlueprintCode, ev.NodeID), "system")
-	}, EventPayloadChanged)
+		ev := evt.Payload.(BinContentsChangedEvent)
+		e.db.AppendAudit("bin", ev.BinID, ev.Action, "", fmt.Sprintf("payload=%s node=%d", ev.PayloadCode, ev.NodeID), "system")
+	}, EventBinContentsChanged)
 
 	// Node updates: audit
 	e.Events.SubscribeTypes(func(evt Event) {
@@ -104,13 +104,13 @@ func (e *Engine) wireEventHandlers() {
 		e.db.AppendAudit("correction", ev.CorrectionID, ev.CorrectionType, "", ev.Reason, ev.Actor)
 	}, EventCorrectionApplied)
 
-	// CMS transaction logging on payload movement
+	// CMS transaction logging on bin movement
 	e.Events.SubscribeTypes(func(evt Event) {
-		ev := evt.Payload.(PayloadChangedEvent)
+		ev := evt.Payload.(BinContentsChangedEvent)
 		if ev.Action == "moved" && ev.FromNodeID != 0 && ev.ToNodeID != 0 {
 			e.RecordMovementTransactions(ev)
 		}
-	}, EventPayloadChanged)
+	}, EventBinContentsChanged)
 }
 
 func (e *Engine) handleVendorStatusChange(ev OrderStatusChangedEvent) {
@@ -249,16 +249,16 @@ func (e *Engine) handleOrderCompleted(ev OrderCompletedEvent) {
 			e.db.StageBin(*order.BinID, expiresAt)
 		}
 
-		// Emit payload changed for any payloads on the bin
-		payloads, _ := e.db.ListPayloadsByBin(*order.BinID)
-		for _, p := range payloads {
-			e.Events.Emit(Event{Type: EventPayloadChanged, Payload: PayloadChangedEvent{
-				Action:        "moved",
-				PayloadID:     p.ID,
-				BlueprintCode: p.BlueprintCode,
-				FromNodeID:    sourceNodeID,
-				ToNodeID:      destNode.ID,
-				NodeID:        destNode.ID,
+		// Emit bin contents changed
+		bin, _ := e.db.GetBin(*order.BinID)
+		if bin != nil {
+			e.Events.Emit(Event{Type: EventBinContentsChanged, Payload: BinContentsChangedEvent{
+				Action:      "moved",
+				BinID:       bin.ID,
+				PayloadCode: bin.PayloadCode,
+				FromNodeID:  sourceNodeID,
+				ToNodeID:    destNode.ID,
+				NodeID:      destNode.ID,
 			}})
 		}
 	}

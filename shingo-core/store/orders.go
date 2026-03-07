@@ -24,7 +24,6 @@ type Order struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	BlueprintID   *int64     `json:"blueprint_id,omitempty"`
 	PayloadID     *int64     `json:"payload_id,omitempty"`
 	ParentOrderID *int64     `json:"parent_order_id,omitempty"`
 	Sequence      int        `json:"sequence"`
@@ -40,11 +39,11 @@ type OrderHistory struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-const orderSelectCols = `id, edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, vendor_order_id, vendor_state, robot_id, priority, payload_desc, error_detail, created_at, updated_at, completed_at, blueprint_id, payload_id, parent_order_id, sequence, steps_json, bin_id`
+const orderSelectCols = `id, edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, vendor_order_id, vendor_state, robot_id, priority, payload_desc, error_detail, created_at, updated_at, completed_at, payload_id, parent_order_id, sequence, steps_json, bin_id`
 
 func scanOrder(row interface{ Scan(...any) error }) (*Order, error) {
 	var o Order
-	var blueprintID, payloadID, parentOrderID, binID sql.NullInt64
+	var payloadID, parentOrderID, binID sql.NullInt64
 	var createdAt, updatedAt any
 	var completedAt any
 
@@ -52,12 +51,9 @@ func scanOrder(row interface{ Scan(...any) error }) (*Order, error) {
 		&o.Quantity,
 		&o.PickupNode, &o.DeliveryNode, &o.VendorOrderID, &o.VendorState, &o.RobotID,
 		&o.Priority, &o.PayloadDesc, &o.ErrorDetail, &createdAt, &updatedAt, &completedAt,
-		&blueprintID, &payloadID, &parentOrderID, &o.Sequence, &o.StepsJSON, &binID)
+		&payloadID, &parentOrderID, &o.Sequence, &o.StepsJSON, &binID)
 	if err != nil {
 		return nil, err
-	}
-	if blueprintID.Valid {
-		o.BlueprintID = &blueprintID.Int64
 	}
 	if payloadID.Valid {
 		o.PayloadID = &payloadID.Int64
@@ -87,11 +83,11 @@ func scanOrders(rows *sql.Rows) ([]*Order, error) {
 }
 
 func (db *DB) CreateOrder(o *Order) error {
-	result, err := db.Exec(db.Q(`INSERT INTO orders (edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, priority, payload_desc, blueprint_id, payload_id, parent_order_id, sequence, steps_json, bin_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+	result, err := db.Exec(db.Q(`INSERT INTO orders (edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, priority, payload_desc, payload_id, parent_order_id, sequence, steps_json, bin_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		o.EdgeUUID, o.StationID, o.OrderType, o.Status,
 		o.Quantity,
 		o.PickupNode, o.DeliveryNode, o.Priority, o.PayloadDesc,
-		nullableInt64(o.BlueprintID), nullableInt64(o.PayloadID),
+		nullableInt64(o.PayloadID),
 		nullableInt64(o.ParentOrderID), o.Sequence, o.StepsJSON,
 		nullableInt64(o.BinID))
 	if err != nil {
@@ -107,8 +103,8 @@ func (db *DB) CreateOrder(o *Order) error {
 
 // CompoundChild describes a child order to create in a compound order transaction.
 type CompoundChild struct {
-	Order     *Order
-	PayloadID int64 // payload to claim for this child
+	Order *Order
+	BinID int64 // bin to claim for this child
 }
 
 // CreateCompoundChildren creates all child orders and claims their payloads in a single transaction.
@@ -121,11 +117,11 @@ func (db *DB) CreateCompoundChildren(children []CompoundChild) error {
 
 	for _, c := range children {
 		o := c.Order
-		result, err := tx.Exec(db.Q(`INSERT INTO orders (edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, priority, payload_desc, blueprint_id, payload_id, parent_order_id, sequence, steps_json, bin_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+		result, err := tx.Exec(db.Q(`INSERT INTO orders (edge_uuid, station_id, order_type, status, quantity, pickup_node, delivery_node, priority, payload_desc, payload_id, parent_order_id, sequence, steps_json, bin_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 			o.EdgeUUID, o.StationID, o.OrderType, o.Status,
 			o.Quantity,
 			o.PickupNode, o.DeliveryNode, o.Priority, o.PayloadDesc,
-			nullableInt64(o.BlueprintID), nullableInt64(o.PayloadID),
+			nullableInt64(o.PayloadID),
 			nullableInt64(o.ParentOrderID), o.Sequence, o.StepsJSON,
 			nullableInt64(o.BinID))
 		if err != nil {

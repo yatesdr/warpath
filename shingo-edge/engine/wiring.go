@@ -84,7 +84,7 @@ func (e *Engine) scanProducePayloads() {
 		e.debugFn("startup: produce payload %d needs empty bin", p.ID)
 		e.Events.Emit(Event{Type: EventPayloadNeedsEmptyBin, Payload: PayloadNeedsEmptyBinEvent{
 			PayloadID: p.ID, LineID: lineID, JobStyleID: p.JobStyleID,
-			Location: p.Location, StagingNode: p.StagingNode, BlueprintCode: p.BlueprintCode,
+			Location: p.Location, StagingNode: p.StagingNode, PayloadCode: p.PayloadCode,
 		}})
 	}
 }
@@ -139,7 +139,7 @@ func (e *Engine) handleCounterDelta(delta CounterDeltaEvent) {
 			}
 			e.Events.Emit(Event{Type: EventPayloadReorder, Payload: PayloadReorderEvent{
 				PayloadID: p.ID, LineID: delta.LineID, JobStyleID: p.JobStyleID, Location: p.Location,
-				StagingNode: p.StagingNode, Description: p.Description, BlueprintCode: p.BlueprintCode,
+				StagingNode: p.StagingNode, Description: p.Description, PayloadCode: p.PayloadCode,
 				Remaining: newRemaining, ReorderPoint: p.ReorderPoint,
 				ReorderQty: p.ReorderQty, RetrieveEmpty: p.RetrieveEmpty,
 			}})
@@ -158,7 +158,7 @@ func (e *Engine) handlePayloadReorder(reorder PayloadReorderEvent) {
 	if err == nil && payload.AutoRemoveEmpties && payload.StagingNode != "" {
 		// Complex order: pickup from storage → stage → dwell → pickup from staging → deliver to line
 		steps := []protocol.ComplexOrderStep{
-			{Action: "pickup", NodeGroup: ""}, // core resolves source via blueprint
+			{Action: "pickup", NodeGroup: ""}, // core resolves source via payload
 			{Action: "dropoff", Node: payload.StagingNode},
 			{Action: "wait"},
 			{Action: "pickup", Node: payload.StagingNode},
@@ -232,7 +232,7 @@ func (e *Engine) handleOrderCompleted(completed OrderCompletedEvent) {
 			}
 			e.Events.Emit(Event{Type: EventPayloadNeedsEmptyBin, Payload: PayloadNeedsEmptyBinEvent{
 				PayloadID: payload.ID, LineID: lineID, JobStyleID: payload.JobStyleID,
-				Location: payload.Location, StagingNode: payload.StagingNode, BlueprintCode: payload.BlueprintCode,
+				Location: payload.Location, StagingNode: payload.StagingNode, PayloadCode: payload.PayloadCode,
 			}})
 		}
 	}
@@ -241,15 +241,15 @@ func (e *Engine) handleOrderCompleted(completed OrderCompletedEvent) {
 // resetPayloadOnRetrieve resets a consume payload to full after a retrieve order delivers.
 func (e *Engine) resetPayloadOnRetrieve(payload *store.Payload) {
 	resetUnits := payload.ProductionUnits
-	// If ProductionUnits not configured, try blueprint catalog UOPCapacity
-	if resetUnits == 0 && payload.BlueprintCode != "" {
-		if bp, err := e.db.GetBlueprintByCode(payload.BlueprintCode); err == nil && bp.UOPCapacity > 0 {
+	// If ProductionUnits not configured, try payload catalog UOPCapacity
+	if resetUnits == 0 && payload.PayloadCode != "" {
+		if bp, err := e.db.GetPayloadCatalogByCode(payload.PayloadCode); err == nil && bp.UOPCapacity > 0 {
 			resetUnits = bp.UOPCapacity
 		}
 	}
-	// Transitional fallback for payloads without blueprint_code yet
+	// Transitional fallback for payloads without payload_code yet
 	if resetUnits == 0 && payload.Description != "" {
-		if bp, err := e.db.GetBlueprintByName(payload.Description); err == nil && bp.UOPCapacity > 0 {
+		if bp, err := e.db.GetPayloadCatalogByName(payload.Description); err == nil && bp.UOPCapacity > 0 {
 			resetUnits = bp.UOPCapacity
 		}
 	}

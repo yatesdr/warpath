@@ -9,11 +9,11 @@ import (
 
 func (h *Handlers) handleTestOrders(w http.ResponseWriter, r *http.Request) {
 	nodes, _ := h.engine.DB().ListNodes()
-	blueprints, _ := h.engine.DB().ListBlueprints()
+	payloads, _ := h.engine.DB().ListPayloads()
 	data := map[string]any{
-		"Page":       "test-orders",
-		"Nodes":      nodes,
-		"Blueprints": blueprints,
+		"Page":     "test-orders",
+		"Nodes":    nodes,
+		"Payloads": payloads,
 	}
 	h.render(w, r, "test-orders.html", data)
 }

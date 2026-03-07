@@ -500,7 +500,7 @@ async function addPayload() {
 function openEditPayload(p) {
     ShingoEdge.populateForm('payload-edit-form', {
         id: p.id, location: p.location, staging_node: p.staging_node,
-        description: p.description, blueprint_code: p.blueprint_code || '',
+        description: p.description, payload_code: p.payload_code || '',
         manifest: p.manifest,
         multiplier: p.multiplier, production_units: p.production_units,
         remaining: p.remaining, reorder_point: p.reorder_point,

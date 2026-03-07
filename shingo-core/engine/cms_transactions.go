@@ -50,10 +50,10 @@ func txnType(delta int64) string {
 	return "decrease"
 }
 
-// RecordMovementTransactions logs CMS transactions when a payload moves between
+// RecordMovementTransactions logs CMS transactions when a bin moves between
 // different CMS boundaries. Delta is signed: negative = leaving, positive = arriving.
 // QtyBefore/QtyAfter reflect the boundary-level total for each CATID.
-func (e *Engine) RecordMovementTransactions(ev PayloadChangedEvent) {
+func (e *Engine) RecordMovementTransactions(ev BinContentsChangedEvent) {
 	var srcBoundary, dstBoundary *store.Node
 	if ev.FromNodeID != 0 {
 		srcBoundary = e.FindCMSBoundary(ev.FromNodeID)
@@ -74,85 +74,79 @@ func (e *Engine) RecordMovementTransactions(ev PayloadChangedEvent) {
 		return
 	}
 
-	manifest, err := e.db.ListManifestItems(ev.PayloadID)
-	if err != nil || len(manifest) == 0 {
-		return
-	}
-
-	payload, err := e.db.GetPayload(ev.PayloadID)
+	// Get the bin and parse its manifest
+	bin, err := e.db.GetBin(ev.BinID)
 	if err != nil {
 		return
 	}
 
-	var orderID *int64
-	if payload.ClaimedBy != nil && *payload.ClaimedBy != 0 {
-		orderID = payload.ClaimedBy
+	parsed, _ := bin.ParseManifest()
+	if parsed == nil || len(parsed.Items) == 0 {
+		return
 	}
-	binLabel := payload.BinLabel
+
+	var orderID *int64
+	if bin.ClaimedBy != nil && *bin.ClaimedBy != 0 {
+		orderID = bin.ClaimedBy
+	}
 
 	var txns []*store.CMSTransaction
 
 	// Source boundary: bin leaving → negative delta.
-	// Bin has already moved, so current total excludes it.
-	// qty_after = current total, qty_before = current + manifest qty.
 	if srcBoundary != nil {
-		for _, m := range manifest {
-			qty := m.Quantity
-			if qty <= 0 {
+		totals := e.db.SumCatIDsAtBoundary(srcBoundary.ID)
+		for _, m := range parsed.Items {
+			if m.Quantity <= 0 {
 				continue
 			}
-			delta := -qty
-			qtyAfter := e.db.SumCatIDAtBoundary(srcBoundary.ID, m.PartNumber)
-			qtyBefore := qtyAfter + qty
+			delta := -m.Quantity
+			qtyAfter := totals[m.CatID]
+			qtyBefore := qtyAfter + m.Quantity
 			txns = append(txns, &store.CMSTransaction{
-				NodeID:        srcBoundary.ID,
-				NodeName:      srcBoundary.Name,
-				TxnType:       txnType(delta),
-				CatID:         m.PartNumber,
-				Delta:         delta,
-				QtyBefore:     qtyBefore,
-				QtyAfter:      qtyAfter,
-				PayloadID:     ev.PayloadID,
-				BinID:         payload.BinID,
-				BinLabel:      binLabel,
-				BlueprintCode: payload.BlueprintCode,
-				SourceType:    "movement",
-				OrderID:       orderID,
-				Notes:         "auto-log",
+				NodeID:      srcBoundary.ID,
+				NodeName:    srcBoundary.Name,
+				TxnType:     txnType(delta),
+				CatID:       m.CatID,
+				Delta:       delta,
+				QtyBefore:   qtyBefore,
+				QtyAfter:    qtyAfter,
+				BinID:       &bin.ID,
+				BinLabel:    bin.Label,
+				PayloadCode: bin.PayloadCode,
+				SourceType:  "movement",
+				OrderID:     orderID,
+				Notes:       "auto-log",
 			})
 		}
 	}
 
 	// Dest boundary: bin arriving → positive delta.
-	// Bin has already moved, so current total includes it.
-	// qty_after = current total, qty_before = current - manifest qty.
 	if dstBoundary != nil {
-		for _, m := range manifest {
-			qty := m.Quantity
-			if qty <= 0 {
+		totals := e.db.SumCatIDsAtBoundary(dstBoundary.ID)
+		for _, m := range parsed.Items {
+			if m.Quantity <= 0 {
 				continue
 			}
-			delta := qty
-			qtyAfter := e.db.SumCatIDAtBoundary(dstBoundary.ID, m.PartNumber)
-			qtyBefore := qtyAfter - qty
+			delta := m.Quantity
+			qtyAfter := totals[m.CatID]
+			qtyBefore := qtyAfter - m.Quantity
 			if qtyBefore < 0 {
 				qtyBefore = 0
 			}
 			txns = append(txns, &store.CMSTransaction{
-				NodeID:        dstBoundary.ID,
-				NodeName:      dstBoundary.Name,
-				TxnType:       txnType(delta),
-				CatID:         m.PartNumber,
-				Delta:         delta,
-				QtyBefore:     qtyBefore,
-				QtyAfter:      qtyAfter,
-				PayloadID:     ev.PayloadID,
-				BinID:         payload.BinID,
-				BinLabel:      binLabel,
-				BlueprintCode: payload.BlueprintCode,
-				SourceType:    "movement",
-				OrderID:       orderID,
-				Notes:         "auto-log",
+				NodeID:      dstBoundary.ID,
+				NodeName:    dstBoundary.Name,
+				TxnType:     txnType(delta),
+				CatID:       m.CatID,
+				Delta:       delta,
+				QtyBefore:   qtyBefore,
+				QtyAfter:    qtyAfter,
+				BinID:       &bin.ID,
+				BinLabel:    bin.Label,
+				PayloadCode: bin.PayloadCode,
+				SourceType:  "movement",
+				OrderID:     orderID,
+				Notes:       "auto-log",
 			})
 		}
 	}
@@ -169,11 +163,9 @@ func (e *Engine) RecordMovementTransactions(ev PayloadChangedEvent) {
 	e.Events.Emit(Event{Type: EventCMSTransaction, Payload: CMSTransactionEvent{Transactions: txns}})
 }
 
-// RecordCorrectionTransactions logs CMS adjustment transactions when a manifest
+// RecordCorrectionTransactions logs CMS adjustment transactions when a bin's manifest
 // is edited. Delta is signed: positive = increase, negative = decrease.
-// QtyBefore/QtyAfter reflect the boundary-level total for each CATID.
-// If the payload has no CMS boundary, logs against the actual node.
-func (e *Engine) RecordCorrectionTransactions(payloadID, nodeID int64, oldManifest, newManifest []*store.ManifestItem, reason string) {
+func (e *Engine) RecordCorrectionTransactions(binID, nodeID int64, oldManifest, newManifest []store.ManifestEntry, reason string) {
 	boundary := e.FindCMSBoundary(nodeID)
 	var boundaryID int64
 	var boundaryName string
@@ -191,18 +183,17 @@ func (e *Engine) RecordCorrectionTransactions(payloadID, nodeID int64, oldManife
 
 	oldQty := make(map[string]int64)
 	for _, m := range oldManifest {
-		oldQty[m.PartNumber] += m.Quantity
+		oldQty[m.CatID] += m.Quantity
 	}
 	newQty := make(map[string]int64)
 	for _, m := range newManifest {
-		newQty[m.PartNumber] += m.Quantity
+		newQty[m.CatID] += m.Quantity
 	}
 
-	payload, err := e.db.GetPayload(payloadID)
+	bin, err := e.db.GetBin(binID)
 	if err != nil {
 		return
 	}
-	binLabel := payload.BinLabel
 
 	var txns []*store.CMSTransaction
 
@@ -214,30 +205,30 @@ func (e *Engine) RecordCorrectionTransactions(payloadID, nodeID int64, oldManife
 		allCatIDs[k] = true
 	}
 
+	totals := e.db.SumCatIDsAtBoundary(boundaryID)
 	for catID := range allCatIDs {
 		delta := newQty[catID] - oldQty[catID]
 		if delta == 0 {
 			continue
 		}
-		qtyAfter := e.db.SumCatIDAtBoundary(boundaryID, catID)
+		qtyAfter := totals[catID]
 		qtyBefore := qtyAfter - delta
 		if qtyBefore < 0 {
 			qtyBefore = 0
 		}
 		txns = append(txns, &store.CMSTransaction{
-			NodeID:        boundaryID,
-			NodeName:      boundaryName,
-			TxnType:       txnType(delta),
-			CatID:         catID,
-			Delta:         delta,
-			QtyBefore:     qtyBefore,
-			QtyAfter:      qtyAfter,
-			PayloadID:     payloadID,
-			BinID:         payload.BinID,
-			BinLabel:      binLabel,
-			BlueprintCode: payload.BlueprintCode,
-			SourceType:    "correction",
-			Notes:         reason,
+			NodeID:      boundaryID,
+			NodeName:    boundaryName,
+			TxnType:     txnType(delta),
+			CatID:       catID,
+			Delta:       delta,
+			QtyBefore:   qtyBefore,
+			QtyAfter:    qtyAfter,
+			BinID:       &bin.ID,
+			BinLabel:    bin.Label,
+			PayloadCode: bin.PayloadCode,
+			SourceType:  "correction",
+			Notes:       reason,
 		})
 	}
 
@@ -252,3 +243,4 @@ func (e *Engine) RecordCorrectionTransactions(payloadID, nodeID int64, oldManife
 
 	e.Events.Emit(Event{Type: EventCMSTransaction, Payload: CMSTransactionEvent{Transactions: txns}})
 }
+

@@ -124,7 +124,7 @@ function renderOrderModal(data) {
     }
     if (data.payload) {
       h += '<div>';
-      h += field('Payload', '#' + data.payload.id + ' <span style="color:var(--text-muted)">' + escapeHtml(data.payload.blueprint_code) + '</span>');
+      h += field('Payload', '#' + data.payload.id + ' <span style="color:var(--text-muted)">' + escapeHtml(data.payload.payload_code) + '</span>');
       h += field('UOP Remaining', data.payload.uop_remaining + '');
       h += field('Manifest', data.payload.manifest_confirmed ? '<span class="badge badge-available">confirmed</span>' : '<span class="badge badge-empty">unconfirmed</span>');
       h += '</div>';
@@ -320,16 +320,16 @@ function loadSpotDropdowns() {
       document.getElementById('spot-sendto-dest').innerHTML = html;
     });
 
-  fetch('/api/blueprints')
+  fetch('/api/payloads/templates')
     .then(function(r) { return r.json(); })
     .then(function(bps) {
       var html = '<option value="">— none —</option>';
       for (var i = 0; i < bps.length; i++) {
-        html += '<option value="' + escapeHtml(bps[i].code) + '">' + escapeHtml(bps[i].code) + ' — ' + escapeHtml(bps[i].name) + '</option>';
+        html += '<option value="' + escapeHtml(bps[i].code) + '">' + escapeHtml(bps[i].code) + ' — ' + escapeHtml(bps[i].description) + '</option>';
       }
-      document.getElementById('spot-blueprint').innerHTML = html;
-      document.getElementById('spot-staged-blueprint').innerHTML = html;
-      document.getElementById('spot-swap-blueprint').innerHTML = html;
+      document.getElementById('spot-payload').innerHTML = html;
+      document.getElementById('spot-staged-payload').innerHTML = html;
+      document.getElementById('spot-swap-payload').innerHTML = html;
     });
 
   loadSpotBinDropdown();
@@ -360,7 +360,7 @@ function loadSpotBinDropdown() {
         for (var bi = 0; bi < zBins.length; bi++) {
           var b = zBins[bi];
           var text = b.label + ' @ ' + b.node_name;
-          if (b.blueprint_code) text += ' (' + b.blueprint_code + ')';
+          if (b.payload_code) text += ' (' + b.payload_code + ')';
           html += '<option value="' + escapeHtml(b.label) + '">' + escapeHtml(text) + '</option>';
         }
         html += '</optgroup>';
@@ -373,7 +373,7 @@ function spotTransportTypeChanged() {
   var t = document.getElementById('spot-transport-type').value;
   var pickup = document.getElementById('spot-pickup-group');
   var delivery = document.getElementById('spot-delivery-group');
-  var blueprint = document.getElementById('spot-blueprint-group');
+  var payload = document.getElementById('spot-payload-group');
   var binGroup = document.getElementById('spot-bin-group');
   var qtyGroup = document.getElementById('spot-quantity-group');
 
@@ -381,17 +381,17 @@ function spotTransportTypeChanged() {
     // Retrieve specific: bin selector + delivery only
     pickup.style.display = 'none';
     delivery.style.display = '';
-    blueprint.style.display = 'none';
+    payload.style.display = 'none';
     binGroup.style.display = '';
   } else {
     binGroup.style.display = 'none';
     // Move: pickup + delivery
-    // Retrieve: delivery + blueprint
-    // Retrieve Empty: delivery + blueprint
-    // Store: pickup + blueprint
+    // Retrieve: delivery + payload
+    // Retrieve Empty: delivery + payload
+    // Store: pickup + payload
     pickup.style.display = (t === 'retrieve' || t === 'retrieve_empty') ? 'none' : '';
     delivery.style.display = (t === 'store') ? 'none' : '';
-    blueprint.style.display = (t === 'move') ? 'none' : '';
+    payload.style.display = (t === 'move') ? 'none' : '';
   }
 
   // Quantity only for retrieve and retrieve_empty
@@ -429,7 +429,7 @@ function submitSpotOrder() {
     } else {
       if (t !== 'retrieve' && t !== 'retrieve_empty') body.pickup_node = document.getElementById('spot-pickup').value;
       if (t !== 'store') body.delivery_node = document.getElementById('spot-delivery').value;
-      if (t !== 'move') body.blueprint_code = document.getElementById('spot-blueprint').value;
+      if (t !== 'move') body.payload_code = document.getElementById('spot-payload').value;
 
       if ((t === 'move' || t === 'store') && !body.pickup_node) {
         status.textContent = 'Pickup node is required'; status.style.color = 'var(--danger)'; return;
@@ -449,16 +449,16 @@ function submitSpotOrder() {
     body.pickup_node = document.getElementById('spot-staged-pickup').value;
     body.staging_node = document.getElementById('spot-staged-staging').value;
     body.delivery_node = document.getElementById('spot-staged-delivery').value;
-    body.blueprint_code = document.getElementById('spot-staged-blueprint').value;
+    body.payload_code = document.getElementById('spot-staged-payload').value;
     if (!body.pickup_node) { status.textContent = 'Pickup node is required'; status.style.color = 'var(--danger)'; return; }
     if (!body.staging_node) { status.textContent = 'Staging node is required'; status.style.color = 'var(--danger)'; return; }
     if (!body.delivery_node) { status.textContent = 'Delivery node is required'; status.style.color = 'var(--danger)'; return; }
   } else if (tab === 'swap') {
     body.order_type = 'swap';
     body.delivery_node = document.getElementById('spot-swap-node').value;
-    body.blueprint_code = document.getElementById('spot-swap-blueprint').value;
+    body.payload_code = document.getElementById('spot-swap-payload').value;
     if (!body.delivery_node) { status.textContent = 'Target node is required'; status.style.color = 'var(--danger)'; return; }
-    if (!body.blueprint_code) { status.textContent = 'Blueprint is required'; status.style.color = 'var(--danger)'; return; }
+    if (!body.payload_code) { status.textContent = 'Payload is required'; status.style.color = 'var(--danger)'; return; }
   } else if (tab === 'send_to') {
     body.order_type = 'send_to';
     body.delivery_node = document.getElementById('spot-sendto-dest').value;

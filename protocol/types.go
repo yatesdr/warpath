@@ -48,12 +48,8 @@ const (
 	SubjectTagVerifyRequest  = "tag.verify_request"
 	SubjectTagVerifyResponse = "tag.verify_response"
 
-	SubjectCatalogBlueprintsRequest  = "catalog.blueprints_request"
-	SubjectCatalogBlueprintsResponse = "catalog.blueprints_response"
-
-	// Backward-compatible aliases
-	SubjectCatalogStylesRequest  = "catalog.styles_request"
-	SubjectCatalogStylesResponse = "catalog.styles_response"
+	SubjectCatalogPayloadsRequest  = "catalog.payloads_request"
+	SubjectCatalogPayloadsResponse = "catalog.payloads_response"
 )
 
 // Roles for Address.Role.

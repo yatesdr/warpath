@@ -24,7 +24,7 @@ type mockEmitter struct {
 
 type emitReceived struct {
 	orderID   int64
-	blueprintCode string
+	payloadCode string
 }
 type emitDispatched struct {
 	orderID       int64
@@ -42,8 +42,8 @@ type emitCompleted struct {
 	orderID int64
 }
 
-func (m *mockEmitter) EmitOrderReceived(orderID int64, _, _, _, blueprintCode, _ string) {
-	m.received = append(m.received, emitReceived{orderID, blueprintCode})
+func (m *mockEmitter) EmitOrderReceived(orderID int64, _, _, _, payloadCode, _ string) {
+	m.received = append(m.received, emitReceived{orderID, payloadCode})
 }
 func (m *mockEmitter) EmitOrderDispatched(orderID int64, vendorOrderID, _, _ string) {
 	m.dispatched = append(m.dispatched, emitDispatched{orderID, vendorOrderID})
@@ -103,7 +103,7 @@ func testDB(t *testing.T) *store.DB {
 	return db
 }
 
-func setupTestData(t *testing.T, db *store.DB) (storageNode *store.Node, lineNode *store.Node, bp *store.Blueprint) {
+func setupTestData(t *testing.T, db *store.DB) (storageNode *store.Node, lineNode *store.Node, bp *store.Payload) {
 	t.Helper()
 	storageNode = &store.Node{Name: "STORAGE-A1", Zone: "A", Enabled: true}
 	if err := db.CreateNode(storageNode); err != nil {
@@ -113,9 +113,9 @@ func setupTestData(t *testing.T, db *store.DB) (storageNode *store.Node, lineNod
 	if err := db.CreateNode(lineNode); err != nil {
 		t.Fatalf("create line node: %v", err)
 	}
-	bp = &store.Blueprint{Code: "PART-A", Description: "Steel bracket tote", DefaultManifestJSON: "{}"}
-	if err := db.CreateBlueprint(bp); err != nil {
-		t.Fatalf("create blueprint: %v", err)
+	bp = &store.Payload{Code: "PART-A", Description: "Steel bracket tote", DefaultManifestJSON: "{}"}
+	if err := db.CreatePayload(bp); err != nil {
+		t.Fatalf("create payload: %v", err)
 	}
 	// Create a default bin type used by test bins
 	bt := &store.BinType{Code: "DEFAULT", Description: "Default test bin type"}
@@ -152,7 +152,7 @@ func TestHandleOrderRequest_Retrieve_NoSource(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-1",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		Quantity:        1.0,
 	})
@@ -181,7 +181,7 @@ func TestHandleOrderRequest_Retrieve_InvalidDeliveryNode(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-2",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    "NONEXISTENT",
 		Quantity:        1.0,
 	})
@@ -202,7 +202,7 @@ func TestHandleOrderRequest_Move_MissingPickup(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-3",
 		OrderType:       OrderTypeMove,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		PickupNode:      "",
 		Quantity:        1.0,
@@ -226,7 +226,7 @@ func TestHandleOrderRequest_Move_NoPayloadAtPickup(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-4",
 		OrderType:       OrderTypeMove,
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 		PickupNode:      storageNode.Name,
 		Quantity:        1.0,
@@ -251,7 +251,7 @@ func TestHandleOrderRequest_UnknownType(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-5",
 		OrderType:       "bogus",
-		PayloadTypeCode: "PART-A",
+		PayloadCode: "PART-A",
 		DeliveryNode:    lineNode.Name,
 	})
 
@@ -273,7 +273,7 @@ func TestHandleOrderRequest_UnknownStyle(t *testing.T) {
 	d.HandleOrderRequest(env, &protocol.OrderRequest{
 		OrderUUID:       "uuid-pt",
 		OrderType:       OrderTypeRetrieve,
-		PayloadTypeCode: "NONEXISTENT",
+		PayloadCode: "NONEXISTENT",
 		DeliveryNode:    lineNode.Name,
 	})
 
@@ -317,8 +317,8 @@ func TestHandleOrderCancel_UnclaimsPayloads(t *testing.T) {
 	bin := &store.Bin{BinTypeID: 1, Label: "BIN-UC-1", NodeID: &storageNode.ID, Status: "available"}
 	db.CreateBin(bin)
 
-	p := &store.Payload{BlueprintID: bp.ID, BinID: &bin.ID, ManifestConfirmed: true}
-	db.CreatePayload(p)
+	db.SetBinManifest(bin.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin.ID)
 	db.ClaimBin(bin.ID, order.ID)
 
 	d, _ := newTestDispatcher(t, db, &mockBackend{})
@@ -326,10 +326,10 @@ func TestHandleOrderCancel_UnclaimsPayloads(t *testing.T) {
 	env := testEnvelope()
 	d.HandleOrderCancel(env, &protocol.OrderCancel{OrderUUID: "uuid-unclaim", Reason: "test"})
 
-	// Verify bin unclaimed (and payload shows unclaimed via bin join)
-	got, _ := db.GetPayload(p.ID)
+	// Verify bin unclaimed
+	got, _ := db.GetBin(bin.ID)
 	if got.ClaimedBy != nil {
-		t.Errorf("ClaimedBy (via bin) = %v, want nil", got.ClaimedBy)
+		t.Errorf("ClaimedBy = %v, want nil", got.ClaimedBy)
 	}
 }
 
@@ -465,20 +465,20 @@ func TestFIFOPayloadSourceSelection(t *testing.T) {
 	bin2 := &store.Bin{BinTypeID: 1, Label: "BIN-FIFO-2", NodeID: &s2.ID, Status: "available"}
 	db.CreateBin(bin2)
 
-	// Older available payload at storageNode
-	p1 := &store.Payload{BlueprintID: bp.ID, BinID: &bin1.ID, ManifestConfirmed: true}
-	db.CreatePayload(p1)
-	// Newer available payload at s2
-	p2 := &store.Payload{BlueprintID: bp.ID, BinID: &bin2.ID, ManifestConfirmed: true}
-	db.CreatePayload(p2)
+	// Older available bin at storageNode
+	db.SetBinManifest(bin1.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin1.ID)
+	// Newer available bin at s2
+	db.SetBinManifest(bin2.ID, `{"items":[]}`, bp.Code, 100)
+	db.ConfirmBinManifest(bin2.ID)
 
-	// FIFO should select oldest (p1) first
-	source, err := db.FindSourcePayloadFIFO("PART-A")
+	// FIFO should select oldest (bin1) first
+	source, err := db.FindSourceBinFIFO("PART-A")
 	if err != nil {
-		t.Fatalf("FindSourcePayloadFIFO: %v", err)
+		t.Fatalf("FindSourceBinFIFO: %v", err)
 	}
-	if source.ID != p1.ID {
-		t.Errorf("source payload = %d, want %d (FIFO order)", source.ID, p1.ID)
+	if source.ID != bin1.ID {
+		t.Errorf("source bin = %d, want %d (FIFO order)", source.ID, bin1.ID)
 	}
 }
 

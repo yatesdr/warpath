@@ -39,10 +39,10 @@ func (db *DB) AddLane(groupID int64, name string) (int64, error) {
 
 // GroupSlotInfo describes a slot in a node group layout.
 type GroupSlotInfo struct {
-	NodeID   int64            `json:"node_id"`
-	Name     string           `json:"name"`
-	Depth    int              `json:"depth"`
-	Payload *Payload `json:"payload,omitempty"`
+	NodeID int64  `json:"node_id"`
+	Name   string `json:"name"`
+	Depth  int    `json:"depth"`
+	Bin    *Bin   `json:"bin,omitempty"`
 }
 
 // GroupLaneInfo describes a lane in a node group layout.
@@ -82,11 +82,11 @@ func (db *DB) GetGroupLayout(groupID int64) (*GroupLayout, error) {
 			for _, slot := range slots {
 				depth, _ := db.GetSlotDepth(slot.ID)
 				s := GroupSlotInfo{NodeID: slot.ID, Name: slot.Name, Depth: depth}
-				payloads, _ := db.ListPayloadsByNode(slot.ID)
-				if len(payloads) > 0 {
-					s.Payload = payloads[0]
+				bins, _ := db.ListBinsByNode(slot.ID)
+				if len(bins) > 0 {
+					s.Bin = bins[0]
 					layout.Stats.Occupied++
-					if payloads[0].ClaimedBy != nil {
+					if bins[0].ClaimedBy != nil {
 						layout.Stats.Claimed++
 					}
 				}
@@ -101,11 +101,11 @@ func (db *DB) GetGroupLayout(groupID int64) (*GroupLayout, error) {
 		} else if !child.IsSynthetic {
 			// Direct physical child of the group
 			s := GroupSlotInfo{NodeID: child.ID, Name: child.Name}
-			payloads, _ := db.ListPayloadsByNode(child.ID)
-			if len(payloads) > 0 {
-				s.Payload = payloads[0]
+			bins, _ := db.ListBinsByNode(child.ID)
+			if len(bins) > 0 {
+				s.Bin = bins[0]
 				layout.Stats.Occupied++
-				if payloads[0].ClaimedBy != nil {
+				if bins[0].ClaimedBy != nil {
 					layout.Stats.Claimed++
 				}
 			}
@@ -147,7 +147,7 @@ func (db *DB) DeleteNodeGroup(grpID int64) error {
 		if d.isSynthetic {
 			tx.Exec(db.Q(`DELETE FROM node_properties WHERE node_id=?`), d.id)
 			tx.Exec(db.Q(`DELETE FROM node_stations WHERE node_id=?`), d.id)
-			tx.Exec(db.Q(`DELETE FROM node_blueprints WHERE node_id=?`), d.id)
+			tx.Exec(db.Q(`DELETE FROM node_payloads WHERE node_id=?`), d.id)
 			tx.Exec(db.Q(`DELETE FROM nodes WHERE id=?`), d.id)
 		} else {
 			// Unparent physical nodes — return them to the flat grid
@@ -159,7 +159,7 @@ func (db *DB) DeleteNodeGroup(grpID int64) error {
 	// Delete the node group itself
 	tx.Exec(db.Q(`DELETE FROM node_properties WHERE node_id=?`), grpID)
 	tx.Exec(db.Q(`DELETE FROM node_stations WHERE node_id=?`), grpID)
-	tx.Exec(db.Q(`DELETE FROM node_blueprints WHERE node_id=?`), grpID)
+	tx.Exec(db.Q(`DELETE FROM node_payloads WHERE node_id=?`), grpID)
 	tx.Exec(db.Q(`DELETE FROM nodes WHERE id=?`), grpID)
 
 	return tx.Commit()

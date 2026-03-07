@@ -14,7 +14,7 @@
         <tr><td><strong>UUID</strong></td><td>{{.Order.EdgeUUID}}</td></tr>
         <tr><td><strong>Station</strong></td><td>{{.Order.StationID}}</td></tr>
         <tr><td><strong>Type</strong></td><td>{{.Order.OrderType}}</td></tr>
-        <tr><td><strong>Blueprint</strong></td><td>{{if .Order.BlueprintID}}BP#{{deref .Order.BlueprintID}}{{else}}{{.Order.PayloadDesc}}{{end}}</td></tr>
+        <tr><td><strong>Payload</strong></td><td>{{if .Order.PayloadID}}BP#{{deref .Order.PayloadID}}{{else}}{{.Order.PayloadDesc}}{{end}}</td></tr>
         <tr><td><strong>Quantity</strong></td><td>{{.Order.Quantity}}</td></tr>
         <tr><td><strong>Status</strong></td><td><span class="badge badge-{{.Order.Status}}">{{.Order.Status}}</span></td></tr>
         <tr><td><strong>Vendor Order</strong></td><td>{{.Order.VendorOrderID}}</td></tr>
@@ -90,7 +90,7 @@
           <th>UUID</th>
           <th>Station</th>
           <th>Type</th>
-          <th>Blueprint</th>
+          <th>Payload</th>
           <th>Status</th>
           <th>Robot</th>
           <th>Created</th>
@@ -103,7 +103,7 @@
           <td style="font-family:monospace;font-size:0.75rem">{{.EdgeUUID}}</td>
           <td>{{.StationID}}</td>
           <td>{{.OrderType}}</td>
-          <td>{{if .BlueprintID}}BP#{{deref .BlueprintID}}{{else}}{{.PayloadDesc}}{{end}}</td>
+          <td>{{if .PayloadID}}BP#{{deref .PayloadID}}{{else}}{{.PayloadDesc}}{{end}}</td>
           <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
           <td>{{.RobotID}}</td>
           <td>{{formatTime .CreatedAt}}</td>
@@ -152,9 +152,9 @@
           <label><strong>Delivery Node</strong></label>
           <select id="spot-delivery"><option value="">Loading...</option></select>
         </div>
-        <div class="form-group" style="margin-bottom:0.75rem" id="spot-blueprint-group">
-          <label><strong>Blueprint</strong> <span class="text-muted">(optional)</span></label>
-          <select id="spot-blueprint"><option value="">— none —</option></select>
+        <div class="form-group" style="margin-bottom:0.75rem" id="spot-payload-group">
+          <label><strong>Payload</strong> <span class="text-muted">(optional)</span></label>
+          <select id="spot-payload"><option value="">— none —</option></select>
         </div>
         <div class="form-group" style="margin-bottom:0.75rem;display:none" id="spot-bin-group">
           <label><strong>Bin</strong></label>
@@ -177,8 +177,8 @@
           <select id="spot-staged-delivery"><option value="">Loading...</option></select>
         </div>
         <div class="form-group" style="margin-bottom:0.75rem">
-          <label><strong>Blueprint</strong> <span class="text-muted">(optional)</span></label>
-          <select id="spot-staged-blueprint"><option value="">— none —</option></select>
+          <label><strong>Payload</strong> <span class="text-muted">(optional)</span></label>
+          <select id="spot-staged-payload"><option value="">— none —</option></select>
         </div>
       </div>
 
@@ -189,8 +189,8 @@
           <select id="spot-swap-node"><option value="">Loading...</option></select>
         </div>
         <div class="form-group" style="margin-bottom:0.75rem">
-          <label><strong>New Blueprint</strong></label>
-          <select id="spot-swap-blueprint"><option value="">Loading...</option></select>
+          <label><strong>New Payload</strong></label>
+          <select id="spot-swap-payload"><option value="">Loading...</option></select>
         </div>
       </div>
 

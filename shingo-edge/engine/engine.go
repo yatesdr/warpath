@@ -244,31 +244,31 @@ func (e *Engine) RequestNodeSync() {
 	}
 }
 
-// SetCatalogSyncFunc sets the function to call when a blueprint catalog sync is requested.
+// SetCatalogSyncFunc sets the function to call when a payload catalog sync is requested.
 func (e *Engine) SetCatalogSyncFunc(fn func()) {
 	e.catalogSyncFn = fn
 }
 
-// RequestCatalogSync triggers a blueprint catalog request to core.
+// RequestCatalogSync triggers a payload catalog request to core.
 func (e *Engine) RequestCatalogSync() {
 	if e.catalogSyncFn != nil {
 		e.catalogSyncFn()
 	}
 }
 
-// HandleBlueprintCatalog upserts blueprint catalog entries received from core.
-func (e *Engine) HandleBlueprintCatalog(blueprints []protocol.CatalogBlueprintInfo) {
-	for _, b := range blueprints {
-		entry := &store.BlueprintCatalogEntry{
+// HandlePayloadCatalog upserts payload catalog entries received from core.
+func (e *Engine) HandlePayloadCatalog(entries []protocol.CatalogPayloadInfo) {
+	for _, b := range entries {
+		entry := &store.PayloadCatalogEntry{
 			ID: b.ID, Name: b.Name, Code: b.Code,
 			Description: b.Description,
 			UOPCapacity: b.UOPCapacity,
 		}
-		if err := e.db.UpsertBlueprintCatalog(entry); err != nil {
-			log.Printf("engine: upsert blueprint catalog entry %s: %v", b.Name, err)
+		if err := e.db.UpsertPayloadCatalog(entry); err != nil {
+			log.Printf("engine: upsert payload catalog entry %s: %v", b.Name, err)
 		}
 	}
-	e.logFn("engine: updated blueprint catalog (%d blueprints)", len(blueprints))
+	e.logFn("engine: updated payload catalog (%d entries)", len(entries))
 }
 
 // SetSendFunc sets the function used to publish protocol envelopes.

@@ -2,31 +2,31 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 )
 
 type CMSTransaction struct {
-	ID            int64     `json:"id"`
-	NodeID        int64     `json:"node_id"`
-	NodeName      string    `json:"node_name"`
-	TxnType       string    `json:"txn_type"`
-	CatID         string    `json:"cat_id"`
-	Delta         int64     `json:"delta"`
-	QtyBefore     int64     `json:"qty_before"`
-	QtyAfter      int64     `json:"qty_after"`
-	PayloadID     int64     `json:"payload_id"`
-	BinID         *int64    `json:"bin_id,omitempty"`
-	BinLabel      string    `json:"bin_label"`
-	BlueprintCode string    `json:"blueprint_code"`
-	SourceType    string    `json:"source_type"`
-	OrderID       *int64    `json:"order_id,omitempty"`
-	Notes         string    `json:"notes"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID          int64     `json:"id"`
+	NodeID      int64     `json:"node_id"`
+	NodeName    string    `json:"node_name"`
+	TxnType     string    `json:"txn_type"`
+	CatID       string    `json:"cat_id"`
+	Delta       int64     `json:"delta"`
+	QtyBefore   int64     `json:"qty_before"`
+	QtyAfter    int64     `json:"qty_after"`
+	BinID       *int64    `json:"bin_id,omitempty"`
+	BinLabel    string    `json:"bin_label"`
+	PayloadCode string    `json:"payload_code"`
+	SourceType  string    `json:"source_type"`
+	OrderID     *int64    `json:"order_id,omitempty"`
+	Notes       string    `json:"notes"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
-const cmsTxnSelectCols = `id, node_id, node_name, txn_type, cat_id, delta, qty_before, qty_after, payload_id, bin_id, bin_label, blueprint_code, source_type, order_id, notes, created_at`
+const cmsTxnSelectCols = `id, node_id, node_name, txn_type, cat_id, delta, qty_before, qty_after, bin_id, bin_label, payload_code, source_type, order_id, notes, created_at`
 
 func scanCMSTransaction(row interface{ Scan(...any) error }) (*CMSTransaction, error) {
 	var t CMSTransaction
@@ -34,7 +34,7 @@ func scanCMSTransaction(row interface{ Scan(...any) error }) (*CMSTransaction, e
 	var orderID sql.NullInt64
 	var createdAt any
 	err := row.Scan(&t.ID, &t.NodeID, &t.NodeName, &t.TxnType, &t.CatID, &t.Delta,
-		&t.QtyBefore, &t.QtyAfter, &t.PayloadID, &binID, &t.BinLabel, &t.BlueprintCode,
+		&t.QtyBefore, &t.QtyAfter, &binID, &t.BinLabel, &t.PayloadCode,
 		&t.SourceType, &orderID, &t.Notes, &createdAt)
 	if err != nil {
 		return nil, err
@@ -63,9 +63,9 @@ func scanCMSTransactions(rows *sql.Rows) ([]*CMSTransaction, error) {
 
 func (db *DB) CreateCMSTransactions(txns []*CMSTransaction) error {
 	for _, t := range txns {
-		result, err := db.Exec(db.Q(`INSERT INTO cms_transactions (node_id, node_name, txn_type, cat_id, delta, qty_before, qty_after, payload_id, bin_id, bin_label, blueprint_code, source_type, order_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+		result, err := db.Exec(db.Q(`INSERT INTO cms_transactions (node_id, node_name, txn_type, cat_id, delta, qty_before, qty_after, bin_id, bin_label, payload_code, source_type, order_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 			t.NodeID, t.NodeName, t.TxnType, t.CatID, t.Delta, t.QtyBefore, t.QtyAfter,
-			t.PayloadID, nullableInt64(t.BinID), t.BinLabel, t.BlueprintCode, t.SourceType,
+			nullableInt64(t.BinID), t.BinLabel, t.PayloadCode, t.SourceType,
 			nullableInt64(t.OrderID), t.Notes)
 		if err != nil {
 			return fmt.Errorf("create cms transaction: %w", err)
@@ -124,12 +124,13 @@ func (db *DB) CollectDescendantNodeIDs(boundaryID int64) []int64 {
 	return ids
 }
 
-// SumCatIDAtBoundary returns the total manifest quantity (as integer) for a CATID
-// across all payloads whose bins sit at nodes under the given boundary.
-func (db *DB) SumCatIDAtBoundary(boundaryID int64, catID string) int64 {
+// SumCatIDsAtBoundary returns total manifest quantities for all CATIDs
+// across all bins at nodes under the given boundary, parsing from bin manifest JSON.
+func (db *DB) SumCatIDsAtBoundary(boundaryID int64) map[string]int64 {
+	totals := make(map[string]int64)
 	nodeIDs := db.CollectDescendantNodeIDs(boundaryID)
 	if len(nodeIDs) == 0 {
-		return 0
+		return totals
 	}
 	placeholders := make([]string, len(nodeIDs))
 	args := make([]any, len(nodeIDs))
@@ -137,12 +138,26 @@ func (db *DB) SumCatIDAtBoundary(boundaryID int64, catID string) int64 {
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	args = append(args, catID)
-	query := fmt.Sprintf(`SELECT COALESCE(CAST(SUM(mi.quantity) AS INTEGER), 0) FROM manifest_items mi
-		JOIN payloads p ON p.id = mi.payload_id
-		JOIN bins b ON b.id = p.bin_id
-		WHERE b.node_id IN (%s) AND mi.part_number = ?`, strings.Join(placeholders, ","))
-	var total int64
-	db.QueryRow(db.Q(query), args...).Scan(&total)
-	return total
+	query := fmt.Sprintf(`SELECT b.manifest FROM bins b
+		WHERE b.node_id IN (%s) AND b.manifest IS NOT NULL`, strings.Join(placeholders, ","))
+	rows, err := db.Query(db.Q(query), args...)
+	if err != nil {
+		return totals
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var manifestJSON string
+		if rows.Scan(&manifestJSON) != nil {
+			continue
+		}
+		var m BinManifest
+		if json.Unmarshal([]byte(manifestJSON), &m) != nil {
+			continue
+		}
+		for _, item := range m.Items {
+			totals[item.CatID] += item.Quantity
+		}
+	}
+	return totals
 }

@@ -58,40 +58,40 @@ func (db *DB) IsSlotAccessible(slotNodeID int64) (bool, error) {
 	return count == 0, nil
 }
 
-// FindSourcePayloadInLane finds the FIFO-oldest accessible unclaimed payload in a lane.
-func (db *DB) FindSourcePayloadInLane(laneID int64, blueprintCode string) (*Payload, error) {
+// FindSourceBinInLane finds the FIFO-oldest accessible unclaimed bin in a lane
+// matching the given payload code.
+func (db *DB) FindSourceBinInLane(laneID int64, payloadCode string) (*Bin, error) {
 	slots, err := db.ListLaneSlots(laneID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Walk from front (shallowest) to back, find first accessible slot with matching payload
+	// Walk from front (shallowest) to back, find first accessible slot with matching bin
 	for _, slot := range slots {
-		payloads, err := db.ListPayloadsByNode(slot.ID)
-		if err != nil || len(payloads) == 0 {
+		bins, err := db.ListBinsByNode(slot.ID)
+		if err != nil || len(bins) == 0 {
 			continue
 		}
 
-		for _, p := range payloads {
-			if p.ClaimedBy != nil || !p.ManifestConfirmed || p.BinStatus != "available" {
+		for _, b := range bins {
+			if b.ClaimedBy != nil || !b.ManifestConfirmed || b.Status != "available" {
 				continue
 			}
-			if blueprintCode != "" && p.BlueprintCode != blueprintCode {
+			if payloadCode != "" && b.PayloadCode != payloadCode {
 				continue
 			}
-			// This slot is accessible (front-most occupied slot)
-			return p, nil
+			return b, nil
 		}
 		// If this slot is occupied but doesn't match, deeper slots are blocked
-		if len(payloads) > 0 {
+		if len(bins) > 0 {
 			break
 		}
 	}
-	return nil, fmt.Errorf("no accessible payload in lane %d", laneID)
+	return nil, fmt.Errorf("no accessible bin in lane %d", laneID)
 }
 
 // FindStoreSlotInLane finds the deepest empty slot in a lane for back-to-front packing.
-func (db *DB) FindStoreSlotInLane(laneID int64, blueprintID int64) (*Node, error) {
+func (db *DB) FindStoreSlotInLane(laneID int64) (*Node, error) {
 	slots, err := db.ListLaneSlots(laneID)
 	if err != nil {
 		return nil, err
@@ -123,31 +123,31 @@ func (db *DB) CountBinsInLane(laneID int64) (int, error) {
 	return count, err
 }
 
-// FindBuriedPayload finds a payload that exists in a lane but is blocked by shallower bins.
-func (db *DB) FindBuriedPayload(laneID int64, blueprintCode string) (*Payload, *Node, error) {
+// FindBuriedBin finds a bin that exists in a lane but is blocked by shallower bins.
+func (db *DB) FindBuriedBin(laneID int64, payloadCode string) (*Bin, *Node, error) {
 	slots, err := db.ListLaneSlots(laneID)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	for _, slot := range slots {
-		payloads, err := db.ListPayloadsByNode(slot.ID)
-		if err != nil || len(payloads) == 0 {
+		bins, err := db.ListBinsByNode(slot.ID)
+		if err != nil || len(bins) == 0 {
 			continue
 		}
-		for _, p := range payloads {
-			if p.ClaimedBy != nil || !p.ManifestConfirmed || p.BinStatus != "available" {
+		for _, b := range bins {
+			if b.ClaimedBy != nil || !b.ManifestConfirmed || b.Status != "available" {
 				continue
 			}
-			if blueprintCode != "" && p.BlueprintCode != blueprintCode {
+			if payloadCode != "" && b.PayloadCode != payloadCode {
 				continue
 			}
-			// Check if it's actually buried (not accessible)
 			accessible, _ := db.IsSlotAccessible(slot.ID)
 			if !accessible {
-				return p, slot, nil
+				return b, slot, nil
 			}
 		}
 	}
-	return nil, nil, fmt.Errorf("no buried payload in lane %d", laneID)
+	return nil, nil, fmt.Errorf("no buried bin in lane %d", laneID)
 }
+

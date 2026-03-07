@@ -18,13 +18,13 @@ func (m *mockSuccessBackend) CreateTransportOrder(req fleet.TransportOrderReques
 
 // --- Helper: setup node group with direct children for shuffle ---
 
-func setupNodeGroupWithShuffle(t *testing.T, db *store.DB) (grp, lane *store.Node, slots []*store.Node, shuffleSlots []*store.Node, bp *store.Blueprint) {
+func setupNodeGroupWithShuffle(t *testing.T, db *store.DB) (grp, lane *store.Node, slots []*store.Node, shuffleSlots []*store.Node, bp *store.Payload) {
 	t.Helper()
 	grpType, _ := db.GetNodeTypeByCode("NGRP")
 	lanType, _ := db.GetNodeTypeByCode("LANE")
 
-	bp = &store.Blueprint{Code: "PTX", DefaultManifestJSON: "{}"}
-	db.CreateBlueprint(bp)
+	bp = &store.Payload{Code: "PTX", DefaultManifestJSON: "{}"}
+	db.CreatePayload(bp)
 
 	// Create NGRP
 	grp = &store.Node{Name: "GRP-TEST", NodeTypeID: &grpType.ID, Enabled: true, IsSynthetic: true}
@@ -70,10 +70,10 @@ func TestPlanReshuffle_SingleBlocker(t *testing.T) {
 	grp, lane, slots, _, bp := setupNodeGroupWithShuffle(t, db)
 
 	// Place blocker A at depth 1
-	blockerA := createTestPayloadAtNode(t, db, bp.ID, slots[0].ID, "BIN-A")
+	blockerA := createTestBinAtNode(t, db, bp.Code, slots[0].ID, "BIN-A")
 
 	// Place target B at depth 2
-	targetB := createTestPayloadAtNode(t, db, bp.ID, slots[1].ID, "BIN-B")
+	targetB := createTestBinAtNode(t, db, bp.Code, slots[1].ID, "BIN-B")
 
 	plan, err := PlanReshuffle(db, targetB, slots[1], lane, grp.ID)
 	if err != nil {
@@ -89,8 +89,8 @@ func TestPlanReshuffle_SingleBlocker(t *testing.T) {
 	if plan.Steps[0].StepType != "unbury" {
 		t.Errorf("step 1 type = %q, want %q", plan.Steps[0].StepType, "unbury")
 	}
-	if plan.Steps[0].PayloadID != blockerA.ID {
-		t.Errorf("step 1 payload = %d, want %d", plan.Steps[0].PayloadID, blockerA.ID)
+	if plan.Steps[0].BinID != blockerA.ID {
+		t.Errorf("step 1 bin = %d, want %d", plan.Steps[0].BinID, blockerA.ID)
 	}
 	if plan.Steps[0].Sequence != 1 {
 		t.Errorf("step 1 sequence = %d, want 1", plan.Steps[0].Sequence)
@@ -100,8 +100,8 @@ func TestPlanReshuffle_SingleBlocker(t *testing.T) {
 	if plan.Steps[1].StepType != "retrieve" {
 		t.Errorf("step 2 type = %q, want %q", plan.Steps[1].StepType, "retrieve")
 	}
-	if plan.Steps[1].PayloadID != targetB.ID {
-		t.Errorf("step 2 payload = %d, want %d", plan.Steps[1].PayloadID, targetB.ID)
+	if plan.Steps[1].BinID != targetB.ID {
+		t.Errorf("step 2 bin = %d, want %d", plan.Steps[1].BinID, targetB.ID)
 	}
 	if plan.Steps[1].Sequence != 2 {
 		t.Errorf("step 2 sequence = %d, want 2", plan.Steps[1].Sequence)
@@ -111,8 +111,8 @@ func TestPlanReshuffle_SingleBlocker(t *testing.T) {
 	if plan.Steps[2].StepType != "restock" {
 		t.Errorf("step 3 type = %q, want %q", plan.Steps[2].StepType, "restock")
 	}
-	if plan.Steps[2].PayloadID != blockerA.ID {
-		t.Errorf("step 3 payload = %d, want %d", plan.Steps[2].PayloadID, blockerA.ID)
+	if plan.Steps[2].BinID != blockerA.ID {
+		t.Errorf("step 3 bin = %d, want %d", plan.Steps[2].BinID, blockerA.ID)
 	}
 	if plan.Steps[2].Sequence != 3 {
 		t.Errorf("step 3 sequence = %d, want 3", plan.Steps[2].Sequence)
@@ -124,13 +124,13 @@ func TestPlanReshuffle_MultipleBlockers(t *testing.T) {
 	grp, lane, slots, _, bp := setupNodeGroupWithShuffle(t, db)
 
 	// Place blocker at depth 1
-	blocker1 := createTestPayloadAtNode(t, db, bp.ID, slots[0].ID, "BIN-B1")
+	blocker1 := createTestBinAtNode(t, db, bp.Code, slots[0].ID, "BIN-B1")
 
 	// Place blocker at depth 2
-	blocker2 := createTestPayloadAtNode(t, db, bp.ID, slots[1].ID, "BIN-B2")
+	blocker2 := createTestBinAtNode(t, db, bp.Code, slots[1].ID, "BIN-B2")
 
 	// Place target at depth 3
-	target := createTestPayloadAtNode(t, db, bp.ID, slots[2].ID, "BIN-TGT")
+	target := createTestBinAtNode(t, db, bp.Code, slots[2].ID, "BIN-TGT")
 
 	plan, err := PlanReshuffle(db, target, slots[2], lane, grp.ID)
 	if err != nil {
@@ -146,38 +146,38 @@ func TestPlanReshuffle_MultipleBlockers(t *testing.T) {
 	if plan.Steps[0].StepType != "unbury" {
 		t.Errorf("step 1 type = %q, want %q", plan.Steps[0].StepType, "unbury")
 	}
-	if plan.Steps[0].PayloadID != blocker1.ID {
-		t.Errorf("step 1 payload = %d, want %d (depth 1 blocker)", plan.Steps[0].PayloadID, blocker1.ID)
+	if plan.Steps[0].BinID != blocker1.ID {
+		t.Errorf("step 1 bin = %d, want %d (depth 1 blocker)", plan.Steps[0].BinID, blocker1.ID)
 	}
 
 	if plan.Steps[1].StepType != "unbury" {
 		t.Errorf("step 2 type = %q, want %q", plan.Steps[1].StepType, "unbury")
 	}
-	if plan.Steps[1].PayloadID != blocker2.ID {
-		t.Errorf("step 2 payload = %d, want %d (depth 2 blocker)", plan.Steps[1].PayloadID, blocker2.ID)
+	if plan.Steps[1].BinID != blocker2.ID {
+		t.Errorf("step 2 bin = %d, want %d (depth 2 blocker)", plan.Steps[1].BinID, blocker2.ID)
 	}
 
 	// Retrieve step
 	if plan.Steps[2].StepType != "retrieve" {
 		t.Errorf("step 3 type = %q, want %q", plan.Steps[2].StepType, "retrieve")
 	}
-	if plan.Steps[2].PayloadID != target.ID {
-		t.Errorf("step 3 payload = %d, want %d (target)", plan.Steps[2].PayloadID, target.ID)
+	if plan.Steps[2].BinID != target.ID {
+		t.Errorf("step 3 bin = %d, want %d (target)", plan.Steps[2].BinID, target.ID)
 	}
 
 	// Restock steps: deepest-first (depth 2, then depth 1)
 	if plan.Steps[3].StepType != "restock" {
 		t.Errorf("step 4 type = %q, want %q", plan.Steps[3].StepType, "restock")
 	}
-	if plan.Steps[3].PayloadID != blocker2.ID {
-		t.Errorf("step 4 payload = %d, want %d (depth 2 restock first)", plan.Steps[3].PayloadID, blocker2.ID)
+	if plan.Steps[3].BinID != blocker2.ID {
+		t.Errorf("step 4 bin = %d, want %d (depth 2 restock first)", plan.Steps[3].BinID, blocker2.ID)
 	}
 
 	if plan.Steps[4].StepType != "restock" {
 		t.Errorf("step 5 type = %q, want %q", plan.Steps[4].StepType, "restock")
 	}
-	if plan.Steps[4].PayloadID != blocker1.ID {
-		t.Errorf("step 5 payload = %d, want %d (depth 1 restock last)", plan.Steps[4].PayloadID, blocker1.ID)
+	if plan.Steps[4].BinID != blocker1.ID {
+		t.Errorf("step 5 bin = %d, want %d (depth 1 restock last)", plan.Steps[4].BinID, blocker1.ID)
 	}
 
 	// Verify sequences
@@ -192,16 +192,16 @@ func TestPlanReshuffle_NoShuffleSlots(t *testing.T) {
 	db := testDB(t)
 	grp, lane, slots, shuffleSlots, bp := setupNodeGroupWithShuffle(t, db)
 
-	// Fill all 4 direct children (shuffle slots) with payloads
+	// Fill all 4 direct children (shuffle slots) with bins
 	for i, ss := range shuffleSlots {
-		createTestPayloadAtNode(t, db, bp.ID, ss.ID, fmt.Sprintf("BIN-DC-%d", i+1))
+		createTestBinAtNode(t, db, bp.Code, ss.ID, fmt.Sprintf("BIN-DC-%d", i+1))
 	}
 
 	// Place blocker at depth 1
-	createTestPayloadAtNode(t, db, bp.ID, slots[0].ID, "BIN-BLK")
+	createTestBinAtNode(t, db, bp.Code, slots[0].ID, "BIN-BLK")
 
 	// Place target at depth 2
-	target := createTestPayloadAtNode(t, db, bp.ID, slots[1].ID, "BIN-TGT")
+	target := createTestBinAtNode(t, db, bp.Code, slots[1].ID, "BIN-TGT")
 
 	_, err := PlanReshuffle(db, target, slots[1], lane, grp.ID)
 	if err == nil {
@@ -255,10 +255,10 @@ func TestCompoundOrderCreation(t *testing.T) {
 	grp, lane, slots, _, bp := setupNodeGroupWithShuffle(t, db)
 
 	// Place blocker at depth 1
-	createTestPayloadAtNode(t, db, bp.ID, slots[0].ID, "BIN-CMP-BLK")
+	createTestBinAtNode(t, db, bp.Code, slots[0].ID, "BIN-CMP-BLK")
 
 	// Place target at depth 2
-	target := createTestPayloadAtNode(t, db, bp.ID, slots[1].ID, "BIN-CMP-TGT")
+	target := createTestBinAtNode(t, db, bp.Code, slots[1].ID, "BIN-CMP-TGT")
 
 	// Create parent order
 	parentOrder := &store.Order{
@@ -400,8 +400,8 @@ func TestHandleChildOrderFailure(t *testing.T) {
 		t.Fatalf("create child2: %v", err)
 	}
 
-	// Create a payload claimed by child3 to verify unclaim on cancel
-	p := createTestPayloadAtNode(t, db, bp.ID, slots[2].ID, "BIN-C3")
+	// Create a bin claimed by child3 to verify unclaim on cancel
+	binC3 := createTestBinAtNode(t, db, bp.Code, slots[2].ID, "BIN-C3")
 
 	child3 := &store.Order{
 		EdgeUUID:      "uuid-fail-parent-step-3",
@@ -417,8 +417,8 @@ func TestHandleChildOrderFailure(t *testing.T) {
 		t.Fatalf("create child3: %v", err)
 	}
 
-	// Claim the bin by child3 (bin-centric claiming)
-	db.ClaimBin(*p.BinID, child3.ID)
+	// Claim the bin by child3
+	db.ClaimBin(binC3.ID, child3.ID)
 
 	// Lock the lane to verify it gets released
 	d, emitter := newTestDispatcher(t, db, &mockBackend{})
@@ -453,13 +453,13 @@ func TestHandleChildOrderFailure(t *testing.T) {
 		t.Errorf("failed event order ID = %d, want %d", emitter.failed[0].orderID, parentOrder.ID)
 	}
 
-	// Verify payload claimed by child3 was unclaimed
-	pGot, err := db.GetPayload(p.ID)
+	// Verify bin claimed by child3 was unclaimed
+	binGot, err := db.GetBin(binC3.ID)
 	if err != nil {
-		t.Fatalf("get payload: %v", err)
+		t.Fatalf("get bin: %v", err)
 	}
-	if pGot.ClaimedBy != nil {
-		t.Errorf("payload claimed_by = %v, want nil (should be unclaimed after cancel)", pGot.ClaimedBy)
+	if binGot.ClaimedBy != nil {
+		t.Errorf("bin claimed_by = %v, want nil (should be unclaimed after cancel)", binGot.ClaimedBy)
 	}
 
 	// Verify lane lock is released

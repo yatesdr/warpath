@@ -16,7 +16,7 @@ type EdgeHandler struct {
 
 	orderMgr           *orders.Manager
 	onCoreNodes        func([]protocol.NodeInfo)
-	onBlueprintCatalog func([]protocol.CatalogBlueprintInfo)
+	onPayloadCatalog   func([]protocol.CatalogPayloadInfo)
 	onRegisterReq      func()
 
 	DebugLog func(string, ...any)
@@ -32,9 +32,9 @@ func (h *EdgeHandler) SetRegisterRequestHandler(fn func()) {
 	h.onRegisterReq = fn
 }
 
-// SetBlueprintCatalogHandler sets a callback for when the blueprint catalog is received from core.
-func (h *EdgeHandler) SetBlueprintCatalogHandler(fn func([]protocol.CatalogBlueprintInfo)) {
-	h.onBlueprintCatalog = fn
+// SetPayloadCatalogHandler sets a callback for when the payload catalog is received from core.
+func (h *EdgeHandler) SetPayloadCatalogHandler(fn func([]protocol.CatalogPayloadInfo)) {
+	h.onPayloadCatalog = fn
 }
 
 func (h *EdgeHandler) debug(format string, args ...any) {
@@ -77,15 +77,15 @@ func (h *EdgeHandler) HandleData(env *protocol.Envelope, p *protocol.Data) {
 			return
 		}
 		log.Printf("edge_handler: production report ack: station=%s accepted=%d", ack.StationID, ack.Accepted)
-	case protocol.SubjectCatalogBlueprintsResponse, protocol.SubjectCatalogStylesResponse:
-		var resp protocol.CatalogBlueprintsResponse
+	case protocol.SubjectCatalogPayloadsResponse:
+		var resp protocol.CatalogPayloadsResponse
 		if err := json.Unmarshal(p.Body, &resp); err != nil {
-			log.Printf("edge_handler: decode blueprint catalog response: %v", err)
+			log.Printf("edge_handler: decode payload catalog response: %v", err)
 			return
 		}
-		log.Printf("edge_handler: received blueprint catalog (%d blueprints)", len(resp.Blueprints))
-		if h.onBlueprintCatalog != nil {
-			h.onBlueprintCatalog(resp.Blueprints)
+		log.Printf("edge_handler: received payload catalog (%d entries)", len(resp.Payloads))
+		if h.onPayloadCatalog != nil {
+			h.onPayloadCatalog(resp.Payloads)
 		}
 	case protocol.SubjectTagVerifyResponse:
 		var resp protocol.TagVerifyResponse

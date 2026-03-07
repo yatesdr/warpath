@@ -202,11 +202,11 @@ async function submitKafkaOrder() {
     order_type: document.getElementById('k-order-type').value,
     pickup_node: document.getElementById('k-pickup-node').value,
     delivery_node: document.getElementById('k-delivery-node').value,
-    blueprint_code: document.getElementById('k-blueprint').value,
+    payload_code: document.getElementById('k-payload').value,
     quantity: parseInt(document.getElementById('k-quantity').value) || 1,
     priority: parseInt(document.getElementById('k-priority').value) || 0
   };
-  if (!body.blueprint_code) { alert('Blueprint is required'); return; }
+  if (!body.payload_code) { alert('Payload is required'); return; }
   try {
     var res = await fetch('/api/test-orders/submit', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     var data = await res.json();

@@ -137,17 +137,17 @@ func (h *Heartbeater) RequestNodeSync() {
 	h.sendNodeListRequest()
 }
 
-// RequestCatalogSync sends a blueprint catalog request to core on demand.
+// RequestCatalogSync sends a payload catalog request to core on demand.
 func (h *Heartbeater) RequestCatalogSync() {
 	h.sendCatalogRequest()
 }
 
 func (h *Heartbeater) sendCatalogRequest() {
 	env, err := protocol.NewDataEnvelope(
-		protocol.SubjectCatalogBlueprintsRequest,
+		protocol.SubjectCatalogPayloadsRequest,
 		protocol.Address{Role: protocol.RoleEdge, Station: h.stationID},
 		protocol.Address{Role: protocol.RoleCore},
-		&protocol.CatalogBlueprintsRequest{},
+		&protocol.CatalogPayloadsRequest{},
 	)
 	if err != nil {
 		log.Printf("heartbeater: build catalog request: %v", err)
@@ -156,7 +156,7 @@ func (h *Heartbeater) sendCatalogRequest() {
 	if err := h.publishWithRetry(env, "catalog request"); err != nil {
 		log.Printf("heartbeater: send catalog request failed after retries: %v", err)
 	} else {
-		log.Printf("heartbeater: sent catalog.blueprints_request (station=%s)", h.stationID)
+		log.Printf("heartbeater: sent catalog.payloads_request (station=%s)", h.stationID)
 		h.debug("catalog_request sent station=%s", h.stationID)
 	}
 }

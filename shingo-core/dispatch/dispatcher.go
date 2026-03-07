@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -45,9 +46,9 @@ func (d *Dispatcher) dbg(format string, args ...any) {
 // HandleOrderRequest processes a new order from ShinGo Edge.
 func (d *Dispatcher) HandleOrderRequest(env *protocol.Envelope, p *protocol.OrderRequest) {
 	stationID := env.Src.Station
-	blueprintCode := p.EffectiveBlueprintCode()
-	d.dbg("order request: station=%s uuid=%s type=%s blueprint=%s delivery=%s pickup=%s",
-		stationID, p.OrderUUID, p.OrderType, blueprintCode, p.DeliveryNode, p.PickupNode)
+	payloadCode := p.PayloadCode
+	d.dbg("order request: station=%s uuid=%s type=%s payload=%s delivery=%s pickup=%s",
+		stationID, p.OrderUUID, p.OrderType, payloadCode, p.DeliveryNode, p.PickupNode)
 
 	// Create order record
 	payloadDesc := p.PayloadDesc
@@ -66,16 +67,15 @@ func (d *Dispatcher) HandleOrderRequest(env *protocol.Envelope, p *protocol.Orde
 		PayloadDesc:  payloadDesc,
 	}
 
-	// Resolve blueprint (optional — manual orders may not specify one)
-	if blueprintCode != "" {
-		bp, err := d.db.GetBlueprintByCode(blueprintCode)
+	// Resolve payload template (optional — manual orders may not specify one)
+	if payloadCode != "" {
+		_, err := d.db.GetPayloadByCode(payloadCode)
 		if err != nil {
-			log.Printf("dispatch: blueprint %q not found: %v", blueprintCode, err)
-			d.dbg("error: blueprint %q not found: %v", blueprintCode, err)
-			d.sendError(env, p.OrderUUID, "blueprint_error", fmt.Sprintf("blueprint %q not found", blueprintCode))
+			log.Printf("dispatch: payload %q not found: %v", payloadCode, err)
+			d.dbg("error: payload %q not found: %v", payloadCode, err)
+			d.sendError(env, p.OrderUUID, "payload_error", fmt.Sprintf("payload %q not found", payloadCode))
 			return
 		}
-		order.BlueprintID = &bp.ID
 	}
 
 	// Validate destination node exists; resolve synthetic nodes
@@ -90,7 +90,7 @@ func (d *Dispatcher) HandleOrderRequest(env *protocol.Envelope, p *protocol.Orde
 		if destNode.IsSynthetic && d.resolver != nil {
 			// Delivery always needs store resolution (find empty slot),
 			// regardless of order type.
-			result, err := d.resolver.Resolve(destNode, OrderTypeStore, order.BlueprintID, nil)
+			result, err := d.resolver.Resolve(destNode, OrderTypeStore, payloadCode, nil)
 			if err != nil {
 				d.dbg("synthetic resolution failed for %s: %v", p.DeliveryNode, err)
 				d.sendError(env, p.OrderUUID, "resolution_failed", fmt.Sprintf("cannot resolve synthetic node %s: %v", p.DeliveryNode, err))
@@ -108,43 +108,43 @@ func (d *Dispatcher) HandleOrderRequest(env *protocol.Envelope, p *protocol.Orde
 	}
 	d.db.UpdateOrderStatus(order.ID, StatusPending, "order received")
 
-	d.emitter.EmitOrderReceived(order.ID, order.EdgeUUID, stationID, p.OrderType, blueprintCode, p.DeliveryNode)
+	d.emitter.EmitOrderReceived(order.ID, order.EdgeUUID, stationID, p.OrderType, payloadCode, p.DeliveryNode)
 
 	switch p.OrderType {
 	case OrderTypeRetrieve:
-		d.handleRetrieve(order, env, blueprintCode)
+		d.handleRetrieve(order, env, payloadCode)
 	case OrderTypeMove:
-		d.handleMove(order, env, blueprintCode)
+		d.handleMove(order, env, payloadCode)
 	case OrderTypeStore:
-		d.handleStore(order, env)
+		d.handleStore(order, env, payloadCode)
 	default:
 		log.Printf("dispatch: unknown order type %q", p.OrderType)
 		d.failOrder(order, env, "unknown_type", fmt.Sprintf("unknown order type: %s", p.OrderType))
 	}
 }
 
-func (d *Dispatcher) handleRetrieve(order *store.Order, env *protocol.Envelope, blueprintCode string) {
+func (d *Dispatcher) handleRetrieve(order *store.Order, env *protocol.Envelope, payloadCode string) {
 	d.db.UpdateOrderStatus(order.ID, StatusSourcing, "finding source")
 
-	// Empty bin retrieval — find an empty compatible bin instead of a payload
+	// Empty bin retrieval — find an empty compatible bin instead of a loaded bin
 	if order.PayloadDesc == "retrieve_empty" {
-		d.handleRetrieveEmpty(order, env, blueprintCode)
+		d.handleRetrieveEmpty(order, env, payloadCode)
 		return
 	}
 
-	var source *store.Payload
+	var source *store.Bin
 	var sourceNode *store.Node
 
 	// Try group-aware resolution if a pickup node is specified and is an NGRP
 	if order.PickupNode != "" && d.resolver != nil {
 		pickupNode, err := d.db.GetNodeByDotName(order.PickupNode)
 		if err == nil && pickupNode.IsSynthetic && pickupNode.NodeTypeCode == "NGRP" {
-			result, err := d.resolver.Resolve(pickupNode, OrderTypeRetrieve, order.BlueprintID, nil)
+			result, err := d.resolver.Resolve(pickupNode, OrderTypeRetrieve, payloadCode, nil)
 			if err != nil {
 				// Check if buried — trigger reshuffle
 				var buriedErr *BuriedError
 				if errors.As(err, &buriedErr) {
-					d.dbg("retrieve: payload %d buried in lane %d, planning reshuffle", buriedErr.Payload.ID, buriedErr.LaneID)
+					d.dbg("retrieve: bin %d buried in lane %d, planning reshuffle", buriedErr.Bin.ID, buriedErr.LaneID)
 					d.handleBuriedReshuffle(order, env, buriedErr)
 					return
 				}
@@ -152,7 +152,7 @@ func (d *Dispatcher) handleRetrieve(order *store.Order, env *protocol.Envelope, 
 				d.failOrder(order, env, "no_source", fmt.Sprintf("no source in node group %s: %v", order.PickupNode, err))
 				return
 			}
-			source = result.Payload
+			source = result.Bin
 			sourceNode, _ = d.db.GetNode(*source.NodeID)
 		}
 	}
@@ -160,10 +160,10 @@ func (d *Dispatcher) handleRetrieve(order *store.Order, env *protocol.Envelope, 
 	// Fallback: global FIFO source selection
 	if source == nil {
 		var err error
-		source, err = d.db.FindSourcePayloadFIFO(blueprintCode)
+		source, err = d.db.FindSourceBinFIFO(payloadCode)
 		if err != nil {
-			d.dbg("retrieve: no source payload for blueprint %s", blueprintCode)
-			d.failOrder(order, env, "no_source", fmt.Sprintf("no source payload found for blueprint %s", blueprintCode))
+			d.dbg("retrieve: no source bin for payload %s", payloadCode)
+			d.failOrder(order, env, "no_source", fmt.Sprintf("no source bin found for payload %s", payloadCode))
 			return
 		}
 		sourceNode, err = d.db.GetNode(*source.NodeID)
@@ -173,17 +173,15 @@ func (d *Dispatcher) handleRetrieve(order *store.Order, env *protocol.Envelope, 
 		}
 	}
 
-	d.dbg("retrieve: FIFO source payload=%d blueprint=%s node=%s", source.ID, blueprintCode, sourceNode.Name)
+	d.dbg("retrieve: FIFO source bin=%d payload=%s node=%s", source.ID, payloadCode, sourceNode.Name)
 
-	// Claim the bin (bin-centric)
-	if source.BinID != nil {
-		if err := d.db.ClaimBin(*source.BinID, order.ID); err != nil {
-			d.failOrder(order, env, "claim_failed", err.Error())
-			return
-		}
-		order.BinID = source.BinID
-		d.db.UpdateOrderBinID(order.ID, *source.BinID)
+	// Claim the bin
+	if err := d.db.ClaimBin(source.ID, order.ID); err != nil {
+		d.failOrder(order, env, "claim_failed", err.Error())
+		return
 	}
+	order.BinID = &source.ID
+	d.db.UpdateOrderBinID(order.ID, source.ID)
 
 	order.PickupNode = sourceNode.Name
 	d.db.UpdateOrderPickupNode(order.ID, sourceNode.Name)
@@ -198,7 +196,7 @@ func (d *Dispatcher) handleRetrieve(order *store.Order, env *protocol.Envelope, 
 }
 
 // handleRetrieveEmpty finds an empty compatible bin and dispatches it to the requesting station.
-func (d *Dispatcher) handleRetrieveEmpty(order *store.Order, env *protocol.Envelope, blueprintCode string) {
+func (d *Dispatcher) handleRetrieveEmpty(order *store.Order, env *protocol.Envelope, payloadCode string) {
 	// Determine preferred zone from the destination node
 	var preferZone string
 	if order.DeliveryNode != "" {
@@ -207,10 +205,10 @@ func (d *Dispatcher) handleRetrieveEmpty(order *store.Order, env *protocol.Envel
 		}
 	}
 
-	bin, err := d.db.FindEmptyCompatibleBin(blueprintCode, preferZone)
+	bin, err := d.db.FindEmptyCompatibleBin(payloadCode, preferZone)
 	if err != nil {
-		d.dbg("retrieve_empty: no empty bin for blueprint %s", blueprintCode)
-		d.failOrder(order, env, "no_empty_bin", fmt.Sprintf("no empty compatible bin for blueprint %s", blueprintCode))
+		d.dbg("retrieve_empty: no empty bin for payload %s", payloadCode)
+		d.failOrder(order, env, "no_empty_bin", fmt.Sprintf("no empty compatible bin for payload %s", payloadCode))
 		return
 	}
 
@@ -255,7 +253,7 @@ func (d *Dispatcher) handleBuriedReshuffle(order *store.Order, env *protocol.Env
 		return
 	}
 
-	plan, err := PlanReshuffle(d.db, buried.Payload, buried.Slot, lane, *lane.ParentID)
+	plan, err := PlanReshuffle(d.db, buried.Bin, buried.Slot, lane, *lane.ParentID)
 	if err != nil {
 		d.failOrder(order, env, "reshuffle_error", fmt.Sprintf("cannot plan reshuffle: %v", err))
 		return
@@ -281,7 +279,7 @@ func (d *Dispatcher) handleBuriedReshuffle(order *store.Order, env *protocol.Env
 	d.AdvanceCompoundOrder(order.ID)
 }
 
-func (d *Dispatcher) handleMove(order *store.Order, env *protocol.Envelope, blueprintCode string) {
+func (d *Dispatcher) handleMove(order *store.Order, env *protocol.Envelope, payloadCode string) {
 	d.db.UpdateOrderStatus(order.ID, StatusSourcing, "validating move")
 
 	if order.PickupNode == "" {
@@ -295,26 +293,16 @@ func (d *Dispatcher) handleMove(order *store.Order, env *protocol.Envelope, blue
 		return
 	}
 
-	// Find a bin at the pickup node to claim (bin-centric)
+	// Find a bin at the pickup node to claim
 	bins, _ := d.db.ListBinsByNode(pickupNode.ID)
 	binClaimed := false
 	for _, bin := range bins {
 		if bin.ClaimedBy != nil {
 			continue
 		}
-		// If a blueprint is specified, validate via payload on the bin
-		if blueprintCode != "" {
-			payloads, _ := d.db.ListPayloadsByBin(bin.ID)
-			match := false
-			for _, pl := range payloads {
-				if pl.BlueprintCode == blueprintCode {
-					match = true
-					break
-				}
-			}
-			if !match {
-				continue
-			}
+		// If a payload code is specified, validate the bin matches
+		if payloadCode != "" && bin.PayloadCode != payloadCode {
+			continue
 		}
 		if err := d.db.ClaimBin(bin.ID, order.ID); err == nil {
 			order.BinID = &bin.ID
@@ -324,9 +312,9 @@ func (d *Dispatcher) handleMove(order *store.Order, env *protocol.Envelope, blue
 			break
 		}
 	}
-	if !binClaimed && blueprintCode != "" {
-		d.dbg("move: no unclaimed bin with %s at %s", blueprintCode, order.PickupNode)
-		d.failOrder(order, env, "no_payload", fmt.Sprintf("no unclaimed %s bin at %s", blueprintCode, order.PickupNode))
+	if !binClaimed && payloadCode != "" {
+		d.dbg("move: no unclaimed bin with %s at %s", payloadCode, order.PickupNode)
+		d.failOrder(order, env, "no_payload", fmt.Sprintf("no unclaimed %s bin at %s", payloadCode, order.PickupNode))
 		return
 	}
 
@@ -341,18 +329,13 @@ func (d *Dispatcher) handleMove(order *store.Order, env *protocol.Envelope, blue
 	d.dispatchToFleet(order, env, pickupNode, destNode)
 }
 
-func (d *Dispatcher) handleStore(order *store.Order, env *protocol.Envelope) {
+func (d *Dispatcher) handleStore(order *store.Order, env *protocol.Envelope, payloadCode string) {
 	d.db.UpdateOrderStatus(order.ID, StatusSourcing, "finding storage destination")
-
-	var blueprintID int64
-	if order.BlueprintID != nil {
-		blueprintID = *order.BlueprintID
-	}
 
 	// Capture the original delivery node before overwriting — it may be the pickup source
 	originalDeliveryNode := order.DeliveryNode
 
-	destNode, err := d.db.FindStorageDestination(blueprintID)
+	destNode, err := d.db.FindStorageDestination(payloadCode)
 	if err != nil {
 		d.dbg("store: no available storage node")
 		d.failOrder(order, env, "no_storage", "no available storage node found")
@@ -384,7 +367,7 @@ func (d *Dispatcher) handleStore(order *store.Order, env *protocol.Envelope) {
 		return
 	}
 
-	// Claim bin at pickup node if not already set (bin-centric)
+	// Claim bin at pickup node if not already set
 	if order.BinID == nil {
 		bins, _ := d.db.ListBinsByNode(pickupNode.ID)
 		for _, bin := range bins {
@@ -623,18 +606,19 @@ func (d *Dispatcher) HandleOrderStorageWaybill(env *protocol.Envelope, p *protoc
 
 	d.emitter.EmitOrderReceived(order.ID, order.EdgeUUID, stationID, p.OrderType, "", p.PickupNode)
 
-	d.handleStore(order, env)
+	d.handleStore(order, env, "")
 }
 
-// HandleOrderIngest processes an ingest request: creates a payload on a bin and dispatches storage.
+// HandleOrderIngest processes an ingest request: sets manifest on a bin and dispatches storage.
 func (d *Dispatcher) HandleOrderIngest(env *protocol.Envelope, p *protocol.OrderIngestRequest) {
 	stationID := env.Src.Station
-	d.dbg("ingest: station=%s uuid=%s blueprint=%s bin=%s pickup=%s", stationID, p.OrderUUID, p.BlueprintCode, p.BinLabel, p.PickupNode)
+	payloadCode := p.PayloadCode
+	d.dbg("ingest: station=%s uuid=%s payload=%s bin=%s pickup=%s", stationID, p.OrderUUID, payloadCode, p.BinLabel, p.PickupNode)
 
-	// Resolve blueprint
-	bp, err := d.db.GetBlueprintByCode(p.BlueprintCode)
+	// Resolve payload template
+	tmpl, err := d.db.GetPayloadByCode(payloadCode)
 	if err != nil {
-		d.sendError(env, p.OrderUUID, "blueprint_error", fmt.Sprintf("blueprint %q not found", p.BlueprintCode))
+		d.sendError(env, p.OrderUUID, "payload_error", fmt.Sprintf("payload %q not found", payloadCode))
 		return
 	}
 
@@ -645,39 +629,34 @@ func (d *Dispatcher) HandleOrderIngest(env *protocol.Envelope, p *protocol.Order
 		return
 	}
 
-	// Create payload on the bin
-	now := time.Now()
-	payload := &store.Payload{
-		BlueprintID:       bp.ID,
-		BinID:             &bin.ID,
-		UOPRemaining:      bp.UOPCapacity,
-		ManifestConfirmed: true,
-		LoadedAt:          &now,
-	}
-
+	// Set manifest on the bin
 	if len(p.Manifest) > 0 {
-		// Create payload with provided manifest
-		if err := d.db.CreatePayload(payload); err != nil {
+		// Build manifest JSON from provided items
+		manifest := store.BinManifest{Items: make([]store.ManifestEntry, len(p.Manifest))}
+		for i, item := range p.Manifest {
+			manifest.Items[i] = store.ManifestEntry{
+				CatID:    item.PartNumber,
+				Quantity: item.Quantity,
+			}
+		}
+		manifestJSON, _ := json.Marshal(manifest)
+		if err := d.db.SetBinManifest(bin.ID, string(manifestJSON), payloadCode, tmpl.UOPCapacity); err != nil {
 			d.sendError(env, p.OrderUUID, "internal_error", err.Error())
 			return
-		}
-		for _, item := range p.Manifest {
-			d.db.CreateManifestItem(&store.ManifestItem{
-				PayloadID:  payload.ID,
-				PartNumber: item.PartNumber,
-				Quantity:   item.Quantity,
-				Notes:      item.Description,
-			})
 		}
 	} else {
-		// Create payload with default manifest from blueprint
-		if err := d.db.CreatePayloadWithManifest(payload); err != nil {
+		// Use default manifest from payload template
+		if err := d.db.SetBinManifestFromTemplate(bin.ID, payloadCode, 0); err != nil {
 			d.sendError(env, p.OrderUUID, "internal_error", err.Error())
 			return
 		}
 	}
 
-	d.dbg("ingest: created payload=%d on bin=%d", payload.ID, bin.ID)
+	// Confirm manifest and set loaded timestamp
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	d.db.ConfirmBinManifest(bin.ID)
+
+	d.dbg("ingest: set manifest on bin=%d, payload=%s, loaded_at=%s", bin.ID, payloadCode, now)
 
 	// Create store order
 	order := &store.Order{
@@ -687,9 +666,7 @@ func (d *Dispatcher) HandleOrderIngest(env *protocol.Envelope, p *protocol.Order
 		Status:      StatusPending,
 		Quantity:    p.Quantity,
 		PickupNode:  p.PickupNode,
-		PayloadDesc: fmt.Sprintf("ingest %s bin %s", p.BlueprintCode, p.BinLabel),
-		BlueprintID: &bp.ID,
-		PayloadID:   &payload.ID,
+		PayloadDesc: fmt.Sprintf("ingest %s bin %s", payloadCode, p.BinLabel),
 		BinID:       &bin.ID,
 	}
 
@@ -699,13 +676,13 @@ func (d *Dispatcher) HandleOrderIngest(env *protocol.Envelope, p *protocol.Order
 	}
 	d.db.UpdateOrderStatus(order.ID, StatusPending, "ingest order received")
 
-	// Claim the bin (bin-centric, no payload claim needed)
+	// Claim the bin
 	d.db.ClaimBin(bin.ID, order.ID)
 
-	d.emitter.EmitOrderReceived(order.ID, order.EdgeUUID, stationID, OrderTypeStore, p.BlueprintCode, "")
+	d.emitter.EmitOrderReceived(order.ID, order.EdgeUUID, stationID, OrderTypeStore, payloadCode, "")
 
 	// Route to storage
-	d.handleStore(order, env)
+	d.handleStore(order, env, payloadCode)
 }
 
 func (d *Dispatcher) failOrder(order *store.Order, env *protocol.Envelope, errorCode, detail string) {

@@ -113,17 +113,16 @@ func (h *Handlers) apiGetOrderEnriched(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type enrichedOrder struct {
-		Order        *store.Order          `json:"order"`
-		History      []*store.OrderHistory `json:"history,omitempty"`
-		Bin          *store.Bin            `json:"bin,omitempty"`
-		Payload      *store.Payload        `json:"payload,omitempty"`
-		PickupNode   *store.Node           `json:"pickup_node,omitempty"`
-		DeliveryNode *store.Node           `json:"delivery_node,omitempty"`
-		Children     []*store.Order        `json:"children,omitempty"`
-		Parent       *store.Order          `json:"parent,omitempty"`
-		VendorDetail  *fleet.VendorOrderDetail `json:"vendor_detail,omitempty"`
-		Robot         *fleet.RobotStatus     `json:"robot,omitempty"`
-		ManifestItems []*store.ManifestItem  `json:"manifest_items,omitempty"`
+		Order        *store.Order             `json:"order"`
+		History      []*store.OrderHistory    `json:"history,omitempty"`
+		Bin          *store.Bin               `json:"bin,omitempty"`
+		BinManifest  *store.BinManifest       `json:"bin_manifest,omitempty"`
+		PickupNode   *store.Node              `json:"pickup_node,omitempty"`
+		DeliveryNode *store.Node              `json:"delivery_node,omitempty"`
+		Children     []*store.Order           `json:"children,omitempty"`
+		Parent       *store.Order             `json:"parent,omitempty"`
+		VendorDetail *fleet.VendorOrderDetail `json:"vendor_detail,omitempty"`
+		Robot        *fleet.RobotStatus       `json:"robot,omitempty"`
 	}
 
 	result := enrichedOrder{Order: order}
@@ -132,13 +131,7 @@ func (h *Handlers) apiGetOrderEnriched(w http.ResponseWriter, r *http.Request) {
 
 	if order.BinID != nil {
 		result.Bin, _ = h.engine.DB().GetBin(*order.BinID)
-	}
-	if order.PayloadID != nil {
-		result.Payload, _ = h.engine.DB().GetPayload(*order.PayloadID)
-		items, _ := h.engine.DB().ListManifestItems(*order.PayloadID)
-		if len(items) > 0 {
-			result.ManifestItems = items
-		}
+		result.BinManifest, _ = h.engine.DB().GetBinManifest(*order.BinID)
 	}
 	if order.PickupNode != "" {
 		result.PickupNode, _ = h.engine.DB().GetNodeByName(order.PickupNode)
@@ -214,7 +207,7 @@ func (h *Handlers) apiSpotOrderSubmit(w http.ResponseWriter, r *http.Request) {
 		StagingNode   string `json:"staging_node"`
 		Priority      int    `json:"priority"`
 		Description   string `json:"description"`
-		BlueprintCode string `json:"blueprint_code"`
+		PayloadCode string `json:"payload_code"`
 		BinLabel      string `json:"bin_label"`
 		Quantity      int    `json:"quantity"`
 	}
@@ -237,7 +230,7 @@ func (h *Handlers) apiSpotOrderSubmit(w http.ResponseWriter, r *http.Request) {
 	switch req.OrderType {
 	case "staged":
 		h.submitSpotComplexOrder(w, req.PickupNode, req.StagingNode, req.DeliveryNode,
-			req.BlueprintCode, req.Description, req.Priority, orderUUID, src, dst)
+			req.PayloadCode, req.Description, req.Priority, orderUUID, src, dst)
 		return
 	case "send_to":
 		h.submitSpotSendTo(w, req.DeliveryNode, req.Description, req.Priority, orderUUID)
@@ -246,7 +239,7 @@ func (h *Handlers) apiSpotOrderSubmit(w http.ResponseWriter, r *http.Request) {
 		h.submitSpotRetrieveSpecific(w, req.BinLabel, req.DeliveryNode, req.Description, req.Priority, orderUUID)
 		return
 	case "swap":
-		h.submitSpotSwap(w, req.DeliveryNode, req.BlueprintCode, req.Description, req.Priority)
+		h.submitSpotSwap(w, req.DeliveryNode, req.PayloadCode, req.Description, req.Priority)
 		return
 	}
 
@@ -270,7 +263,7 @@ func (h *Handlers) apiSpotOrderSubmit(w http.ResponseWriter, r *http.Request) {
 			orderReq := &protocol.OrderRequest{
 				OrderUUID:     batchUUID,
 				OrderType:     actualType,
-				BlueprintCode: req.BlueprintCode,
+				PayloadCode: req.PayloadCode,
 				PayloadDesc:   req.Description,
 				Quantity:      1,
 				PickupNode:    req.PickupNode,
@@ -302,7 +295,7 @@ func (h *Handlers) apiSpotOrderSubmit(w http.ResponseWriter, r *http.Request) {
 	orderReq := &protocol.OrderRequest{
 		OrderUUID:     orderUUID,
 		OrderType:     actualType,
-		BlueprintCode: req.BlueprintCode,
+		PayloadCode: req.PayloadCode,
 		PayloadDesc:   req.Description,
 		Quantity:      1,
 		PickupNode:    req.PickupNode,
@@ -370,7 +363,7 @@ func (h *Handlers) submitSpotSendTo(w http.ResponseWriter, destination, desc str
 }
 
 func (h *Handlers) submitSpotComplexOrder(w http.ResponseWriter,
-	pickupNode, stagingNode, deliveryNode, blueprintCode, desc string,
+	pickupNode, stagingNode, deliveryNode, payloadCode, desc string,
 	priority int, orderUUID string, src, dst protocol.Address) {
 
 	if pickupNode == "" {
@@ -388,7 +381,7 @@ func (h *Handlers) submitSpotComplexOrder(w http.ResponseWriter,
 
 	complexReq := &protocol.ComplexOrderRequest{
 		OrderUUID:     orderUUID,
-		BlueprintCode: blueprintCode,
+		PayloadCode: payloadCode,
 		PayloadDesc:   desc,
 		Quantity:      1,
 		Priority:      priority,
@@ -491,13 +484,13 @@ func (h *Handlers) submitSpotRetrieveSpecific(w http.ResponseWriter, binLabel, d
 	h.readBackSpotOrder(w, orderUUID)
 }
 
-func (h *Handlers) submitSpotSwap(w http.ResponseWriter, targetNode, blueprintCode, desc string, priority int) {
+func (h *Handlers) submitSpotSwap(w http.ResponseWriter, targetNode, payloadCode, desc string, priority int) {
 	if targetNode == "" {
 		h.jsonError(w, "target node is required", http.StatusBadRequest)
 		return
 	}
-	if blueprintCode == "" {
-		h.jsonError(w, "blueprint is required", http.StatusBadRequest)
+	if payloadCode == "" {
+		h.jsonError(w, "payload is required", http.StatusBadRequest)
 		return
 	}
 
@@ -529,11 +522,11 @@ func (h *Handlers) submitSpotSwap(w http.ResponseWriter, targetNode, blueprintCo
 	}
 	h.engine.Dispatcher().HandleOrderRequest(storeEnv, storeReq)
 
-	// Retrieve order: deliver to target node with blueprint
+	// Retrieve order: deliver to target node with payload
 	retrieveReq := &protocol.OrderRequest{
 		OrderUUID:     retrieveUUID,
 		OrderType:     "retrieve",
-		BlueprintCode: blueprintCode,
+		PayloadCode: payloadCode,
 		Quantity:      1,
 		DeliveryNode:  targetNode,
 		Priority:      priority,
@@ -567,10 +560,10 @@ func (h *Handlers) apiListAvailableBins(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type availableBin struct {
-		Label         string `json:"label"`
-		NodeName      string `json:"node_name"`
-		Zone          string `json:"zone"`
-		BlueprintCode string `json:"blueprint_code"`
+		Label       string `json:"label"`
+		NodeName    string `json:"node_name"`
+		Zone        string `json:"zone"`
+		PayloadCode string `json:"payload_code"`
 	}
 
 	// Build a map of node_id -> zone for quick lookup
@@ -586,17 +579,11 @@ func (h *Handlers) apiListAvailableBins(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		zone := nodeZone[*b.NodeID]
-		// Look up payload blueprint code if bin has a payload
-		var bpCode string
-		payloads, _ := h.engine.DB().ListPayloadsByBin(b.ID)
-		if len(payloads) > 0 {
-			bpCode = payloads[0].BlueprintCode
-		}
 		result = append(result, availableBin{
-			Label:         b.Label,
-			NodeName:      b.NodeName,
-			Zone:          zone,
-			BlueprintCode: bpCode,
+			Label:       b.Label,
+			NodeName:    b.NodeName,
+			Zone:        zone,
+			PayloadCode: b.PayloadCode,
 		})
 	}
 

@@ -10,10 +10,10 @@ import (
 const StatusReshuffling = "reshuffling"
 
 // CreateCompoundOrder creates a parent order with child orders for a reshuffle plan.
-// All children and instance claims are created in a single transaction.
+// All children and bin claims are created in a single transaction.
 func (d *Dispatcher) CreateCompoundOrder(parentOrder *store.Order, plan *ReshufflePlan) error {
 	d.db.UpdateOrderStatus(parentOrder.ID, StatusReshuffling,
-		fmt.Sprintf("reshuffling: %d steps to unbury payload %d", len(plan.Steps), plan.TargetPayload.ID))
+		fmt.Sprintf("reshuffling: %d steps to unbury bin %d", len(plan.Steps), plan.TargetBin.ID))
 
 	var children []store.CompoundChild
 	for _, step := range plan.Steps {
@@ -24,13 +24,8 @@ func (d *Dispatcher) CreateCompoundOrder(parentOrder *store.Order, plan *Reshuff
 			Status:        StatusPending,
 			ParentOrderID: &parentOrder.ID,
 			Sequence:      step.Sequence,
-			PayloadDesc:   fmt.Sprintf("reshuffle %s: payload %d", step.StepType, step.PayloadID),
-			PayloadID:     &step.PayloadID,
-		}
-
-		// Bin-centric: look up the payload's bin so the child tracks it
-		if p, err := d.db.GetPayload(step.PayloadID); err == nil && p.BinID != nil {
-			child.BinID = p.BinID
+			PayloadDesc:   fmt.Sprintf("reshuffle %s: bin %d", step.StepType, step.BinID),
+			BinID:         &step.BinID,
 		}
 
 		if step.FromNode != nil {
@@ -43,7 +38,7 @@ func (d *Dispatcher) CreateCompoundOrder(parentOrder *store.Order, plan *Reshuff
 			child.DeliveryNode = parentOrder.DeliveryNode
 		}
 
-		children = append(children, store.CompoundChild{Order: child, PayloadID: step.PayloadID})
+		children = append(children, store.CompoundChild{Order: child, BinID: step.BinID})
 	}
 
 	if err := d.db.CreateCompoundChildren(children); err != nil {

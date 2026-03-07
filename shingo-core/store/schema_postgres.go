@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at    TIMESTAMPTZ,
-    blueprint_id    BIGINT REFERENCES blueprints(id),
     payload_id      BIGINT REFERENCES payloads(id),
     parent_order_id BIGINT REFERENCES orders(id),
     sequence        INTEGER NOT NULL DEFAULT 0,
@@ -80,8 +79,7 @@ CREATE TABLE IF NOT EXISTS corrections (
     id               BIGSERIAL PRIMARY KEY,
     correction_type  TEXT NOT NULL,
     node_id          BIGINT NOT NULL REFERENCES nodes(id),
-    payload_id       BIGINT REFERENCES payloads(id),
-    manifest_item_id BIGINT REFERENCES manifest_items(id),
+    bin_id           BIGINT REFERENCES bins(id),
     cat_id           TEXT NOT NULL DEFAULT '',
     description      TEXT NOT NULL DEFAULT '',
     quantity         BIGINT NOT NULL DEFAULT 0,
@@ -108,23 +106,29 @@ CREATE TABLE IF NOT EXISTS bin_types (
 );
 
 CREATE TABLE IF NOT EXISTS bins (
-    id          BIGSERIAL PRIMARY KEY,
-    bin_type_id BIGINT NOT NULL REFERENCES bin_types(id),
-    label       TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    node_id     BIGINT REFERENCES nodes(id),
-    status      TEXT NOT NULL DEFAULT 'available',
-    claimed_by  BIGINT REFERENCES orders(id),
-    staged_at   TIMESTAMPTZ,
-    staged_expires_at TIMESTAMPTZ,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                 BIGSERIAL PRIMARY KEY,
+    bin_type_id        BIGINT NOT NULL REFERENCES bin_types(id),
+    label              TEXT NOT NULL DEFAULT '',
+    description        TEXT NOT NULL DEFAULT '',
+    node_id            BIGINT REFERENCES nodes(id),
+    status             TEXT NOT NULL DEFAULT 'available',
+    claimed_by         BIGINT REFERENCES orders(id),
+    staged_at          TIMESTAMPTZ,
+    staged_expires_at  TIMESTAMPTZ,
+    payload_code       TEXT NOT NULL DEFAULT '',
+    manifest           JSONB,
+    uop_remaining      INTEGER NOT NULL DEFAULT 0,
+    manifest_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+    loaded_at          TIMESTAMPTZ,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_bins_type ON bins(bin_type_id);
 CREATE INDEX IF NOT EXISTS idx_bins_node ON bins(node_id);
 CREATE INDEX IF NOT EXISTS idx_bins_status ON bins(status);
+CREATE INDEX IF NOT EXISTS idx_bins_payload_code ON bins(payload_code);
 
-CREATE TABLE IF NOT EXISTS blueprints (
+CREATE TABLE IF NOT EXISTS payloads (
     id                    BIGSERIAL PRIMARY KEY,
     code                  TEXT NOT NULL UNIQUE,
     description           TEXT NOT NULL DEFAULT '',
@@ -134,57 +138,21 @@ CREATE TABLE IF NOT EXISTS blueprints (
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS blueprint_bin_types (
-    blueprint_id BIGINT NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
-    bin_type_id  BIGINT NOT NULL REFERENCES bin_types(id) ON DELETE CASCADE,
-    PRIMARY KEY (blueprint_id, bin_type_id)
+CREATE TABLE IF NOT EXISTS payload_bin_types (
+    payload_id BIGINT NOT NULL REFERENCES payloads(id) ON DELETE CASCADE,
+    bin_type_id BIGINT NOT NULL REFERENCES bin_types(id) ON DELETE CASCADE,
+    PRIMARY KEY (payload_id, bin_type_id)
 );
 
-CREATE TABLE IF NOT EXISTS payloads (
-    id                  BIGSERIAL PRIMARY KEY,
-    blueprint_id        BIGINT NOT NULL REFERENCES blueprints(id),
-    bin_id              BIGINT UNIQUE REFERENCES bins(id),
-    uop_remaining       INTEGER NOT NULL DEFAULT 0,
-    manifest_confirmed  BOOLEAN NOT NULL DEFAULT FALSE,
-    loaded_at           TIMESTAMPTZ,
-    notes               TEXT NOT NULL DEFAULT '',
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_payloads_blueprint ON payloads(blueprint_id);
-CREATE INDEX IF NOT EXISTS idx_payloads_bin ON payloads(bin_id);
-
-CREATE TABLE IF NOT EXISTS blueprint_manifest (
-    id            BIGSERIAL PRIMARY KEY,
-    blueprint_id  BIGINT NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
-    part_number   TEXT NOT NULL DEFAULT '',
-    quantity      BIGINT NOT NULL DEFAULT 0,
-    description   TEXT NOT NULL DEFAULT '',
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_blueprint_manifest_bp ON blueprint_manifest(blueprint_id);
-
-CREATE TABLE IF NOT EXISTS payload_events (
+CREATE TABLE IF NOT EXISTS payload_manifest (
     id          BIGSERIAL PRIMARY KEY,
     payload_id  BIGINT NOT NULL REFERENCES payloads(id) ON DELETE CASCADE,
-    event_type  TEXT NOT NULL,
-    detail      TEXT NOT NULL DEFAULT '',
-    actor       TEXT NOT NULL DEFAULT 'system',
+    part_number TEXT NOT NULL DEFAULT '',
+    quantity    BIGINT NOT NULL DEFAULT 0,
+    description TEXT NOT NULL DEFAULT '',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_payload_events_payload ON payload_events(payload_id);
-
-CREATE TABLE IF NOT EXISTS manifest_items (
-    id              BIGSERIAL PRIMARY KEY,
-    payload_id      BIGINT NOT NULL REFERENCES payloads(id) ON DELETE CASCADE,
-    part_number     TEXT NOT NULL DEFAULT '',
-    quantity        BIGINT NOT NULL DEFAULT 0,
-    production_date TEXT,
-    lot_code        TEXT,
-    notes           TEXT NOT NULL DEFAULT '',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_manifest_payload ON manifest_items(payload_id);
+CREATE INDEX IF NOT EXISTS idx_payload_manifest_payload ON payload_manifest(payload_id);
 
 CREATE TABLE IF NOT EXISTS scene_points (
     id              BIGSERIAL PRIMARY KEY,
@@ -268,11 +236,11 @@ CREATE TABLE IF NOT EXISTS node_stations (
 );
 CREATE INDEX IF NOT EXISTS idx_node_stations_station ON node_stations(station_id);
 
-CREATE TABLE IF NOT EXISTS node_blueprints (
-    node_id      BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-    blueprint_id BIGINT NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (node_id, blueprint_id)
+CREATE TABLE IF NOT EXISTS node_payloads (
+    node_id    BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    payload_id BIGINT NOT NULL REFERENCES payloads(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (node_id, payload_id)
 );
 
 CREATE TABLE IF NOT EXISTS node_properties (
@@ -299,10 +267,9 @@ CREATE TABLE IF NOT EXISTS cms_transactions (
     delta          BIGINT NOT NULL DEFAULT 0,
     qty_before     BIGINT NOT NULL DEFAULT 0,
     qty_after      BIGINT NOT NULL DEFAULT 0,
-    payload_id     BIGINT NOT NULL REFERENCES payloads(id),
     bin_id         BIGINT REFERENCES bins(id),
     bin_label      TEXT NOT NULL DEFAULT '',
-    blueprint_code TEXT NOT NULL DEFAULT '',
+    payload_code   TEXT NOT NULL DEFAULT '',
     source_type    TEXT NOT NULL DEFAULT 'movement',
     order_id       BIGINT REFERENCES orders(id),
     notes          TEXT NOT NULL DEFAULT '',

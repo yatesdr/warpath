@@ -5,17 +5,16 @@ type NodeState struct {
 	NodeName  string
 	Zone      string
 	Enabled   bool
-	Items     []PayloadItem
+	Items     []BinItem
 	ItemCount int
 }
 
-type PayloadItem struct {
+type BinItem struct {
 	ID                int64  `json:"id"`
-	BlueprintID       int64  `json:"blueprint_id"`
-	BlueprintCode     string `json:"blueprint_code"`
-	BinID             *int64 `json:"bin_id,omitempty"`
-	BinLabel          string `json:"bin_label"`
+	PayloadCode       string `json:"payload_code"`
+	Label             string `json:"label"`
 	ManifestConfirmed bool   `json:"manifest_confirmed"`
-	Notes             string `json:"notes,omitempty"`
+	UOPRemaining      int    `json:"uop_remaining"`
 	ClaimedBy         *int64 `json:"claimed_by,omitempty"`
 }
+
