@@ -88,7 +88,7 @@ func (e *Engine) ApplyCorrection(req ApplyCorrectionRequest) (int64, error) {
 		Actor:          req.Actor,
 	}})
 
-	e.Events.Emit(Event{Type: EventBinContentsChanged, Payload: BinContentsChangedEvent{
+	e.Events.Emit(Event{Type: EventBinUpdated, Payload: BinUpdatedEvent{
 		NodeID:  req.NodeID,
 		Action:  req.CorrectionType,
 		BinID:   req.BinID,
@@ -203,7 +203,7 @@ func (e *Engine) ApplyBatchCorrection(req BatchCorrectionRequest) error {
 		Actor:          req.Actor,
 	}})
 
-	e.Events.Emit(Event{Type: EventBinContentsChanged, Payload: BinContentsChangedEvent{
+	e.Events.Emit(Event{Type: EventBinUpdated, Payload: BinUpdatedEvent{
 		NodeID: req.NodeID,
 		Action: "batch_correction",
 		BinID:  req.BinID,

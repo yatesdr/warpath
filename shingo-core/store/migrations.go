@@ -148,6 +148,7 @@ func (db *DB) migrate() error {
 	db.migrateStagedBinExpiry()
 	db.migratePayloadSimplify()
 	db.migrateBinCentric()
+	db.migrateBinsCommandCenter()
 	return nil
 }
 
@@ -1043,6 +1044,34 @@ func (db *DB) migrateBinCentricPayloadData() {
 		}
 		manifestJSON, _ := json.Marshal(manifest)
 		db.Exec(db.Q(`UPDATE bins SET manifest = ? WHERE id = ?`), string(manifestJSON), binID)
+	}
+}
+
+// migrateBinsCommandCenter adds locked/counting columns to bins for the command center UI.
+func (db *DB) migrateBinsCommandCenter() {
+	cols := []struct{ name, sqliteDef, pgDef string }{
+		{"locked", "INTEGER NOT NULL DEFAULT 0", "BOOLEAN NOT NULL DEFAULT FALSE"},
+		{"locked_by", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"},
+		{"locked_at", "TEXT", "TIMESTAMPTZ"},
+		{"last_counted_at", "TEXT", "TIMESTAMPTZ"},
+		{"last_counted_by", "TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, c := range cols {
+		if db.columnExists("bins", c.name) {
+			continue
+		}
+		switch db.driver {
+		case "sqlite":
+			db.Exec(fmt.Sprintf(`ALTER TABLE bins ADD COLUMN %s %s`, c.name, c.sqliteDef))
+		case "postgres":
+			db.Exec(fmt.Sprintf(`ALTER TABLE bins ADD COLUMN %s %s`, c.name, c.pgDef))
+		}
+	}
+	switch db.driver {
+	case "sqlite":
+		db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_locked ON bins(locked) WHERE locked = 1`)
+	case "postgres":
+		db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_locked ON bins(locked) WHERE locked = TRUE`)
 	}
 }
 

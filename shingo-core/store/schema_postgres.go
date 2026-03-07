@@ -119,6 +119,11 @@ CREATE TABLE IF NOT EXISTS bins (
     manifest           JSONB,
     uop_remaining      INTEGER NOT NULL DEFAULT 0,
     manifest_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+    locked             BOOLEAN NOT NULL DEFAULT FALSE,
+    locked_by          TEXT NOT NULL DEFAULT '',
+    locked_at          TIMESTAMPTZ,
+    last_counted_at    TIMESTAMPTZ,
+    last_counted_by    TEXT NOT NULL DEFAULT '',
     loaded_at          TIMESTAMPTZ,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -127,6 +132,7 @@ CREATE INDEX IF NOT EXISTS idx_bins_type ON bins(bin_type_id);
 CREATE INDEX IF NOT EXISTS idx_bins_node ON bins(node_id);
 CREATE INDEX IF NOT EXISTS idx_bins_status ON bins(status);
 CREATE INDEX IF NOT EXISTS idx_bins_payload_code ON bins(payload_code);
+CREATE INDEX IF NOT EXISTS idx_bins_locked ON bins(locked) WHERE locked = TRUE;
 
 CREATE TABLE IF NOT EXISTS payloads (
     id                    BIGSERIAL PRIMARY KEY,

@@ -119,6 +119,11 @@ CREATE TABLE IF NOT EXISTS bins (
     manifest           TEXT,
     uop_remaining      INTEGER NOT NULL DEFAULT 0,
     manifest_confirmed INTEGER NOT NULL DEFAULT 0,
+    locked             INTEGER NOT NULL DEFAULT 0,
+    locked_by          TEXT NOT NULL DEFAULT '',
+    locked_at          TEXT,
+    last_counted_at    TEXT,
+    last_counted_by    TEXT NOT NULL DEFAULT '',
     loaded_at          TEXT,
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
@@ -127,6 +132,7 @@ CREATE INDEX IF NOT EXISTS idx_bins_type ON bins(bin_type_id);
 CREATE INDEX IF NOT EXISTS idx_bins_node ON bins(node_id);
 CREATE INDEX IF NOT EXISTS idx_bins_status ON bins(status);
 CREATE INDEX IF NOT EXISTS idx_bins_payload_code ON bins(payload_code);
+CREATE INDEX IF NOT EXISTS idx_bins_locked ON bins(locked) WHERE locked = 1;
 
 CREATE TABLE IF NOT EXISTS payloads (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,

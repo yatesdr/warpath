@@ -53,7 +53,7 @@ func txnType(delta int64) string {
 // RecordMovementTransactions logs CMS transactions when a bin moves between
 // different CMS boundaries. Delta is signed: negative = leaving, positive = arriving.
 // QtyBefore/QtyAfter reflect the boundary-level total for each CATID.
-func (e *Engine) RecordMovementTransactions(ev BinContentsChangedEvent) {
+func (e *Engine) RecordMovementTransactions(ev BinUpdatedEvent) {
 	var srcBoundary, dstBoundary *store.Node
 	if ev.FromNodeID != 0 {
 		srcBoundary = e.FindCMSBoundary(ev.FromNodeID)

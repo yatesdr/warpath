@@ -70,8 +70,9 @@ func (db *DB) FindSourceBinFIFO(payloadCode string) (*Bin, error) {
 		  AND n.enabled = 1
 		  AND n.is_synthetic = 0
 		  AND b.claimed_by IS NULL
+		  AND b.locked = 0
 		  AND b.manifest_confirmed = 1
-		  AND b.status NOT IN ('staged', 'maintenance', 'flagged', 'retired')
+		  AND b.status NOT IN ('staged', 'maintenance', 'flagged', 'retired', 'quality_hold')
 		ORDER BY COALESCE(b.loaded_at, b.created_at) ASC
 		LIMIT 1`, binJoinQuery)), payloadCode)
 	return scanBin(row)

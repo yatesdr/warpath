@@ -57,9 +57,9 @@
 
   <!-- Filter bar -->
   <div class="filter-bar mb-1">
-    <input type="text" id="bin-search" placeholder="Filter by label or location..." oninput="filterBins()">
+    <input type="text" id="bin-search" placeholder="Search label, location, payload..." oninput="filterBins()">
     <select id="bin-type-filter" onchange="filterBins()">
-      <option value="">All Bin Types</option>
+      <option value="">All Types</option>
       {{range .BinTypes}}
       <option value="{{.Code}}">{{.Code}}</option>
       {{end}}
@@ -67,13 +67,28 @@
     <select id="bin-status-filter" onchange="filterBins()">
       <option value="">All Statuses</option>
       <option value="available">Available</option>
-      <option value="in_use">In Use</option>
+      <option value="staged">Staged</option>
+      <option value="flagged">Flagged</option>
+      <option value="quality_hold">Quality Hold</option>
       <option value="maintenance">Maintenance</option>
       <option value="retired">Retired</option>
     </select>
+    <select id="bin-contents-filter" onchange="filterBins()">
+      <option value="">All Contents</option>
+      <option value="empty">Empty</option>
+      <option value="loaded">Loaded</option>
+      <option value="unconfirmed">Unconfirmed</option>
+      <option value="depleted">Depleted</option>
+    </select>
+    <select id="bin-locked-filter" onchange="filterBins()">
+      <option value="">Lock State</option>
+      <option value="1">Locked</option>
+      <option value="0">Unlocked</option>
+    </select>
     <span class="text-muted" style="font-size:0.8rem" id="bin-count">{{len .Bins}} bins</span>
     {{if .Authenticated}}
-    <button class="btn btn-primary btn-sm" onclick="openCreateBinModal()" style="margin-left:auto">+ Bin</button>
+    <button class="btn btn-sm" onclick="openCycleCount()" style="margin-left:auto">Cycle Count</button>
+    <button class="btn btn-primary btn-sm" onclick="openCreateBinModal()">+ Bin</button>
     {{end}}
   </div>
 
@@ -81,45 +96,48 @@
   <table id="bin-table">
     <thead>
       <tr>
-        <th>ID</th>
+        {{if .Authenticated}}<th style="width:30px"><input type="checkbox" onchange="toggleAllBins(this)"></th>{{end}}
         <th>Label</th>
-        <th>Bin Type</th>
-        <th>Node</th>
+        <th>Type</th>
+        <th>Location</th>
+        <th>Payload</th>
+        <th>UOP</th>
         <th>Status</th>
-        <th>Created</th>
-        {{if .Authenticated}}<th>Actions</th>{{end}}
+        <th>Flags</th>
       </tr>
     </thead>
     <tbody>
       {{range .Bins}}
-      <tr data-label="{{.Label}}" data-type="{{.BinTypeCode}}" data-status="{{.Status}}" data-node="{{.NodeName}}">
-        <td>{{.ID}}</td>
-        <td><strong><code>{{.Label}}</code></strong></td>
-        <td>{{.BinTypeCode}}</td>
-        <td>{{if .NodeName}}{{.NodeName}}{{else}}<span class="text-muted">unassigned</span>{{end}}</td>
-        <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
-        <td>{{formatTime .CreatedAt}}</td>
-        {{if $.Authenticated}}
+      <tr data-id="{{.ID}}"
+          data-label="{{.Label}}"
+          data-type="{{.BinTypeCode}}"
+          data-status="{{.Status}}"
+          data-node="{{.NodeName}}"
+          data-payload="{{.PayloadCode}}"
+          data-uop="{{.UOPRemaining}}"
+          data-locked="{{if .Locked}}1{{else}}0{{end}}"
+          data-claimed="{{if .ClaimedBy}}1{{else}}0{{end}}"
+          data-confirmed="{{if .ManifestConfirmed}}1{{else}}0{{end}}"
+          data-contents="{{if .PayloadCode}}{{if .ManifestConfirmed}}{{if gt .UOPRemaining 0}}loaded{{else}}depleted{{end}}{{else}}unconfirmed{{end}}{{else}}empty{{end}}"
+          onclick="if(!event.target.closest('input[type=checkbox]'))openBinDetail({{.ID}})">
+        {{if $.Authenticated}}<td onclick="event.stopPropagation()"><input type="checkbox" class="bin-cb" value="{{.ID}}" onchange="updateBulkBar()"></td>{{end}}
         <td>
-          <button class="btn btn-sm" onclick="openEditBinModal(this)"
-            data-id="{{.ID}}"
-            data-label="{{.Label}}"
-            data-type-id="{{.BinTypeID}}"
-            data-node="{{if .NodeID}}{{deref .NodeID}}{{end}}"
-            data-status="{{.Status}}">Edit</button>
-          {{if eq .Status "available"}}
-          <button class="btn btn-sm" onclick="binAction({{.ID}}, 'maintenance')" title="Send to maintenance">Maint</button>
-          {{end}}
-          {{if eq .Status "maintenance"}}
-          <button class="btn btn-sm" onclick="binAction({{.ID}}, 'activate')" title="Return to service">Activate</button>
-          <button class="btn btn-sm btn-danger" onclick="binAction({{.ID}}, 'retire')" title="Retire permanently">Retire</button>
-          {{end}}
-          <form method="POST" action="/bins/delete" style="display:inline" onsubmit="return confirm('Delete bin {{.Label}}? It must not have a payload assigned.')">
-            <input type="hidden" name="id" value="{{.ID}}">
-            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-          </form>
+          <span class="bin-dot bin-dot-{{if .PayloadCode}}{{if .ManifestConfirmed}}{{if gt .UOPRemaining 0}}loaded{{else}}depleted{{end}}{{else}}unconfirmed{{end}}{{else}}empty{{end}}"></span>
+          <strong><code>{{.Label}}</code></strong>
         </td>
-        {{end}}
+        <td>{{.BinTypeCode}}</td>
+        <td>{{if .NodeName}}{{.NodeName}}{{else}}<span class="text-muted">-</span>{{end}}</td>
+        <td>{{if .PayloadCode}}<code>{{.PayloadCode}}</code>{{else}}<span class="text-muted">-</span>{{end}}</td>
+        <td>
+          {{if .PayloadCode}}{{.UOPRemaining}}{{else}}<span class="text-muted">-</span>{{end}}
+        </td>
+        <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+        <td class="bin-flags">
+          {{if .Locked}}<span title="Locked by {{.LockedBy}}">&#128274;</span>{{end}}
+          {{if .ClaimedBy}}<span title="Claimed by order #{{deref .ClaimedBy}}">&#128230;</span>{{end}}
+          {{if not .ManifestConfirmed}}{{if .PayloadCode}}<span title="Manifest unconfirmed">&#9888;</span>{{end}}{{end}}
+          {{if index $.BinHasNotes .ID}}<span title="Has notes">&#128221;</span>{{end}}
+        </td>
       </tr>
       {{end}}
     </tbody>
@@ -244,53 +262,91 @@
   </div>
 </div>
 
-<!-- Edit Bin Modal -->
-<div id="bin-edit-modal" class="modal-overlay" onclick="if(event.target===this)closeEditBinModal()">
-  <div class="modal" style="max-width:480px">
+<!-- Bin Detail Modal -->
+<div id="bin-detail-modal" class="modal-overlay" onclick="if(event.target===this)closeBinDetail()">
+  <div class="modal modal-wide">
     <div class="modal-header flex flex-between">
-      <h2>Edit Bin</h2>
-      <button class="modal-close" onclick="closeEditBinModal()">&times;</button>
+      <div>
+        <h2 id="bd-title"></h2>
+        <span id="bd-subtitle" class="text-muted" style="font-size:0.8rem"></span>
+      </div>
+      <button class="modal-close" onclick="closeBinDetail()">&times;</button>
     </div>
-    <form method="POST" action="/bins/update">
-      <input type="hidden" name="id" id="be-id">
-      <div class="grid grid-2">
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
+      <button class="tab-btn" onclick="switchTab('contents')">Contents</button>
+      <button class="tab-btn" onclick="switchTab('actions')">Actions</button>
+      <button class="tab-btn" onclick="switchTab('journal')">Journal</button>
+    </div>
+    <div id="bd-overview" class="tab-panel"></div>
+    <div id="bd-contents" class="tab-panel" style="display:none"></div>
+    <div id="bd-actions" class="tab-panel" style="display:none"></div>
+    <div id="bd-journal" class="tab-panel" style="display:none"></div>
+  </div>
+</div>
+
+<!-- Cycle Count Modal -->
+<div id="cc-modal" class="modal-overlay" onclick="if(event.target===this)closeCycleCount()">
+  <div class="modal modal-wide">
+    <div class="modal-header flex flex-between">
+      <h2>Cycle Count</h2>
+      <button class="modal-close" onclick="closeCycleCount()">&times;</button>
+    </div>
+    <div id="cc-step1">
+      <p class="text-muted mb-1">Select bins to count. Filters apply to current table view.</p>
+      <div class="flex flex-between mb-1">
+        <span id="cc-preview-count" class="text-muted">0 bins to count</span>
+        <button class="btn btn-primary" onclick="ccStart()">Start Counting</button>
+      </div>
+    </div>
+    <div id="cc-step2" style="display:none">
+      <div class="cc-progress mb-1"><div class="cc-progress-fill" id="cc-progress-bar"></div></div>
+      <div class="text-muted mb-1" style="font-size:0.8rem"><span id="cc-index">0</span> of <span id="cc-total">0</span></div>
+      <div class="cc-bin-card" id="cc-bin-card"></div>
+      <div class="inline-form mb-1">
         <div class="form-group">
-          <label>Label</label>
-          <input type="text" name="label" id="be-label" required>
+          <label>Actual UOP Count</label>
+          <input type="number" id="cc-actual" min="0" style="width:120px">
         </div>
         <div class="form-group">
-          <label>Bin Type</label>
-          <select name="bin_type_id" id="be-type" required>
-            {{range .BinTypes}}
-            <option value="{{.ID}}">{{.Code}}{{if .Description}} - {{.Description}}{{end}}</option>
-            {{end}}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Node</label>
-          <select name="node_id" id="be-node">
-            <option value="">-- No Node --</option>
-            {{range .Nodes}}
-            <option value="{{.ID}}">{{.Name}}</option>
-            {{end}}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Status</label>
-          <select name="status" id="be-status">
-            <option value="available">Available</option>
-            <option value="in_use">In Use</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="retired">Retired</option>
-          </select>
+          <label>Counter</label>
+          <input type="text" id="cc-actor" placeholder="Name" style="width:150px">
         </div>
       </div>
-      <button type="submit" class="btn btn-primary">Save Changes</button>
-      <button type="button" class="btn" onclick="closeEditBinModal()" style="margin-left:0.5rem">Cancel</button>
-    </form>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="ccConfirm()">Confirm Match</button>
+        <button class="btn" onclick="ccDiscrepancy()">Record Discrepancy</button>
+        <button class="btn" onclick="ccSkip()">Skip</button>
+        <button class="btn btn-danger" onclick="ccFlag()">Flag</button>
+      </div>
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.5rem">Enter=Confirm &middot; Tab=Skip &middot; F=Flag</p>
+    </div>
+    <div id="cc-step3" style="display:none">
+      <h3 class="mb-1">Summary</h3>
+      <div id="cc-summary"></div>
+      <button class="btn btn-primary mt-2" onclick="closeCycleCount()">Close</button>
+    </div>
   </div>
+</div>
+
+<!-- Bulk Action Bar -->
+<div id="bulk-bar" class="bulk-bar" style="display:none">
+  <span id="bulk-count">0 selected</span>
+  <button class="btn btn-sm" onclick="bulkAction('activate')">Activate</button>
+  <button class="btn btn-sm" onclick="bulkAction('flag')">Flag</button>
+  <button class="btn btn-sm" onclick="bulkAction('maintenance')">Maintenance</button>
+  <button class="btn btn-sm" onclick="bulkAction('quality_hold')">Hold</button>
+  <button class="btn btn-sm" onclick="bulkAction('lock')">Lock</button>
+  <button class="btn btn-sm" onclick="bulkAction('unlock')">Unlock</button>
+  <button class="btn btn-sm btn-danger" onclick="bulkAction('retire')">Retire</button>
+  <button class="btn btn-sm" onclick="clearSelection()" style="margin-left:auto">Clear</button>
 </div>
 {{end}}
 
+<script>
+  var PAGE_NODES = {{.NodesJSON}};
+  var PAGE_PAYLOADS = {{.PayloadsJSON}};
+  var PAGE_AUTH = {{.Authenticated}};
+</script>
 <script src="/static/pages/bins.js"></script>
 {{end}}

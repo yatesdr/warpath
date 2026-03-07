@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -20,6 +21,11 @@ type Bin struct {
 	Manifest          *string    `json:"manifest,omitempty"`
 	UOPRemaining      int        `json:"uop_remaining"`
 	ManifestConfirmed bool       `json:"manifest_confirmed"`
+	Locked            bool       `json:"locked"`
+	LockedBy          string     `json:"locked_by"`
+	LockedAt          *time.Time `json:"locked_at,omitempty"`
+	LastCountedAt     *time.Time `json:"last_counted_at,omitempty"`
+	LastCountedBy     string     `json:"last_counted_by"`
 	LoadedAt          *time.Time `json:"loaded_at,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
@@ -29,8 +35,9 @@ type Bin struct {
 }
 
 const binJoinQuery = `SELECT b.id, b.bin_type_id, b.label, b.description, b.node_id, b.status, b.claimed_by, b.staged_at, b.staged_expires_at,
-	b.payload_code, b.manifest, b.uop_remaining, b.manifest_confirmed, b.loaded_at,
-	b.created_at, b.updated_at,
+	b.payload_code, b.manifest, b.uop_remaining, b.manifest_confirmed,
+	b.locked, b.locked_by, b.locked_at, b.last_counted_at, b.last_counted_by,
+	b.loaded_at, b.created_at, b.updated_at,
 	bt.code, COALESCE(n.name, '')
 	FROM bins b
 	JOIN bin_types bt ON bt.id = b.bin_type_id
@@ -40,11 +47,12 @@ func scanBin(row interface{ Scan(...any) error }) (*Bin, error) {
 	var b Bin
 	var nodeID, claimedBy sql.NullInt64
 	var manifest sql.NullString
-	var stagedAt, stagedExpiresAt, loadedAt, createdAt, updatedAt any
+	var stagedAt, stagedExpiresAt, lockedAt, lastCountedAt, loadedAt, createdAt, updatedAt any
 	err := row.Scan(&b.ID, &b.BinTypeID, &b.Label, &b.Description, &nodeID, &b.Status, &claimedBy,
 		&stagedAt, &stagedExpiresAt,
-		&b.PayloadCode, &manifest, &b.UOPRemaining, &b.ManifestConfirmed, &loadedAt,
-		&createdAt, &updatedAt, &b.BinTypeCode, &b.NodeName)
+		&b.PayloadCode, &manifest, &b.UOPRemaining, &b.ManifestConfirmed,
+		&b.Locked, &b.LockedBy, &lockedAt, &lastCountedAt, &b.LastCountedBy,
+		&loadedAt, &createdAt, &updatedAt, &b.BinTypeCode, &b.NodeName)
 	if err != nil {
 		return nil, err
 	}
@@ -59,6 +67,8 @@ func scanBin(row interface{ Scan(...any) error }) (*Bin, error) {
 	}
 	b.StagedAt = parseTimePtr(stagedAt)
 	b.StagedExpiresAt = parseTimePtr(stagedExpiresAt)
+	b.LockedAt = parseTimePtr(lockedAt)
+	b.LastCountedAt = parseTimePtr(lastCountedAt)
 	b.LoadedAt = parseTimePtr(loadedAt)
 	b.CreatedAt = parseTime(createdAt)
 	b.UpdatedAt = parseTime(updatedAt)
@@ -171,7 +181,7 @@ func (db *DB) NodeTileStates() (map[int64]NodeTileState, error) {
 		MAX(CASE WHEN b.manifest IS NULL OR b.manifest_confirmed = 0 THEN 1 ELSE 0 END),
 		MAX(CASE WHEN b.claimed_by IS NOT NULL THEN 1 ELSE 0 END),
 		MAX(CASE WHEN b.status = 'staged' THEN 1 ELSE 0 END),
-		MAX(CASE WHEN b.status IN ('maintenance', 'flagged') THEN 1 ELSE 0 END)
+		MAX(CASE WHEN b.status IN ('maintenance', 'flagged', 'quality_hold') THEN 1 ELSE 0 END)
 		FROM bins b
 		WHERE b.node_id IS NOT NULL
 		GROUP BY b.node_id`)
@@ -224,9 +234,17 @@ func (db *DB) ListBinsByType(binTypeID int64) ([]*Bin, error) {
 }
 
 // ClaimBin marks a bin as claimed by an order to prevent double-dispatch.
+// Fails if the bin is locked.
 func (db *DB) ClaimBin(binID, orderID int64) error {
-	_, err := db.Exec(db.Q(`UPDATE bins SET claimed_by=?, updated_at=datetime('now') WHERE id=?`), orderID, binID)
-	return err
+	res, err := db.Exec(db.Q(`UPDATE bins SET claimed_by=?, updated_at=datetime('now') WHERE id=? AND locked=0`), orderID, binID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("bin %d is locked or does not exist", binID)
+	}
+	return nil
 }
 
 // UnclaimBin releases a bin from an order claim.
@@ -252,6 +270,7 @@ func (db *DB) FindEmptyCompatibleBin(payloadCode, preferZone string) (*Bin, erro
 			WHERE p.code = ?
 			  AND b.status = 'available'
 			  AND b.claimed_by IS NULL
+			  AND b.locked = 0
 			  AND b.node_id IS NOT NULL
 			  AND n.enabled = 1
 			  AND n.is_synthetic = 0
@@ -271,6 +290,7 @@ func (db *DB) FindEmptyCompatibleBin(payloadCode, preferZone string) (*Bin, erro
 		WHERE p.code = ?
 		  AND b.status = 'available'
 		  AND b.claimed_by IS NULL
+		  AND b.locked = 0
 		  AND b.node_id IS NOT NULL
 		  AND n.enabled = 1
 		  AND n.is_synthetic = 0
@@ -315,4 +335,75 @@ func (db *DB) ReleaseExpiredStagedBins() (int, error) {
 func (db *DB) UpdateOrderBinID(orderID, binID int64) error {
 	_, err := db.Exec(db.Q(`UPDATE orders SET bin_id=?, updated_at=datetime('now') WHERE id=?`), binID, orderID)
 	return err
+}
+
+// LockBin prevents automated claiming/movement of a bin.
+func (db *DB) LockBin(binID int64, actor string) error {
+	res, err := db.Exec(db.Q(`UPDATE bins SET locked=1, locked_by=?, locked_at=datetime('now'), updated_at=datetime('now') WHERE id=? AND locked=0`),
+		actor, binID)
+	if err != nil {
+		return fmt.Errorf("lock bin: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("bin %d is already locked", binID)
+	}
+	return nil
+}
+
+// UnlockBin clears the lock on a bin.
+func (db *DB) UnlockBin(binID int64) error {
+	_, err := db.Exec(db.Q(`UPDATE bins SET locked=0, locked_by='', locked_at=NULL, updated_at=datetime('now') WHERE id=?`), binID)
+	return err
+}
+
+// RecordBinCount updates UOP and records the count timestamp.
+func (db *DB) RecordBinCount(binID int64, actualUOP int, actor string) error {
+	_, err := db.Exec(db.Q(`UPDATE bins SET uop_remaining=?, last_counted_at=datetime('now'), last_counted_by=?, updated_at=datetime('now') WHERE id=?`),
+		actualUOP, actor, binID)
+	return err
+}
+
+// UnconfirmBinManifest resets the manifest confirmation flag.
+func (db *DB) UnconfirmBinManifest(binID int64) error {
+	_, err := db.Exec(db.Q(`UPDATE bins SET manifest_confirmed=0, updated_at=datetime('now') WHERE id=?`), binID)
+	return err
+}
+
+// ListOrdersByBin returns recent orders involving a specific bin.
+func (db *DB) ListOrdersByBin(binID int64, limit int) ([]*Order, error) {
+	rows, err := db.Query(db.Q(fmt.Sprintf(`SELECT %s FROM orders WHERE bin_id=? ORDER BY id DESC LIMIT ?`, orderSelectCols)), binID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanOrders(rows)
+}
+
+// BinHasNotes returns a map indicating which bins have audit log entries.
+func (db *DB) BinHasNotes(binIDs []int64) (map[int64]bool, error) {
+	result := make(map[int64]bool)
+	if len(binIDs) == 0 {
+		return result, nil
+	}
+	placeholders := make([]string, len(binIDs))
+	args := make([]any, len(binIDs))
+	for i, id := range binIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf(`SELECT DISTINCT entity_id FROM audit_log WHERE entity_type='bin' AND entity_id IN (%s)`,
+		strings.Join(placeholders, ","))
+	rows, err := db.Query(db.Q(query), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			result[id] = true
+		}
+	}
+	return result, rows.Err()
 }

@@ -88,9 +88,9 @@ func (e *Engine) wireEventHandlers() {
 
 	// Bin contents changes: audit
 	e.Events.SubscribeTypes(func(evt Event) {
-		ev := evt.Payload.(BinContentsChangedEvent)
+		ev := evt.Payload.(BinUpdatedEvent)
 		e.db.AppendAudit("bin", ev.BinID, ev.Action, "", fmt.Sprintf("payload=%s node=%d", ev.PayloadCode, ev.NodeID), "system")
-	}, EventBinContentsChanged)
+	}, EventBinUpdated)
 
 	// Node updates: audit
 	e.Events.SubscribeTypes(func(evt Event) {
@@ -106,11 +106,11 @@ func (e *Engine) wireEventHandlers() {
 
 	// CMS transaction logging on bin movement
 	e.Events.SubscribeTypes(func(evt Event) {
-		ev := evt.Payload.(BinContentsChangedEvent)
+		ev := evt.Payload.(BinUpdatedEvent)
 		if ev.Action == "moved" && ev.FromNodeID != 0 && ev.ToNodeID != 0 {
 			e.RecordMovementTransactions(ev)
 		}
-	}, EventBinContentsChanged)
+	}, EventBinUpdated)
 }
 
 func (e *Engine) handleVendorStatusChange(ev OrderStatusChangedEvent) {
@@ -252,7 +252,7 @@ func (e *Engine) handleOrderCompleted(ev OrderCompletedEvent) {
 		// Emit bin contents changed
 		bin, _ := e.db.GetBin(*order.BinID)
 		if bin != nil {
-			e.Events.Emit(Event{Type: EventBinContentsChanged, Payload: BinContentsChangedEvent{
+			e.Events.Emit(Event{Type: EventBinUpdated, Payload: BinUpdatedEvent{
 				Action:      "moved",
 				BinID:       bin.ID,
 				PayloadCode: bin.PayloadCode,

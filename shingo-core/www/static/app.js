@@ -128,6 +128,10 @@ document.addEventListener('DOMContentLoaded', function() {
       if (typeof window.onNodeUpdate === 'function') window.onNodeUpdate(e);
     });
 
+    es.addEventListener('bin-update', function(e) {
+      if (typeof window.onBinUpdate === 'function') window.onBinUpdate(e);
+    });
+
     es.addEventListener('system-status', function(e) {
       const data = JSON.parse(e.data);
       if (data.fleet !== undefined) {

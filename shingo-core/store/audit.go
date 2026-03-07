@@ -40,6 +40,11 @@ func (db *DB) ListEntityAudit(entityType string, entityID int64) ([]*AuditEntry,
 	return scanAuditEntries(rows)
 }
 
+// AddBinNote appends a typed note to a bin's audit trail.
+func (db *DB) AddBinNote(binID int64, noteType, message, actor string) error {
+	return db.AppendAudit("bin", binID, "note:"+noteType, "", message, actor)
+}
+
 func scanAuditEntries(rows *sql.Rows) ([]*AuditEntry, error) {
 	var entries []*AuditEntry
 	for rows.Next() {

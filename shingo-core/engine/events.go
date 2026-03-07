@@ -12,7 +12,7 @@ const (
 	EventOrderCompleted
 	EventOrderFailed
 	EventOrderCancelled
-	EventBinContentsChanged
+	EventBinUpdated
 	EventNodeUpdated
 	EventCorrectionApplied
 	EventFleetConnected
@@ -73,14 +73,16 @@ type OrderCancelledEvent struct {
 	Reason   string
 }
 
-type BinContentsChangedEvent struct {
+type BinUpdatedEvent struct {
 	NodeID      int64
 	NodeName    string
-	Action      string // "added", "removed", "moved", "claimed", "unclaimed"
+	Action      string // "added", "removed", "moved", "claimed", "unclaimed", "locked", "unlocked", "loaded", "cleared", "counted", "status_changed"
 	BinID       int64
 	PayloadCode string
 	FromNodeID  int64
 	ToNodeID    int64
+	Actor       string
+	Detail      string
 }
 
 type NodeUpdatedEvent struct {
