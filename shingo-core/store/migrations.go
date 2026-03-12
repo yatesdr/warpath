@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 )
 
 // tableExists checks if a table exists in the database.
@@ -128,31 +129,54 @@ func (db *DB) migrate() error {
 	// Must run before schema (which has WHERE locked = 1) and before
 	// any migration that compares boolean columns with integers.
 	// On a fresh DB this is a no-op since no tables exist yet.
+	log.Println("[migrate] running migrateBooleanToInteger (pre-schema)")
 	db.migrateBooleanToInteger()
+	log.Println("[migrate] executing schema DDL")
 	if _, err := db.Exec(schema); err != nil {
-		return err
+		return fmt.Errorf("schema exec: %w", err)
 	}
+	log.Println("[migrate] schema DDL ok")
+	log.Println("[migrate] migrateNodeTypes")
 	if err := db.migrateNodeTypes(); err != nil {
 		return fmt.Errorf("migrate node types: %w", err)
 	}
+	log.Println("[migrate] migrateShallowLanes")
 	db.migrateShallowLanes()
+	log.Println("[migrate] migratePayloadStyles")
 	db.migratePayloadStyles()
+	log.Println("[migrate] migrateBinsBlueprints")
 	db.migrateBinsBlueprints()
+	log.Println("[migrate] migrateVendorLocation")
 	db.migrateVendorLocation()
+	log.Println("[migrate] migrateIsSynthetic")
 	db.migrateIsSynthetic()
+	log.Println("[migrate] migrateBlueprintDropName")
 	db.migrateBlueprintDropName()
+	log.Println("[migrate] migrateLegacyCleanup")
 	db.migrateLegacyCleanup()
+	log.Println("[migrate] migrateDropCapacity")
 	db.migrateDropCapacity()
+	log.Println("[migrate] migrateDropNodeType")
 	db.migrateDropNodeType()
+	log.Println("[migrate] migrateCMSTransactions")
 	db.migrateCMSTransactions()
+	log.Println("[migrate] migrateQuantitiesToInteger")
 	db.migrateQuantitiesToInteger()
+	log.Println("[migrate] migrateStepsJSON")
 	db.migrateStepsJSON()
+	log.Println("[migrate] migrateBinClaiming")
 	db.migrateBinClaiming()
+	log.Println("[migrate] migrateDeliveryNodeIndex")
 	db.migrateDeliveryNodeIndex()
+	log.Println("[migrate] migrateStagedBinExpiry")
 	db.migrateStagedBinExpiry()
+	log.Println("[migrate] migratePayloadSimplify")
 	db.migratePayloadSimplify()
+	log.Println("[migrate] migrateBinCentric")
 	db.migrateBinCentric()
+	log.Println("[migrate] migrateBinsCommandCenter")
 	db.migrateBinsCommandCenter()
+	log.Println("[migrate] all migrations complete")
 	return nil
 }
 
@@ -1114,17 +1138,29 @@ func (db *DB) migrateBooleanToInteger() {
 		{"bins", "locked"},
 	}
 	for _, c := range cols {
-		if !db.isColumnBoolean(c.table, c.column) {
+		isBool := db.isColumnBoolean(c.table, c.column)
+		log.Printf("[migrate] %s.%s isBoolean=%v", c.table, c.column, isBool)
+		if !isBool {
 			continue
 		}
-		db.Exec(fmt.Sprintf(
+		ddl := fmt.Sprintf(
 			`ALTER TABLE %s ALTER COLUMN %s TYPE INTEGER USING CASE WHEN %s THEN 1 ELSE 0 END`,
 			c.table, c.column, c.column,
-		))
+		)
+		log.Printf("[migrate] ALTER: %s", ddl)
+		if _, err := db.Exec(ddl); err != nil {
+			log.Printf("[migrate] ALTER failed: %v", err)
+		} else {
+			log.Printf("[migrate] ALTER ok: %s.%s", c.table, c.column)
+		}
 	}
 	// Rebuild partial index with integer predicate
-	db.Exec(`DROP INDEX IF EXISTS idx_bins_locked`)
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_locked ON bins(locked) WHERE locked = 1`)
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_bins_locked`); err != nil {
+		log.Printf("[migrate] DROP INDEX idx_bins_locked failed: %v", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_bins_locked ON bins(locked) WHERE locked = 1`); err != nil {
+		log.Printf("[migrate] CREATE INDEX idx_bins_locked failed: %v", err)
+	}
 }
 
 // isColumnBoolean returns true if the given column exists and has boolean data type.
