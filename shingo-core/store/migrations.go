@@ -128,6 +128,8 @@ func (db *DB) migrate() error {
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
+	// Must run before any migration that compares boolean columns with integers
+	db.migrateBooleanToInteger()
 	if err := db.migrateNodeTypes(); err != nil {
 		return fmt.Errorf("migrate node types: %w", err)
 	}
@@ -149,7 +151,6 @@ func (db *DB) migrate() error {
 	db.migratePayloadSimplify()
 	db.migrateBinCentric()
 	db.migrateBinsCommandCenter()
-	db.migrateBooleanToInteger()
 	return nil
 }
 
